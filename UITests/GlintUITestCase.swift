@@ -109,6 +109,32 @@ class GlintUITestCase: XCTestCase {
         XCTAssertEqual(front, "com.apple.finder", "Finder lost focus to \(front ?? "nothing")", file: file, line: line)
     }
 
+    @MainActor var overlays: XCUIElementQuery {
+        app.windows.matching(identifier: AccessibilityID.selectionOverlay)
+    }
+
+    @MainActor func point(onOverlayAt offset: CGVector) -> XCUICoordinate {
+        overlay.coordinate(withNormalizedOffset: .zero).withOffset(offset)
+    }
+
+    @MainActor func waitForOverlay(after hotkey: Hotkey, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(overlay.waitForExistence(timeout: Self.captureTimeout), "no overlay after \(hotkey.rawValue)", file: file, line: line)
+    }
+
+    @MainActor func assertOverlayClosed(after hotkey: Hotkey, file: StaticString = #filePath, line: UInt = #line) {
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: overlay)
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: Self.captureTimeout), .completed,
+                       "the overlay from \(hotkey.rawValue) did not close", file: file, line: line)
+    }
+
+    @MainActor func openFinderWindow() -> XCUIElement {
+        NSWorkspace.shared.open(saveFolder)
+        let window = finder.windows[saveFolder.lastPathComponent]
+        XCTAssertTrue(window.waitForExistence(timeout: Self.captureTimeout), "Finder did not open \(saveFolder.path)")
+        addTeardownBlock { @MainActor in window.typeKey("w", modifierFlags: .command) }
+        return window
+    }
+
     private func pngs() -> [URL] {
         let files = (try? FileManager.default.contentsOfDirectory(at: saveFolder, includingPropertiesForKeys: nil)) ?? []
         return files.filter { $0.pathExtension == "png" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
