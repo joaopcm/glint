@@ -15,15 +15,15 @@ class GlintUITestCase: XCTestCase {
     static let noFileWait: TimeInterval = 2
     static let terminateTimeout: TimeInterval = 5
 
-    let app = XCUIApplication()
-    let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
+    @MainActor private(set) var app: XCUIApplication!
+    @MainActor private(set) var finder: XCUIApplication!
     private(set) var saveFolder: URL!
 
-    var overlay: XCUIElement {
+    @MainActor var overlay: XCUIElement {
         app.windows.matching(identifier: AccessibilityID.selectionOverlay).firstMatch
     }
 
-    var pointerScreen: NSScreen {
+    @MainActor var pointerScreen: NSScreen {
         let pointer = NSEvent.mouseLocation
         return NSScreen.screens.first { $0.frame.contains(pointer) } ?? NSScreen.screens[0]
     }
@@ -33,6 +33,13 @@ class GlintUITestCase: XCTestCase {
         try terminateRunningGlints()
         saveFolder = FileManager.default.temporaryDirectory.appending(path: "GlintUITests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: saveFolder, withIntermediateDirectories: true)
+        // XCTest runs setUp and tests on the main thread; XCUIApplication is main-actor isolated.
+        MainActor.assumeIsolated { launchGlint() }
+    }
+
+    @MainActor private func launchGlint() {
+        app = XCUIApplication()
+        finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
         app.launchArguments = [
             "-saveFolderPath", saveFolder.path,
             "-copyToClipboardAfterCapture", "NO",
@@ -46,13 +53,13 @@ class GlintUITestCase: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        app.terminate()
+        MainActor.assumeIsolated { app?.terminate() }
         if let saveFolder {
             try? FileManager.default.removeItem(at: saveFolder)
         }
     }
 
-    func press(_ hotkey: Hotkey) {
+    @MainActor func press(_ hotkey: Hotkey) {
         switch hotkey {
         case .area: finder.typeKey("2", modifierFlags: [.command, .shift])
         case .window: finder.typeKey("2", modifierFlags: [.control, .command, .shift])
@@ -61,7 +68,7 @@ class GlintUITestCase: XCTestCase {
     }
 
     @discardableResult
-    func waitForPNGs(count: Int, after hotkey: Hotkey?, file: StaticString = #filePath, line: UInt = #line) -> [URL] {
+    @MainActor func waitForPNGs(count: Int, after hotkey: Hotkey?, file: StaticString = #filePath, line: UInt = #line) -> [URL] {
         let deadline = Date().addingTimeInterval(Self.captureTimeout)
         var found = pngs()
         while found.count < count, Date() < deadline {
@@ -82,7 +89,7 @@ class GlintUITestCase: XCTestCase {
         return found
     }
 
-    func assertNoNewPNG(file: StaticString = #filePath, line: UInt = #line) {
+    @MainActor func assertNoNewPNG(file: StaticString = #filePath, line: UInt = #line) {
         let before = pngs()
         RunLoop.current.run(until: Date().addingTimeInterval(Self.noFileWait))
         XCTAssertEqual(pngs(), before, "a PNG was written when none should be", file: file, line: line)
@@ -97,7 +104,7 @@ class GlintUITestCase: XCTestCase {
         return CGSize(width: width, height: height)
     }
 
-    func assertFinderFrontmost(file: StaticString = #filePath, line: UInt = #line) {
+    @MainActor func assertFinderFrontmost(file: StaticString = #filePath, line: UInt = #line) {
         let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         XCTAssertEqual(front, "com.apple.finder", "Finder lost focus to \(front ?? "nothing")", file: file, line: line)
     }
@@ -107,7 +114,7 @@ class GlintUITestCase: XCTestCase {
         return files.filter { $0.pathExtension == "png" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    private func dialogDescription() -> String {
+    @MainActor private func dialogDescription() -> String {
         let dialog = app.dialogs.firstMatch
         guard dialog.exists else { return "No Glint dialog is on screen." }
         let texts = dialog.staticTexts.allElementsBoundByIndex.compactMap { $0.value as? String }

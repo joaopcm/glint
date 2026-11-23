@@ -2,7 +2,7 @@ import AppKit
 import XCTest
 
 final class SmokeUITests: GlintUITestCase {
-    func testFullScreenHotkeyWritesDisplaySizedPNGAndKeepsFinderFrontmost() {
+    @MainActor func testFullScreenHotkeyWritesDisplaySizedPNGAndKeepsFinderFrontmost() {
         let screen = pointerScreen
         press(.fullScreen)
         let png = waitForPNGs(count: 1, after: .fullScreen)[0]
@@ -21,7 +21,7 @@ final class SmokeUITests: GlintUITestCase {
         assertFinderFrontmost()
     }
 
-    func testSaveFolderIsTheTempFolder() throws {
+    @MainActor func testSaveFolderIsTheTempFolder() throws {
         let desktop = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
         let before = try FileManager.default.contentsOfDirectory(atPath: desktop.path).count
         press(.fullScreen)
@@ -30,7 +30,7 @@ final class SmokeUITests: GlintUITestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: desktop.path).count, before)
     }
 
-    func testSetUpLeavesOneGlintRunning() {
+    @MainActor func testSetUpLeavesOneGlintRunning() {
         XCTAssertEqual(NSRunningApplication.runningApplications(withBundleIdentifier: Self.glintBundleID).count, 1)
     }
 }
