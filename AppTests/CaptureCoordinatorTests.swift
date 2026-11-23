@@ -195,12 +195,61 @@ func permissionDeniedAlertsBeforeAnyOverlay(mode: CaptureMode) async throws {
     #expect(try harness.savedFiles().count == 1)
 }
 
-@MainActor @Test func writeFailureShowsPathInAlert() async throws {
+@MainActor @Test func secondCaptureInTheSameSecondGetsCounterSuffix() async throws {
+    let harness = try Harness(selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)))
+    await harness.coordinator.run(.area)
+    let first = try #require(try harness.savedFiles().first)
+    let firstBytes = try Data(contentsOf: harness.folder.appending(path: first))
+    await harness.coordinator.run(.area)
+    let base = String(first.dropLast(".png".count))
+    #expect(Set(try harness.savedFiles()) == [first, "\(base) (2).png"])
+    #expect(try Data(contentsOf: harness.folder.appending(path: first)) == firstBytes)
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func missingSaveFolderAlertNamesPathAndOSReason() async throws {
     let harness = try Harness(selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)), createFolder: false)
     await harness.coordinator.run(.area)
     let alert = try #require(harness.alerts.presented.first)
     #expect(alert.message.contains(harness.folder.path))
+    #expect(alert.message.contains("No such file or directory"))
     #expect(!alert.buttons.contains(.openSystemSettings))
+    #expect(!FileManager.default.fileExists(atPath: harness.folder.deletingLastPathComponent().path))
+}
+
+@MainActor @Test func readOnlySaveFolderAlertNamesPathAndOSReason() async throws {
+    let harness = try Harness(selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)))
+    try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: harness.folder.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: harness.folder.path) }
+    await harness.coordinator.run(.area)
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.message.contains(harness.folder.path))
+    #expect(alert.message.contains("Permission denied"))
+    #expect(try harness.savedFiles().isEmpty)
+}
+
+@MainActor @Test func clipboardOnCopiesTheSavedFile() async throws {
+    var copied: [URL] = []
+    let harness = try Harness(
+        selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)),
+        clipboardOn: true,
+        copyToClipboard: { copied.append($0) }
+    )
+    await harness.coordinator.run(.area)
+    let saved = try #require(try harness.savedFiles().first)
+    #expect(copied.map(\.lastPathComponent) == [saved])
+}
+
+@MainActor @Test func clipboardOffNeverTouchesTheClipboard() async throws {
+    var copied: [URL] = []
+    let harness = try Harness(
+        selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)),
+        clipboardOn: false,
+        copyToClipboard: { copied.append($0) }
+    )
+    await harness.coordinator.run(.area)
+    #expect(try harness.savedFiles().count == 1)
+    #expect(copied.isEmpty)
 }
 
 private struct PasteboardLocked: LocalizedError {
