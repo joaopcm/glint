@@ -1,6 +1,6 @@
 # QA checklist: Plan 1 and the quick-access overlay
 
-Run on a real Mac. This is the only place the UI gets verified. Tick `[x]` on pass. On fail, write what you saw in notes and open an issue before Plan 2 starts.
+Checks tagged `CI:` run on every push (`app-macos`, `ui-macos`). Run the rest on a real Mac. Tick `[x]` on pass. On fail, write what you saw in notes and open an issue before Plan 2 starts.
 
 Hotkeys: area `⇧⌘2`, window `⌃⇧⌘2`, full screen `⇧⌘1`. Captures fire on key down. Default save folder is Desktop, names look like `Glint 2026-11-22 at 15.04.05.png`.
 
@@ -124,7 +124,7 @@ Expected: every screen dims, the cursor is a crosshair, a drag shows a clear rec
 
 ### 16. Retina pixel size
 
-CI (math only): `readoutAndCaptureAgreeOnPixelSize`. The Retina capture itself stays manual.
+CI (math only): `readoutAndCaptureAgreeOnPixelSize`. The Retina capture itself stays manual. CI: `CaptureUITests.testAreaDragWritesPNGOfDraggedSizeInPixels` checks the drag-to-pixels path on the runner's 1x display.
 
 Steps: drag an area on the Retina display. Note the readout, release, then run `sips` on the new file.
 Expected: PNG pixel size equals the readout, which is the selection in points times 2.
@@ -154,11 +154,17 @@ Expected: the rectangle draws on both screens. The PNG is clipped to the display
 [ ] pass  notes: ______________________
 
 ### 21. No Glint UI in the image
+
+CI: `CaptureUITests.testAreaDragWritesPNGOfDraggedSizeInPixels`, `QuickAccessUITests.testThumbnailsNeverInCaptures`.
+
 Steps: take several area captures. Open them.
 Expected: no overlay dim, border, readout or alert in any PNG.
 [ ] pass  notes: ______________________
 
 ### 22. Front app stays active in the image
+
+CI (focus part, Finder instead of Safari): `CaptureUITests.testAreaDragWritesPNGOfDraggedSizeInPixels`, `SmokeUITests.testFullScreenHotkeyWritesDisplaySizedPNGAndKeepsFinderFrontmost`.
+
 Steps: with Safari frontmost, area-capture part of its window including the traffic lights. Repeat with `⇧⌘1`.
 Expected: traffic lights are colored in the PNG, and Safari stays active the whole time (title bar never greys out).
 [ ] pass  notes: ______________________
@@ -171,6 +177,9 @@ Expected: the first click starts the selection. No click is swallowed.
 ## 5. Window capture
 
 ### 24. Highlight and pick
+
+CI: `CaptureUITests.testWindowPickCapturesTheClickedWindow`.
+
 Steps: press `⌃⇧⌘2`, hover over overlapping windows.
 Expected: the front-most window under the pointer gets a blue highlight. Clicking saves that window. Glint's own windows, the menu bar and Dock items are not offered.
 [ ] pass  notes: ______________________
@@ -186,6 +195,9 @@ Expected: the drop shadow is present and not clipped at any edge. Corners and sh
 [ ] pass  notes: ______________________
 
 ### 27. Click on empty desktop
+
+CI: `CaptureUITests.testClickOnEmptyDesktopKeepsOverlay`.
+
 Steps: in window mode, click a spot with no window.
 Expected: nothing happens, overlay stays, no file written.
 [ ] pass  notes: ______________________
@@ -208,16 +220,25 @@ Expected: that display is captured, not a neighbor.
 ## 7. Cancel and overlay behavior
 
 ### 30. Esc cancels area and window
+
+CI: `CaptureUITests.testEscCancelsAreaAndWindow` (one display).
+
 Steps: press `⇧⌘2`, then Esc at once with no click. Repeat with `⌃⇧⌘2`. Repeat with the pointer on the secondary display.
 Expected: overlay closes each time, no file written, no alert.
 [ ] pass  notes: ______________________
 
 ### 30a. Right click cancels area mode
+
+CI (without a drag): `CaptureUITests.testRightClickCancelsAreaAndWindow`. Right click mid-drag stays manual.
+
 Steps: press `⇧⌘2`, right click without dragging. Repeat mid-drag: start a drag, keep the left button down, right click. Repeat on the secondary display.
 Expected: overlay closes each time, no file written, no alert.
 [ ] pass  notes: ______________________
 
 ### 30b. Right click cancels window mode
+
+CI: `CaptureUITests.testRightClickCancelsAreaAndWindow`.
+
 Steps: press `⌃⇧⌘2`, right click over a highlighted window, then over empty desktop. Repeat with Safari frontmost and on the secondary display.
 Expected: overlay closes each time, no window is captured, no file written, no alert. This is the mouse-only exit when Esc does not reach the overlay.
 [ ] pass  notes: ______________________
@@ -228,11 +249,17 @@ Expected: crosshair shows (not an arrow) while Safari remains the frontmost app.
 [ ] pass  notes: ______________________
 
 ### 32. Click without drag
+
+CI: `CaptureUITests.testClickWithoutDragWritesNothing`.
+
 Steps: press `⇧⌘2`, click once without dragging.
 Expected: overlay closes, no file written.
 [ ] pass  notes: ______________________
 
 ### 33. Hotkey while overlay is up
+
+CI: `CaptureUITests.testHotkeyWhileOverlayUpKeepsOneOverlay`.
+
 Steps: press `⇧⌘2`, then press `⇧⌘2`, `⌃⇧⌘2` and `⇧⌘1` again.
 Expected: no second overlay, no stuck state. Esc still closes it and a new capture starts normally.
 [ ] pass  notes: ______________________
@@ -243,6 +270,9 @@ Expected: the overlay covers the full-screen app, sits above the menu bar and Do
 [ ] pass  notes: ______________________
 
 ### 35. Focus after capture and cancel
+
+CI (Finder instead of Safari): `CaptureUITests.testAreaDragWritesPNGOfDraggedSizeInPixels`, `QuickAccessUITests.testSaveAsWritesChosenFileAndCancelKeepsCard`.
+
 Steps: with Safari frontmost, capture, then cancel another time.
 Expected: Safari is still the active app both times and keeps keyboard focus.
 [ ] pass  notes: ______________________
@@ -326,36 +356,57 @@ Expected: a thumbnail of the capture appears in the bottom right corner of the d
 [ ] pass  notes: ______________________
 
 ### 45. One thumbnail per saved capture
+
+CI: `QuickAccessUITests.testOneThumbnailPerSavedCaptureNoneAfterCancel`.
+
 Steps: close the thumbnail. Capture once with `⇧⌘2` and once with `⌃⇧⌘2`. Then press `⇧⌘2` and Esc.
 Expected: a new thumbnail after each saved capture, nothing after the cancel.
 [ ] pass  notes: ______________________
 
 ### 46. Hover toolbar
+
+CI: `QuickAccessUITests.testHoverShowsToolbarAndHidesIt`.
+
 Steps: with a single thumbnail and Safari frontmost, hover it, then move the pointer away.
 Expected: a toolbar shows Copy, Save As, Annotate, Pin and Close while hovered, and hides when the pointer leaves. Every button works on the first click, with no extra click to focus.
 [ ] pass  notes: ______________________
 
 ### 47. Copy
+
+CI: `QuickAccessUITests.testCopyPutsFileOnPasteboardAndClosesCard`. Pasting into Finder, Slack and Messages stays manual.
+
 Steps: click Copy. Paste in Finder with `⌘V`, then in Slack or Messages.
 Expected: the card closes. Finder pastes the file, Slack and Messages paste the image.
 [ ] pass  notes: ______________________
 
 ### 48. Save As
+
+CI (new name and cancel): `QuickAccessUITests.testSaveAsWritesChosenFileAndCancelKeepsCard`. Replace over an existing file stays manual.
+
 Steps: click Save As, save to Documents under a new name. On another capture, Save As over an existing file and confirm Replace. On a third, open Save As and cancel.
 Expected: the save panel comes to front and starts in the save folder. The copy lands where you chose, the original stays in the save folder, and the card closes. Replace overwrites the existing file. Cancel writes nothing and leaves the card on screen. After the panel closes, the app you were in is frontmost again.
 [ ] pass  notes: ______________________
 
 ### 49. Annotate and click open Preview
+
+CI (Annotate button): `QuickAccessUITests.testAnnotateOpensPreviewAndClosesCard`.
+
 Steps: click Annotate on a thumbnail. On a new capture, click the thumbnail itself without dragging.
 Expected: the PNG opens in Preview both times and the card closes.
 [ ] pass  notes: ______________________
 
 ### 50. Pin
+
+CI (opens and closes): `QuickAccessUITests.testPinOpensFloatingWindowThatCloses`. Spaces, resize and drag stay manual.
+
 Steps: click Pin. Click into another app. Switch to another Space and back. Drag the pinned window by its body, resize it, take a `⇧⌘1` capture, then close it with its close button.
 Expected: a window with the screenshot opens centered, at real size or capped at 60% of the screen. It stays above other apps' windows, follows you across Spaces, keeps its aspect ratio when resized and moves when dragged by the image. It is not in the `⇧⌘1` PNG. The close button closes it.
 [ ] pass  notes: ______________________
 
 ### 51. Close
+
+CI: `QuickAccessUITests.testCloseRemovesCardKeepsFile`.
+
 Steps: hover a thumbnail, click Close.
 Expected: the card goes away. The PNG stays in the save folder.
 [ ] pass  notes: ______________________
@@ -366,11 +417,17 @@ Expected: Finder gets a copy of the PNG and Slack or the browser attaches the im
 [ ] pass  notes: ______________________
 
 ### 53. Pile
+
+CI: `QuickAccessUITests.testPileShowsCountExpandsAndFoldsBack`.
+
 Steps: take three captures in a row without touching the thumbnails.
 Expected: one card in the corner with a `3` badge and two cards peeking out behind it. The newest capture is on top.
 [ ] pass  notes: ______________________
 
 ### 54. Expand and fold back
+
+CI: `QuickAccessUITests.testPileShowsCountExpandsAndFoldsBack`.
+
 Steps: click the pile. Hover a few cards, then move the pointer away from the column. Expand again and take a capture while it is open.
 Expected: the click opens a column growing up from the corner, newest nearest the corner, each card with its own toolbar. Moving between cards does not fold it. About 1 s after the pointer leaves the column, it folds back into the pile. A new capture folds it too.
 [ ] pass  notes: ______________________
@@ -407,6 +464,9 @@ Expected: a single card hides about 6 s after the capture. Each new capture rest
 [ ] pass  notes: ______________________
 
 ### 60. Thumbnails never in captures
+
+CI: `QuickAccessUITests.testThumbnailsNeverInCaptures`.
+
 Steps: with a pile on screen, press `⇧⌘1` on that display, then area-capture a region that covers the corner. Press `⌃⇧⌘2` and hover the pile.
 Expected: no thumbnail in either PNG. The window picker does not offer the thumbnails.
 [ ] pass  notes: ______________________

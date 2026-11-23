@@ -88,8 +88,8 @@ jobs:
 
   ui-macos:
     runs-on: macos-15
-    # Placeholder until the full suite is measured; the 5 min cap from the 3-test run (45269551074: 99 s) cut off run 45277586294.
-    timeout-minutes: 15
+    # 3x the first green run of all 22 UI tests (45286549624: 5 min 55 s).
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-xcode
