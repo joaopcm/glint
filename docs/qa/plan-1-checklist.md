@@ -237,26 +237,41 @@ Expected: PNG in the save folder named like `Glint 2026-11-22 at 15.04.05.png`.
 [ ] pass  notes: ______________________
 
 ### 37. Two captures in the same second
+
+CI: `secondCaptureInTheSameSecondGetsCounterSuffix`.
+
 Steps: with the save folder open in Finder, press `⇧⌘1` twice as fast as you can. Repeat until two files share a second.
 Expected: the second file has the `(2)` suffix, e.g. `Glint 2026-11-22 at 15.04.05 (2).png`. Nothing is overwritten.
 [ ] pass  notes: ______________________
 
 ### 38. Save folder deleted
+
+CI: `missingSaveFolderAlertNamesPathAndOSReason`.
+
 Steps: in Settings pick a folder, delete that folder in Finder, then press `⇧⌘1`.
 Expected: an alert naming the full path and the OS reason. No file elsewhere.
 [ ] pass  notes: ______________________
 
 ### 39. Save folder read-only
+
+CI: `readOnlySaveFolderAlertNamesPathAndOSReason`.
+
 Steps: pick a folder, `chmod a-w` on it, press `⇧⌘1`. Restore with `chmod u+w`.
 Expected: an alert naming the full path and the OS reason.
 [ ] pass  notes: ______________________
 
 ### 40. Clipboard on
+
+CI: `clipboardOnCopiesTheSavedFile`, `copyPNGFilePutsFileURLAndPNGOnThePasteboard` (pasting into Finder, Preview, Slack and Messages stays manual).
+
 Steps: turn on copy to clipboard, capture. Paste in Finder with `⌘V`. Paste in Preview (File > New from Clipboard), Slack and Messages.
 Expected: Finder pastes the file. The three apps paste the image.
 [ ] pass  notes: ______________________
 
 ### 41. Clipboard off
+
+CI: `clipboardOffNeverTouchesTheClipboard`.
+
 Steps: copy some text, turn clipboard off, capture, paste.
 Expected: the text is still on the clipboard.
 [ ] pass  notes: ______________________
