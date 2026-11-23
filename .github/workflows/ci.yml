@@ -83,6 +83,15 @@ jobs:
       - uses: ./.github/actions/setup-xcode
       - run: xcodegen generate
       - run: scripts/ci-grant-screen-recording.sh com.joaopcm.glint com.joaopcm.glint.uitests.xctrunner
+      # macOS 15 shows its own "bypass the private window picker" prompt on top of the TCC grant (run 45266766603).
+      - name: Pre-approve the private window picker prompt
+        env:
+          GLINT_EXECUTABLE: ${{ github.workspace }}/build/Build/Products/Debug/Glint.app/Contents/MacOS/Glint
+        run: |
+          APPROVALS="$HOME/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist"
+          mkdir -p "$(dirname "$APPROVALS")"
+          defaults write "$APPROVALS" "$GLINT_EXECUTABLE" -date "4000-01-01 00:00:00 +0000"
+          defaults read "$APPROVALS" "$GLINT_EXECUTABLE"
       - run: xcodebuild -scheme GlintUI -destination 'platform=macOS' -derivedDataPath build -resultBundlePath ui.xcresult test
       - uses: actions/upload-artifact@v4
         if: failure()
