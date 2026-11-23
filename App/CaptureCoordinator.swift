@@ -67,6 +67,7 @@ final class CaptureCoordinator {
     private let fileExists: (URL) -> Bool
     private let pointerLocation: @MainActor () -> CGPoint
     private let copyToClipboard: @MainActor (URL) throws -> Void
+    private let onSaved: @MainActor (URL) -> Void
     private var isRunning = false
 
     init(
@@ -77,7 +78,8 @@ final class CaptureCoordinator {
         now: @escaping () -> Date = Date.init,
         fileExists: @escaping (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
-        copyToClipboard: @escaping @MainActor (URL) throws -> Void = { try NSPasteboard.general.copyPNGFile(at: $0) }
+        copyToClipboard: @escaping @MainActor (URL) throws -> Void = { try NSPasteboard.general.copyPNGFile(at: $0) },
+        onSaved: @escaping @MainActor (URL) -> Void = { _ in }
     ) {
         self.capturer = capturer
         self.selector = selector
@@ -87,6 +89,7 @@ final class CaptureCoordinator {
         self.fileExists = fileExists
         self.pointerLocation = pointerLocation
         self.copyToClipboard = copyToClipboard
+        self.onSaved = onSaved
     }
 
     func run(_ mode: CaptureMode) async {
@@ -103,6 +106,7 @@ final class CaptureCoordinator {
                 exists: fileExists
             )
             try PNGWriter.write(image, to: url)
+            onSaved(url)
             if settings.copyToClipboardAfterCapture {
                 do {
                     try copyToClipboard(url)

@@ -25,13 +25,17 @@ final class AppState {
         defaultSaveFolder: FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
     )
     private let coordinator: CaptureCoordinator
+    private let thumbnail: ThumbnailPresenter
 
     init() {
+        let thumbnail = ThumbnailPresenter(settings: settings)
+        self.thumbnail = thumbnail
         coordinator = CaptureCoordinator(
             capturer: ScreenCapturer(),
             selector: SelectionOverlayController(),
             alerts: NSAlertPresenter(),
-            settings: settings
+            settings: settings,
+            onSaved: { thumbnail.show($0) }
         )
         let shortcuts: [(KeyboardShortcuts.Name, CaptureMode)] = [
             (.captureArea, .area),

@@ -87,6 +87,8 @@ private final class MemoryStore: KeyValueStore {
     func set(_ value: String?, forKey key: String) { values[key] = value }
     func bool(forKey key: String) -> Bool? { values[key] as? Bool }
     func set(_ value: Bool, forKey key: String) { values[key] = value }
+    func double(forKey key: String) -> Double? { values[key] as? Double }
+    func set(_ value: Double, forKey key: String) { values[key] = value }
 }
 
 @MainActor
@@ -101,7 +103,8 @@ private struct Harness {
         selection: SelectionResult,
         pointer: CGPoint = .zero,
         createFolder: Bool = true,
-        copyToClipboard: (@MainActor (URL) throws -> Void)? = nil
+        copyToClipboard: (@MainActor (URL) throws -> Void)? = nil,
+        onSaved: @escaping @MainActor (URL) -> Void = { _ in }
     ) throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "GlintTests-\(UUID().uuidString)")
         folder = createFolder ? root : root.appending(path: "missing")
@@ -119,7 +122,8 @@ private struct Harness {
             now: { Date(timeIntervalSince1970: 1_795_000_000) },
             fileExists: { FileManager.default.fileExists(atPath: $0.path) },
             pointerLocation: { pointer },
-            copyToClipboard: copyToClipboard ?? { _ in }
+            copyToClipboard: copyToClipboard ?? { _ in },
+            onSaved: onSaved
         )
     }
 
@@ -144,6 +148,13 @@ private struct Harness {
     let name = try #require(files.first)
     #expect(name.hasPrefix("Glint ") && name.contains(" at ") && name.hasSuffix(".png"))
     #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func savedCaptureIsHandedToThumbnail() async throws {
+    var handed: [URL] = []
+    let harness = try Harness(selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)), onSaved: { handed.append($0) })
+    await harness.coordinator.run(.area)
+    #expect(handed.map(\.lastPathComponent) == (try harness.savedFiles()))
 }
 
 @MainActor @Test func windowCapturesPickedWindow() async throws {

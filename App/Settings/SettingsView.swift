@@ -7,11 +7,15 @@ struct SettingsView: View {
     let settings: GlintSettings
     @State private var saveFolder: URL
     @State private var copyToClipboard: Bool
+    @State private var overlayCorner: OverlayCorner
+    @State private var overlayAutoDismiss: Bool
 
     init(settings: GlintSettings) {
         self.settings = settings
         _saveFolder = State(initialValue: settings.saveFolder)
         _copyToClipboard = State(initialValue: settings.copyToClipboardAfterCapture)
+        _overlayCorner = State(initialValue: settings.overlayCorner)
+        _overlayAutoDismiss = State(initialValue: settings.overlayAutoDismiss)
     }
 
     var body: some View {
@@ -29,6 +33,13 @@ struct SettingsView: View {
                 .onChange(of: copyToClipboard) { _, value in
                     settings.copyToClipboardAfterCapture = value
                 }
+            Picker("Thumbnail corner", selection: $overlayCorner) {
+                Text("Bottom left").tag(OverlayCorner.bottomLeft)
+                Text("Bottom right").tag(OverlayCorner.bottomRight)
+            }
+            .onChange(of: overlayCorner) { _, value in settings.overlayCorner = value }
+            Toggle("Hide thumbnail after a few seconds", isOn: $overlayAutoDismiss)
+                .onChange(of: overlayAutoDismiss) { _, value in settings.overlayAutoDismiss = value }
             KeyboardShortcuts.Recorder("Capture Area", name: .captureArea)
             KeyboardShortcuts.Recorder("Capture Window", name: .captureWindow)
             KeyboardShortcuts.Recorder("Capture Full Screen", name: .captureFullScreen)

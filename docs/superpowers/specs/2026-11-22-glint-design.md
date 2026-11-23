@@ -21,7 +21,7 @@ Success: the author replaces CleanShot with Glint for daily use and doesn't miss
 
 ## Non-goals (v1)
 
-Scrolling capture, GIF export, pinning screenshots, hiding desktop icons, video trimming/editing, annotating video, numbered-step/spotlight/background tools. Good candidates for v2.
+Scrolling capture, GIF export, hiding desktop icons, video trimming/editing, annotating video, numbered-step/spotlight/background tools. Good candidates for v2.
 
 Windows/Linux. Not now, and not designed for.
 
@@ -96,7 +96,7 @@ Same overlay as area capture, then `VNRecognizeTextRequest` (accurate level, aut
 
 ### Quick-access overlay
 
-A non-activating floating panel in the corner, stacking newest on top. Copy, Save, Annotate, Upload, Close. Drag-out uses the file promise APIs so the thumbnail can drop into Slack, Finder, a browser, etc. Dismiss timing is a setting (default: stays until dismissed, like CleanShot).
+A non-activating floating panel in the corner (bottom left or right, a setting). Two or more captures fold into one card with a count badge; clicking it expands them into a column (newest nearest the corner), which folds back when the pointer leaves. Hover actions: Copy, Save As, Annotate, Pin (always-on-top window), Upload, Close. Dragging the thumbnail drops the saved file (a plain file URL, since the capture is already on disk) into Slack, Finder, a browser, etc. A sideways trackpad swipe dismisses. Dragging a card's top edge or the side edge facing the screen centre (a resize cursor shows there), or pinching any card, resizes the thumbnails; the width is saved and shared by the pile and the column. Dismiss timing is a setting (default: stays until dismissed, like CleanShot). Until the annotation editor exists, Annotate and clicking a thumbnail open the file in Preview.
 
 ### Annotation editor
 
