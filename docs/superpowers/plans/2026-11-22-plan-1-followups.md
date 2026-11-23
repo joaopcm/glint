@@ -11,7 +11,6 @@ Findings from Plan 1's reviews that were deferred on purpose. Fold them into the
 - Keep one pixel-size function and one scale source. `DisplayGeometry.pixelSize` and `ScreenCapturer.pixelSize(of:scale:)` duplicate each other, and area capture takes its scale from `NSScreen` while display capture takes it from ScreenCaptureKit.
 - `CapturableWindow.title` / `appName` are unused. Use them in the picker or drop them.
 - Add a pasteboard seam so the clipboard path is testable (with the quick-access Copy button).
-- Test gap: the build-label test doesn't prove CI stamping. Add a `plutil -extract` gate on the Release plist in CI.
 
 ## Quick-access overlay (PR #1)
 

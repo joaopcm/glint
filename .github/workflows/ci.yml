@@ -53,6 +53,16 @@ jobs:
           xcodebuild -scheme Glint -configuration Release -destination 'platform=macOS' -derivedDataPath build \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} GLINT_COMMIT=${{ steps.sha.outputs.short }} build
           plutil -p build/Build/Products/Release/Glint.app/Contents/Info.plist
+      - name: Check build label stamping
+        env:
+          PLIST: build/Build/Products/Release/Glint.app/Contents/Info.plist
+          WANT_COMMIT: ${{ steps.sha.outputs.short }}
+          WANT_BUILD: ${{ github.run_number }}
+        run: |
+          commit=$(plutil -extract GlintCommit raw "$PLIST")
+          build=$(plutil -extract CFBundleVersion raw "$PLIST")
+          [ "$commit" = "$WANT_COMMIT" ] || { echo "GlintCommit is '$commit', expected '$WANT_COMMIT'"; exit 1; }
+          [ "$build" = "$WANT_BUILD" ] || { echo "CFBundleVersion is '$build', expected '$WANT_BUILD'"; exit 1; }
       - name: Check signing secrets
         id: gate
         env:
