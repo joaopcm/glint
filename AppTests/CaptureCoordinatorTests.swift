@@ -87,6 +87,8 @@ private final class MemoryStore: KeyValueStore {
     func set(_ value: String?, forKey key: String) { values[key] = value }
     func bool(forKey key: String) -> Bool? { values[key] as? Bool }
     func set(_ value: Bool, forKey key: String) { values[key] = value }
+    func double(forKey key: String) -> Double? { values[key] as? Double }
+    func set(_ value: Double, forKey key: String) { values[key] = value }
 }
 
 @MainActor

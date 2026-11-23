@@ -8,6 +8,8 @@ final class MemoryStore: KeyValueStore {
     func set(_ value: String?, forKey key: String) { values[key] = value }
     func bool(forKey key: String) -> Bool? { values[key] as? Bool }
     func set(_ value: Bool, forKey key: String) { values[key] = value }
+    func double(forKey key: String) -> Double? { values[key] as? Double }
+    func set(_ value: Double, forKey key: String) { values[key] = value }
 }
 
 private let desktop = URL(filePath: "/Users/me/Desktop")
@@ -36,4 +38,35 @@ private let desktop = URL(filePath: "/Users/me/Desktop")
     let store = MemoryStore()
     store.set("", forKey: "saveFolderPath")
     #expect(GlintSettings(store: store, defaultSaveFolder: desktop).saveFolder == desktop)
+}
+
+@MainActor @Test func overlaySettingsDefaultAndRoundTrip() {
+    let store = MemoryStore()
+    let settings = GlintSettings(store: store, defaultSaveFolder: desktop)
+    #expect(settings.overlayCorner == .bottomRight)
+    #expect(settings.overlayAutoDismiss == false)
+    settings.overlayCorner = .bottomLeft
+    settings.overlayAutoDismiss = true
+    let reloaded = GlintSettings(store: store, defaultSaveFolder: desktop)
+    #expect(reloaded.overlayCorner == .bottomLeft)
+    #expect(reloaded.overlayAutoDismiss == true)
+}
+
+@MainActor @Test func unknownCornerFallsBackToDefault() {
+    let store = MemoryStore()
+    store.set("topMiddle", forKey: "overlayCorner")
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).overlayCorner == .bottomRight)
+}
+
+@MainActor @Test func thumbnailWidthDefaultsRoundTripsAndClamps() {
+    let store = MemoryStore()
+    let settings = GlintSettings(store: store, defaultSaveFolder: desktop)
+    #expect(settings.thumbnailWidth == 240)
+    settings.thumbnailWidth = 300
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).thumbnailWidth == 300)
+    settings.thumbnailWidth = 5000
+    #expect(settings.thumbnailWidth == 480)
+    store.set(10.0, forKey: "thumbnailWidth") // out-of-range value already on disk
+    #expect(settings.thumbnailWidth == 160)
+    #expect(GlintSettings.clampWidth(.nan) == 240)
 }
