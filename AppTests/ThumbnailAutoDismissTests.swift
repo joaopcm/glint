@@ -3,7 +3,7 @@ import GlintCore
 import Testing
 @testable import Glint
 
-private final class Defaults: KeyValueStore {
+final class Defaults: KeyValueStore {
     var values: [String: Any] = [:]
     func string(forKey key: String) -> String? { values[key] as? String }
     func set(_ value: String?, forKey key: String) { values[key] = value }
@@ -13,7 +13,7 @@ private final class Defaults: KeyValueStore {
     func set(_ value: Double, forKey key: String) { values[key] = value }
 }
 
-@MainActor private func writePNG() throws -> URL {
+@MainActor func writePNG() throws -> URL {
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 30, pixelsHigh: 20, bitsPerSample: 8, samplesPerPixel: 4,
                                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
     let url = FileManager.default.temporaryDirectory.appending(path: "glint-thumb-\(UUID().uuidString).png")
@@ -21,7 +21,7 @@ private final class Defaults: KeyValueStore {
     return url
 }
 
-private let offScreen = CGPoint(x: -10_000, y: -10_000) // the real pointer could hover a card and pause auto-hide
+let offScreen = CGPoint(x: -10_000, y: -10_000) // the real pointer could hover a card and pause auto-hide
 
 @MainActor @Test func autoHideWaitsUntilStackingStopsThenHidesThePileTogether() async throws {
     let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)

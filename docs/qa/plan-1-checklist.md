@@ -91,11 +91,17 @@ Expected: the new combo works at once, the old one stops, and the change survive
 [ ] pass  notes: ______________________
 
 ### 13. Save folder picker
+
+CI (persistence only): `settingsSurviveANewStoreOnTheSameSuite`. The folder picker stays manual.
+
 Steps: click Choose..., pick a folder, then create a new folder in the panel and pick it. Capture with `⇧⌘1`. Quit and reopen Glint, check the path.
 Expected: path updates, the PNG lands in the new folder (no relaunch needed), and the path persists after relaunch.
 [ ] pass  notes: ______________________
 
 ### 14. Clipboard toggle persists
+
+CI: `settingsSurviveANewStoreOnTheSameSuite`.
+
 Steps: turn "copy to clipboard" on, quit and reopen Glint.
 Expected: still on. Same for off.
 [ ] pass  notes: ______________________
@@ -108,11 +114,17 @@ Expected: every screen dims, the cursor is a crosshair, a drag shows a clear rec
 [ ] pass  notes: ______________________
 
 ### 16. Retina pixel size
+
+CI (math only): `readoutAndCaptureAgreeOnPixelSize`. The Retina capture itself stays manual.
+
 Steps: drag an area on the Retina display. Note the readout, release, then run `sips` on the new file.
 Expected: PNG pixel size equals the readout, which is the selection in points times 2.
 [ ] pass  notes: ______________________
 
 ### 17. 1x display pixel size
+
+CI (math only): `readoutAndCaptureAgreeOnPixelSize`.
+
 Steps: same on the 1x external display.
 Expected: PNG pixel size equals the readout, which equals the selection in points (1x).
 [ ] pass  notes: ______________________
@@ -360,6 +372,9 @@ Expected: the swiped card closes, and the card that slides under the pointer nex
 [ ] pass  notes: ______________________
 
 ### 56. Resize by dragging an edge
+
+CI (width persistence and layout): `settingsSurviveANewStoreOnTheSameSuite`, `savedWidthSizesBothThePileAndTheColumn`, `edgeDragGrowsAwayFromTheCornerAndFollowsTheDominantAxis`. The cursor and the drag stay manual.
+
 Steps: with the corner at bottom right, hover a card's top edge, then its left edge, then the top left corner, then its middle. Drag each edge both ways, as far as it goes. Take three captures and expand the pile. Quit and reopen Glint and capture again.
 Expected: a resize cursor on the top edge, the left edge and their corner, an arrow everywhere else. Cards grow and shrink between about 160 and 480 pt wide, with height at 3:2. The pile and the column use the new width. The width survives the relaunch. If the cursor stays an arrow on the edges, note it: the cursor hint uses a private macOS API, and resizing must still work.
 [ ] pass  notes: ______________________
@@ -370,6 +385,9 @@ Expected: the cards grow and shrink within the same limits as check 56, and the 
 [ ] pass  notes: ______________________
 
 ### 58. Corner setting
+
+CI (persistence and layout): `settingsSurviveANewStoreOnTheSameSuite`, `thumbnailsStackUpFromTheChosenCorner`. Moving cards already on screen stays manual.
+
 Steps: with thumbnails on screen, open Settings and set Thumbnail corner to Bottom left. Capture once. Check which edge resizes. Quit and reopen Glint.
 Expected: the thumbnails on screen move to the bottom left at once, new ones appear there, and the resize edge is now the right edge. The setting survives the relaunch. Set it back to Bottom right.
 [ ] pass  notes: ______________________
@@ -390,6 +408,9 @@ Expected: each thumbnail appears on the display the pointer was on. Each display
 [ ] pass  notes: ______________________
 
 ### 62. More captures than fit
+
+CI: `showDropsOldestWhenTheColumnWouldOverflow`.
+
 Steps: take captures until the expanded column would not fit on the screen (about 5 on a 13" MacBook Air at the default width). Expand the pile.
 Expected: the oldest cards drop off, so the column fits the screen. Their PNGs stay in the save folder.
 [ ] pass  notes: ______________________
