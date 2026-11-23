@@ -118,7 +118,9 @@ class GlintUITestCase: XCTestCase {
     }
 
     @MainActor func waitForOverlay(after hotkey: Hotkey, file: StaticString = #filePath, line: UInt = #line) {
-        XCTAssertTrue(overlay.waitForExistence(timeout: Self.captureTimeout), "no overlay after \(hotkey.rawValue)", file: file, line: line)
+        guard !overlay.waitForExistence(timeout: Self.captureTimeout) else { return }
+        let windows = app.windows.allElementsBoundByIndex.map { "\($0.identifier.isEmpty ? "-" : $0.identifier) \($0.frame)" }
+        XCTFail("no overlay after \(hotkey.rawValue). Glint's windows: \(windows). \(dialogDescription())", file: file, line: line)
     }
 
     @MainActor func assertOverlayClosed(after hotkey: Hotkey, file: StaticString = #filePath, line: UInt = #line) {

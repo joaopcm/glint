@@ -88,8 +88,8 @@ jobs:
 
   ui-macos:
     runs-on: macos-15
-    # 3x the first green run (45269551074: 99 s).
-    timeout-minutes: 5
+    # Placeholder until the full suite is measured; the 5 min cap from the 3-test run (45269551074: 99 s) cut off run 45277586294.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-xcode
@@ -106,7 +106,7 @@ jobs:
           defaults read "$APPROVALS" "$GLINT_EXECUTABLE"
       - run: xcodebuild -scheme GlintUI -destination 'platform=macOS' -derivedDataPath build -resultBundlePath ui.xcresult test
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: failure() || cancelled()
         with:
           name: ui-xcresult-${{ github.run_attempt }}
           path: ui.xcresult
