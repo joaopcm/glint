@@ -6,6 +6,8 @@ Open source screenshot and screen recording app for macOS.
 
 Early development. Not usable yet.
 
+The work left lives in [GitHub issues](https://github.com/joaopcm/glint/issues), grouped by milestone and sorted by the `priority: p1` to `p3` labels. Each issue has its requirements and acceptance criteria, so it can be picked up on its own.
+
 ## Build
 
 Requires macOS 15+, Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
