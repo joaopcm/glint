@@ -61,11 +61,17 @@ Expected: OK returns focus to Safari. Open System Settings leaves System Setting
 ## 3. Menu bar and settings
 
 ### 8. Menu contents
+
+CI: `MenuAndSettingsUITests.testMenuShowsCaptureItemsSettingsVersionAndQuit`, plus the `Check build label stamping` step in `app-macos`.
+
 Steps: click the menu bar icon.
 Expected: Capture Area, Capture Window, Capture Full Screen, Settings..., a greyed out `Glint 0.1.0 (<run number>) <short sha>` line, Quit Glint. Run number and sha match the CI run the artifact came from.
 [ ] pass  notes: ______________________
 
 ### 9. Settings from the menu
+
+CI: `MenuAndSettingsUITests.testSettingsOpensInFrontFromTheMenu` (Finder frontmost).
+
 Steps: click Settings... while another app is frontmost.
 Expected: the settings window opens in front of that app. Close it and open it again: works every time.
 [ ] pass  notes: ______________________
@@ -76,6 +82,9 @@ Expected: the settings window comes to front. Note which of the two cases work.
 [ ] pass  notes: ______________________
 
 ### 11. Default shortcuts shown
+
+CI: `MenuAndSettingsUITests.testSettingsShowsDefaultShortcuts`.
+
 Steps: look at the three recorders in Settings.
 Expected: `⇧⌘2`, `⌃⇧⌘2`, `⇧⌘1`. None conflicts with the system `⇧⌘3`, `⇧⌘4`, `⇧⌘5`.
 [ ] pass  notes: ______________________
