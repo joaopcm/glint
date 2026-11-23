@@ -30,7 +30,7 @@ final class QuickAccessUITests: GlintUITestCase {
         waitForOverlay(after: .area)
         pressEscape()
         assertOverlayClosed(after: .area)
-        assertNoNewPNG()
+        assertPNGCount(3)
         XCTAssertEqual(cards.count, 3, "a cancelled capture added a thumbnail")
     }
 
@@ -74,7 +74,7 @@ final class QuickAccessUITests: GlintUITestCase {
         center(of: app.buttons["Save As…"].firstMatch).click()
         _ = savePanelSaveButton()
         pressEscape()
-        assertNoNewPNG()
+        assertPNGCount(3)
         XCTAssertTrue(second.exists, "cancelling Save As closed the card")
         assertFinderFrontmost()
     }
@@ -146,7 +146,7 @@ final class QuickAccessUITests: GlintUITestCase {
         let onCard = point(onOverlayAt: CGVector(dx: region.midX - overlay.frame.minX, dy: region.midY - overlay.frame.minY))
         onCard.hover()
         onCard.click()
-        assertNoNewPNG()
+        assertPNGCount(3)
         pressEscape()
         assertOverlayClosed(after: .window)
     }
@@ -180,7 +180,6 @@ final class QuickAccessUITests: GlintUITestCase {
         finder.menuBars.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).hover()
     }
 
-    /// The save panel's Save button; its window is the panel.
     @MainActor private func savePanelSaveButton() -> XCUIElement {
         let save = app.buttons.matching(NSPredicate(format: "label == 'Save' OR title == 'Save'")).firstMatch
         if !save.waitForExistence(timeout: Self.captureTimeout) {

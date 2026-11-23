@@ -178,7 +178,7 @@ Expected: the first click starts the selection. No click is swallowed.
 
 ### 24. Highlight and pick
 
-CI: `CaptureUITests.testWindowPickCapturesTheClickedWindow`.
+CI (partial: picks the clicked window with a transparent shadow corner; the highlight itself stays manual): `CaptureUITests.testWindowPickCapturesTheClickedWindow`.
 
 Steps: press `⌃⇧⌘2`, hover over overlapping windows.
 Expected: the front-most window under the pointer gets a blue highlight. Clicking saves that window. Glint's own windows, the menu bar and Dock items are not offered.
@@ -418,7 +418,7 @@ Expected: Finder gets a copy of the PNG and Slack or the browser attaches the im
 
 ### 53. Pile
 
-CI: `QuickAccessUITests.testPileShowsCountExpandsAndFoldsBack`.
+CI (partial: three cards pile up; the `3` badge and newest on top stay manual): `QuickAccessUITests.testPileShowsCountExpandsAndFoldsBack`.
 
 Steps: take three captures in a row without touching the thumbnails.
 Expected: one card in the corner with a `3` badge and two cards peeking out behind it. The newest capture is on top.
@@ -426,7 +426,7 @@ Expected: one card in the corner with a `3` badge and two cards peeking out behi
 
 ### 54. Expand and fold back
 
-CI: `QuickAccessUITests.testPileShowsCountExpandsAndFoldsBack`.
+CI (partial: click expands, leaving folds back; moving between cards and a capture while open stay manual): `QuickAccessUITests.testPileShowsCountExpandsAndFoldsBack`.
 
 Steps: click the pile. Hover a few cards, then move the pointer away from the column. Expand again and take a capture while it is open.
 Expected: the click opens a column growing up from the corner, newest nearest the corner, each card with its own toolbar. Moving between cards does not fold it. About 1 s after the pointer leaves the column, it folds back into the pile. A new capture folds it too.

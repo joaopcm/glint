@@ -123,10 +123,24 @@ class GlintUITestCase: XCTestCase {
         return found
     }
 
-    @MainActor func assertNoNewPNG(file: StaticString = #filePath, line: UInt = #line) {
-        let before = pngs()
+    /// Waits long enough for a stray capture to land (53 ms measured in run 45262298278), then checks the exact count.
+    @MainActor func assertPNGCount(_ expected: Int, file: StaticString = #filePath, line: UInt = #line) {
         RunLoop.current.run(until: Date().addingTimeInterval(Self.noFileWait))
-        XCTAssertEqual(pngs(), before, "a PNG was written when none should be", file: file, line: line)
+        let found = pngs()
+        XCTAssertEqual(found.count, expected, "expected exactly \(expected) PNG(s), found \(found.map(\.lastPathComponent))", file: file, line: line)
+    }
+
+    /// Window captures keep the shadow on a transparent background; a full-screen capture has no transparent corner.
+    func topLeftAlpha(of url: URL) -> UInt8? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let corner = image.cropping(to: CGRect(x: 0, y: 0, width: 1, height: 1))
+        else { return nil }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        context?.draw(corner, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return pixel[3]
     }
 
     func pixelSize(of url: URL) -> CGSize {
@@ -167,7 +181,11 @@ class GlintUITestCase: XCTestCase {
         NSWorkspace.shared.open(saveFolder)
         let window = finder.windows[saveFolder.lastPathComponent]
         XCTAssertTrue(window.waitForExistence(timeout: Self.captureTimeout), "Finder did not open \(saveFolder.path)")
-        addTeardownBlock { @MainActor in window.typeKey("w", modifierFlags: .command) }
+        // Quit Glint first: an overlay left up by a failed test holds key focus and would swallow the ⌘W.
+        addTeardownBlock { @MainActor in
+            self.app.terminate()
+            window.typeKey("w", modifierFlags: .command)
+        }
         return window
     }
 
@@ -178,9 +196,10 @@ class GlintUITestCase: XCTestCase {
 
     @MainActor private func dialogDescription() -> String {
         let dialog = app.dialogs.firstMatch
-        guard dialog.exists else { return "No Glint dialog is on screen." }
+        let front = "Frontmost app: \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none")."
+        guard dialog.exists else { return "No Glint dialog is on screen. \(front)" }
         let texts = dialog.staticTexts.allElementsBoundByIndex.compactMap { $0.value as? String }
-        return "Glint shows a dialog: \(texts)."
+        return "Glint shows a dialog: \(texts). \(front)"
     }
 
     private func terminateRunningGlints() throws {
