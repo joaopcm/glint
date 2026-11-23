@@ -1,0 +1,52 @@
+name: Glint
+options:
+  deploymentTarget:
+    macOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+packages:
+  GlintCore:
+    path: Packages/GlintCore
+  GlintCapture:
+    path: Packages/GlintCapture
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    exactVersion: 2.4.0
+targets:
+  Glint:
+    type: application
+    platform: macOS
+    sources: [App]
+    entitlements:
+      path: App/Glint.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.glint
+        INFOPLIST_FILE: App/Info.plist
+        CURRENT_PROJECT_VERSION: "0"
+        GLINT_COMMIT: dev
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+    dependencies:
+      - package: GlintCore
+      - package: GlintCapture
+      - package: KeyboardShortcuts
+  GlintTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [AppTests]
+    dependencies:
+      - target: Glint
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.glint.tests
+schemes:
+  Glint:
+    build:
+      targets:
+        Glint: all
+    test:
+      targets: [GlintTests]

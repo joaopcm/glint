@@ -1,0 +1,123 @@
+import CoreGraphics
+import Foundation
+import GlintCore
+import ScreenCaptureKit
+
+public actor ScreenCapturer {
+    public init() {}
+
+    public func captureArea(_ selection: CGRect, displays: [DisplayInfo]) async throws -> CGImage {
+        try Self.requirePermission()
+        guard let info = DisplayGeometry.display(forSelection: selection, in: displays),
+              let sourceRect = DisplayGeometry.sourceRect(for: selection, on: info)
+        else { throw CaptureError.emptySelection }
+        let filter = try await Self.filterExcludingGlint(displayID: info.id)
+        let size = DisplayGeometry.pixelSize(of: sourceRect, on: info)
+        let configuration = Self.configuration(width: size.width, height: size.height)
+        configuration.sourceRect = sourceRect
+        return try await Self.image(filter: filter, configuration: configuration)
+    }
+
+    public func captureDisplay(id: UInt32) async throws -> CGImage {
+        try Self.requirePermission()
+        let filter = try await Self.filterExcludingGlint(displayID: id)
+        return try await Self.image(filter: filter, configuration: Self.configuration(fullSizeOf: filter))
+    }
+
+    public func captureWindow(id: UInt32) async throws -> CGImage {
+        try Self.requirePermission()
+        guard let window = try await Self.shareableContent().windows.first(where: { $0.windowID == id }) else {
+            throw CaptureError.windowNotFound(id)
+        }
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let configuration = Self.configuration(fullSizeOf: filter)
+        configuration.ignoreShadowsSingleWindow = false
+        configuration.shouldBeOpaque = false
+        configuration.backgroundColor = CGColor.clear
+        return try await Self.image(filter: filter, configuration: configuration)
+    }
+
+    public func shareableWindows() async throws -> [CapturableWindow] {
+        try Self.requirePermission()
+        let ownBundleID = Bundle.main.bundleIdentifier
+        let windows = try await Self.shareableContent().windows
+            .filter { window in
+                window.isOnScreen
+                    && window.windowLayer == 0
+                    && window.owningApplication?.bundleIdentifier != ownBundleID
+                    && !window.frame.isEmpty
+            }
+            .map { window in
+                CapturableWindow(
+                    id: window.windowID,
+                    frame: window.frame,
+                    title: window.title,
+                    appName: window.owningApplication?.applicationName
+                )
+            }
+        return Self.sortedFrontToBack(windows, zOrder: Self.onScreenWindowIDsFrontToBack())
+    }
+
+    static func sortedFrontToBack(_ windows: [CapturableWindow], zOrder: [UInt32]) -> [CapturableWindow] {
+        let rank = Dictionary(zOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        return windows.sorted { rank[$0.id, default: .max] < rank[$1.id, default: .max] }
+    }
+
+    static func pixelSize(of rect: CGRect, scale: Float) -> (width: Int, height: Int) {
+        let scale = CGFloat(scale)
+        return (Int((rect.width * scale).rounded()), Int((rect.height * scale).rounded()))
+    }
+
+    // SCShareableContent does not document the order of `windows`; CGWindowList with
+    // `.optionOnScreenOnly` is documented to return windows front to back.
+    private static func onScreenWindowIDsFrontToBack() -> [UInt32] {
+        let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+        return info.compactMap { $0[kCGWindowNumber as String] as? UInt32 }
+    }
+
+    private static func requirePermission() throws {
+        guard CapturePermission.isGranted() else { throw CaptureError.permissionDenied }
+    }
+
+    private static func filterExcludingGlint(displayID: UInt32) async throws -> sending SCContentFilter {
+        let content = try await shareableContent()
+        guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
+            throw CaptureError.displayNotFound(displayID)
+        }
+        let ownBundleID = Bundle.main.bundleIdentifier
+        guard let glint = content.applications.first(where: { $0.bundleIdentifier == ownBundleID }) else {
+            return SCContentFilter(display: display, excludingWindows: [])
+        }
+        return SCContentFilter(display: display, excludingApplications: [glint], exceptingWindows: [])
+    }
+
+    private static func configuration(width: Int, height: Int) -> SCStreamConfiguration {
+        let configuration = SCStreamConfiguration()
+        configuration.width = width
+        configuration.height = height
+        configuration.showsCursor = false
+        configuration.captureResolution = .best
+        return configuration
+    }
+
+    private static func configuration(fullSizeOf filter: SCContentFilter) -> SCStreamConfiguration {
+        let size = pixelSize(of: filter.contentRect, scale: filter.pointPixelScale)
+        return configuration(width: size.width, height: size.height)
+    }
+
+    private static func shareableContent() async throws -> sending SCShareableContent {
+        do {
+            return try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        } catch SCStreamError.userDeclined {
+            throw CaptureError.permissionDenied
+        }
+    }
+
+    private static func image(filter: SCContentFilter, configuration: SCStreamConfiguration) async throws -> CGImage {
+        do {
+            return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        } catch SCStreamError.userDeclined {
+            throw CaptureError.permissionDenied
+        }
+    }
+}

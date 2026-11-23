@@ -1,2 +1,46 @@
-# glint
-Open source screenshot and screen recording app for macOS
+# Glint
+
+Open source screenshot and screen recording app for macOS.
+
+## Status
+
+Early development. Not usable yet.
+
+## Build
+
+Requires macOS 15+, Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+
+```sh
+xcodegen generate
+open Glint.xcodeproj
+```
+
+## Test
+
+On macOS, run all three suites:
+
+```sh
+xcodegen generate && xcodebuild -scheme Glint -destination 'platform=macOS' test
+(cd Packages/GlintCore && swift test)
+(cd Packages/GlintCapture && swift test)
+```
+
+`GlintCore` also builds and tests on Linux. The app and `GlintCapture` need macOS.
+
+## Install a dev build
+
+Every CI run uploads a signed `Glint-<short-sha>` artifact. All builds share one signing certificate, so the Screen Recording permission survives updates.
+
+You unzip twice: GitHub wraps every artifact in its own zip, and inside it is `Glint.zip`, which `ditto` made so the signed bundle keeps its signature and extended attributes.
+
+1. Download the artifact from the latest green run of the `ci` workflow and unzip it.
+2. Unzip `Glint.zip` and move `Glint.app` to `/Applications`.
+3. Clear the quarantine flag:
+
+```sh
+xattr -d com.apple.quarantine /Applications/Glint.app
+```
+
+## License
+
+MIT
