@@ -1,0 +1,25 @@
+name: setup-xcode
+description: Select the pinned Xcode and install the pinned XcodeGen
+runs:
+  using: composite
+  steps:
+    - name: Select Xcode
+      shell: bash
+      env:
+        XCODE_APP: /Applications/Xcode_16.4.app
+      run: |
+        ls -d /Applications/Xcode*.app
+        sudo xcode-select -s "$XCODE_APP"
+        xcodebuild -version
+    - name: Install XcodeGen
+      shell: bash
+      env:
+        XCODEGEN_VERSION: 2.47.0
+        XCODEGEN_SHA256: 6ef12a3ef5327c2c713397f46d9160550f8b1cdc5c925cd884d65c77c9f696cd
+      run: |
+        curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip"
+        echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+        unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+        echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+    - shell: bash
+      run: xcodegen --version

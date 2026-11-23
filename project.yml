@@ -43,6 +43,19 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.glint.tests
+  GlintUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [UITests, App/AccessibilityID.swift]
+    dependencies:
+      - target: Glint
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.glint.uitests
+        TEST_TARGET_NAME: Glint
+        SWIFT_VERSION: "5.0"
+        ENABLE_APP_SANDBOX: NO
 schemes:
   Glint:
     build:
@@ -50,3 +63,10 @@ schemes:
         Glint: all
     test:
       targets: [GlintTests]
+  GlintUI:
+    build:
+      targets:
+        Glint: all
+        GlintUITests: [test]
+    test:
+      targets: [GlintUITests]

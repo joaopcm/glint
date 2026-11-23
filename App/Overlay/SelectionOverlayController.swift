@@ -121,6 +121,11 @@ class OverlayView: NSView {
     init(screenFrame: CGRect) {
         self.screenFrame = screenFrame
         super.init(frame: CGRect(origin: .zero, size: screenFrame.size))
+        // A borderless panel with no accessible content is invisible to VoiceOver and XCUITest (run 45282671146).
+        setAccessibilityElement(true)
+        setAccessibilityRole(.layoutArea)
+        setAccessibilityLabel("Screen capture selection")
+        setAccessibilityIdentifier(AccessibilityID.selectionOverlay)
     }
 
     @available(*, unavailable)

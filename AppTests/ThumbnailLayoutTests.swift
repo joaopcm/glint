@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import GlintCore
 import Testing
@@ -49,4 +50,18 @@ import Testing
     #expect(front.size == CGSize(width: 360, height: 240))
     #expect(front.maxX == visible.maxX - ThumbnailPresenter.margin) // still pinned to the corner
     #expect(second.width == 360 && second.minY == front.maxY + 10)
+}
+
+@MainActor @Test func showDropsOldestWhenTheColumnWouldOverflow() throws {
+    let screen = try #require(NSScreen.main)
+    let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let presenter = ThumbnailPresenter(settings: settings, pointerLocation: { CGPoint(x: screen.frame.midX, y: screen.frame.midY) })
+    let cardHeight = ThumbnailPresenter.size(width: GlintSettings.defaultThumbnailWidth).height
+    let fit = max(1, Int((screen.visibleFrame.height - ThumbnailPresenter.margin) / (cardHeight + ThumbnailPresenter.spacing)))
+    let files = try (0..<(fit + 2)).map { _ in try writePNG() }
+
+    files.forEach(presenter.show)
+
+    #expect(presenter.count == fit)
+    #expect(files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
 }

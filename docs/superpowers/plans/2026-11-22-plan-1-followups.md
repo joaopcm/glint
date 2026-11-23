@@ -11,7 +11,6 @@ Findings from Plan 1's reviews that were deferred on purpose. Fold them into the
 - Keep one pixel-size function and one scale source. `DisplayGeometry.pixelSize` and `ScreenCapturer.pixelSize(of:scale:)` duplicate each other, and area capture takes its scale from `NSScreen` while display capture takes it from ScreenCaptureKit.
 - `CapturableWindow.title` / `appName` are unused. Use them in the picker or drop them.
 - Add a pasteboard seam so the clipboard path is testable (with the quick-access Copy button).
-- Test gap: the build-label test doesn't prove CI stamping. Add a `plutil -extract` gate on the Release plist in CI.
 
 ## Quick-access overlay (PR #1)
 
@@ -28,6 +27,10 @@ Other follow-ups:
 - CI builds with Xcode 16.4, so only the macOS 15 fallback of the glass look is compiled in CI. Moving CI to Xcode 26 would cover the `NSGlassEffectView` path too.
 - The resize cursor uses the private WindowServer property `SetsCursorInBackground`. If a macOS update drops it, only the cursor hint is lost. Check this on each new macOS major.
 - `onSaved` returns the file after it is saved. OCR still needs a capture that skips saving, so the capture and delivery split above is still open.
+
+## macOS 15 private window picker prompt
+
+- On macOS 15, the first capture shows "Glint is requesting to bypass the system private window picker and directly access your screen and audio", on top of the Screen Recording grant (seen in CI run 45266766603). CI pre-approves it in `ScreenCaptureApprovals.plist`; real users will see it and macOS re-asks periodically. Decide whether to live with it or route some captures through `SCContentSharingPicker`.
 
 ## Plan 6 (release)
 

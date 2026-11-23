@@ -34,23 +34,7 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
-      - name: Select Xcode
-        env:
-          XCODE_APP: /Applications/Xcode_16.4.app
-        run: |
-          ls -d /Applications/Xcode*.app
-          sudo xcode-select -s "$XCODE_APP"
-          xcodebuild -version
-      - name: Install XcodeGen
-        env:
-          XCODEGEN_VERSION: 2.47.0
-          XCODEGEN_SHA256: 6ef12a3ef5327c2c713397f46d9160550f8b1cdc5c925cd884d65c77c9f696cd
-        run: |
-          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip"
-          echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
-          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
-      - run: xcodegen --version
+      - uses: ./.github/actions/setup-xcode
       - run: xcodegen generate
       - name: Check generate left tracked files alone
         run: git diff --exit-code -- App/
@@ -69,6 +53,16 @@ jobs:
           xcodebuild -scheme Glint -configuration Release -destination 'platform=macOS' -derivedDataPath build \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} GLINT_COMMIT=${{ steps.sha.outputs.short }} build
           plutil -p build/Build/Products/Release/Glint.app/Contents/Info.plist
+      - name: Check build label stamping
+        env:
+          PLIST: build/Build/Products/Release/Glint.app/Contents/Info.plist
+          WANT_COMMIT: ${{ steps.sha.outputs.short }}
+          WANT_BUILD: ${{ github.run_number }}
+        run: |
+          commit=$(plutil -extract GlintCommit raw "$PLIST")
+          build=$(plutil -extract CFBundleVersion raw "$PLIST")
+          [ "$commit" = "$WANT_COMMIT" ] || { echo "GlintCommit is '$commit', expected '$WANT_COMMIT'"; exit 1; }
+          [ "$build" = "$WANT_BUILD" ] || { echo "CFBundleVersion is '$build', expected '$WANT_BUILD'"; exit 1; }
       - name: Check signing secrets
         id: gate
         env:
@@ -91,3 +85,31 @@ jobs:
         with:
           name: Glint-${{ steps.sha.outputs.short }}
           path: Glint.zip
+
+  ui-macos:
+    runs-on: macos-15
+    env:
+      DERIVED_DATA: build
+    # 3x the first green run of all 22 UI tests (45286549624: 5 min 55 s).
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-xcode
+      - run: xcodegen generate
+      - run: scripts/ci-grant-tcc.sh kTCCServiceScreenCapture com.joaopcm.glint com.joaopcm.glint.uitests.xctrunner
+      - run: scripts/ci-grant-tcc.sh kTCCServicePostEvent com.joaopcm.glint.uitests.xctrunner
+      # macOS 15 shows its own "bypass the private window picker" prompt on top of the TCC grant (run 45266766603).
+      - name: Pre-approve the private window picker prompt
+        env:
+          GLINT_EXECUTABLE: ${{ github.workspace }}/${{ env.DERIVED_DATA }}/Build/Products/Debug/Glint.app/Contents/MacOS/Glint
+        run: |
+          APPROVALS="$HOME/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist"
+          mkdir -p "$(dirname "$APPROVALS")"
+          defaults write "$APPROVALS" "$GLINT_EXECUTABLE" -date "4000-01-01 00:00:00 +0000"
+          defaults read "$APPROVALS" "$GLINT_EXECUTABLE"
+      - run: xcodebuild -scheme GlintUI -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA" -resultBundlePath ui.xcresult test
+      - uses: actions/upload-artifact@v4
+        if: failure() || cancelled()
+        with:
+          name: ui-xcresult-${{ github.run_attempt }}
+          path: ui.xcresult
