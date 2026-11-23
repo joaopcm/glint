@@ -103,6 +103,7 @@ private struct Harness {
         selection: SelectionResult,
         pointer: CGPoint = .zero,
         createFolder: Bool = true,
+        clipboardOn: Bool? = nil,
         copyToClipboard: (@MainActor (URL) throws -> Void)? = nil,
         onSaved: @escaping @MainActor (URL) -> Void = { _ in }
     ) throws {
@@ -112,7 +113,7 @@ private struct Harness {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
         let settings = GlintSettings(store: MemoryStore(), defaultSaveFolder: folder)
-        settings.copyToClipboardAfterCapture = copyToClipboard != nil
+        settings.copyToClipboardAfterCapture = clipboardOn ?? (copyToClipboard != nil)
         selector = FakeSelector(selection)
         coordinator = CaptureCoordinator(
             capturer: capturer,
