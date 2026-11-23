@@ -18,7 +18,7 @@ final class CaptureUITests: GlintUITestCase {
         for hotkey in [Hotkey.area, .window] {
             press(hotkey)
             waitForOverlay(after: hotkey)
-            overlay.typeKey(.escape, modifierFlags: [])
+            pressEscape()
             assertOverlayClosed(after: hotkey)
             assertNoNewPNG()
             XCTAssertFalse(app.dialogs.firstMatch.exists, "Esc after \(hotkey.rawValue) showed a dialog")
@@ -28,7 +28,7 @@ final class CaptureUITests: GlintUITestCase {
     @MainActor func testRightClickCancelsAreaAndWindow() {
         press(.area)
         waitForOverlay(after: .area)
-        overlay.rightClick()
+        center(of: overlay).rightClick()
         assertOverlayClosed(after: .area)
         assertNoNewPNG()
 
@@ -43,7 +43,7 @@ final class CaptureUITests: GlintUITestCase {
     @MainActor func testClickWithoutDragWritesNothing() {
         press(.area)
         waitForOverlay(after: .area)
-        overlay.click()
+        center(of: overlay).click()
         assertOverlayClosed(after: .area)
         assertNoNewPNG()
     }
@@ -55,7 +55,7 @@ final class CaptureUITests: GlintUITestCase {
         press(.window)
         press(.fullScreen)
         XCTAssertEqual(overlays.count, NSScreen.screens.count, "a second overlay opened")
-        overlay.typeKey(.escape, modifierFlags: [])
+        pressEscape()
         assertOverlayClosed(after: .area)
         assertNoNewPNG()
         press(.fullScreen)
@@ -83,7 +83,7 @@ final class CaptureUITests: GlintUITestCase {
         point(onOverlayAt: CGVector(dx: 40, dy: 80)).click()
         XCTAssertTrue(overlay.exists, "clicking the empty desktop closed the window picker")
         assertNoNewPNG()
-        overlay.typeKey(.escape, modifierFlags: [])
+        pressEscape()
         assertOverlayClosed(after: .window)
     }
 }

@@ -94,7 +94,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-xcode
       - run: xcodegen generate
-      - run: scripts/ci-grant-screen-recording.sh com.joaopcm.glint com.joaopcm.glint.uitests.xctrunner
+      - run: scripts/ci-grant-tcc.sh kTCCServiceScreenCapture com.joaopcm.glint com.joaopcm.glint.uitests.xctrunner
+      - run: scripts/ci-grant-tcc.sh kTCCServicePostEvent com.joaopcm.glint.uitests.xctrunner
       # macOS 15 shows its own "bypass the private window picker" prompt on top of the TCC grant (run 45266766603).
       - name: Pre-approve the private window picker prompt
         env:

@@ -28,7 +28,7 @@ final class QuickAccessUITests: GlintUITestCase {
 
         press(.area)
         waitForOverlay(after: .area)
-        overlay.typeKey(.escape, modifierFlags: [])
+        pressEscape()
         assertOverlayClosed(after: .area)
         assertNoNewPNG()
         XCTAssertEqual(cards.count, 3, "a cancelled capture added a thumbnail")
@@ -36,7 +36,7 @@ final class QuickAccessUITests: GlintUITestCase {
 
     @MainActor func testHoverShowsToolbarAndHidesIt() {
         let card = captureOneCard()
-        card.hover()
+        center(of: card).hover()
         for label in ["Copy", "Save As…", "Annotate in Preview", "Pin to Screen", "Close"] {
             let button = app.buttons[label].firstMatch
             XCTAssertTrue(button.waitForExistence(timeout: Self.captureTimeout), "hovering shows no \"\(label)\" button")
@@ -49,8 +49,8 @@ final class QuickAccessUITests: GlintUITestCase {
 
     @MainActor func testCopyPutsFileOnPasteboardAndClosesCard() {
         let (card, png) = captureOneCardAndFile()
-        card.hover()
-        app.buttons["Copy"].firstMatch.click()
+        center(of: card).hover()
+        center(of: app.buttons["Copy"].firstMatch).click()
         XCTAssertTrue(waitUntilGone(card), "Copy left the card on screen")
         XCTAssertEqual(NSPasteboard.general.string(forType: .fileURL), png.absoluteString)
         XCTAssertNotNil(NSPasteboard.general.data(forType: .png), "Copy put no PNG on the pasteboard")
@@ -58,8 +58,8 @@ final class QuickAccessUITests: GlintUITestCase {
 
     @MainActor func testSaveAsWritesChosenFileAndCancelKeepsCard() throws {
         let (card, png) = captureOneCardAndFile()
-        card.hover()
-        app.buttons["Save As…"].firstMatch.click()
+        center(of: card).hover()
+        center(of: app.buttons["Save As…"].firstMatch).click()
         _ = savePanelSaveButton()
         app.typeKey("a", modifierFlags: .command)
         app.typeText("renamed")
@@ -70,9 +70,10 @@ final class QuickAccessUITests: GlintUITestCase {
         assertFinderFrontmost()
 
         let (second, _) = captureOneCardAndFile(expectedTotal: 3)
-        second.hover()
-        app.buttons["Save As…"].firstMatch.click()
-        savePanelSaveButton().typeKey(.escape, modifierFlags: [])
+        center(of: second).hover()
+        center(of: app.buttons["Save As…"].firstMatch).click()
+        _ = savePanelSaveButton()
+        pressEscape()
         assertNoNewPNG()
         XCTAssertTrue(second.exists, "cancelling Save As closed the card")
         assertFinderFrontmost()
@@ -82,27 +83,27 @@ final class QuickAccessUITests: GlintUITestCase {
         let preview = XCUIApplication(bundleIdentifier: "com.apple.Preview")
         addTeardownBlock { @MainActor in preview.terminate() }
         let card = captureOneCard()
-        card.hover()
-        app.buttons["Annotate in Preview"].firstMatch.click()
+        center(of: card).hover()
+        center(of: app.buttons["Annotate in Preview"].firstMatch).click()
         XCTAssertTrue(preview.wait(for: .runningForeground, timeout: Self.captureTimeout), "Annotate did not open Preview")
         XCTAssertTrue(waitUntilGone(card), "Annotate left the card on screen")
     }
 
     @MainActor func testPinOpensFloatingWindowThatCloses() {
         let (card, png) = captureOneCardAndFile()
-        card.hover()
-        app.buttons["Pin to Screen"].firstMatch.click()
+        center(of: card).hover()
+        center(of: app.buttons["Pin to Screen"].firstMatch).click()
         let pinned = app.windows[png.lastPathComponent]
         XCTAssertTrue(pinned.waitForExistence(timeout: Self.captureTimeout), "Pin opened no window")
         XCTAssertTrue(waitUntilGone(card), "Pin left the card on screen")
-        pinned.buttons[XCUIIdentifierCloseWindow].click()
+        center(of: pinned.buttons[XCUIIdentifierCloseWindow]).click()
         XCTAssertTrue(waitUntilGone(pinned), "the pinned window did not close")
     }
 
     @MainActor func testCloseRemovesCardKeepsFile() {
         let (card, png) = captureOneCardAndFile()
-        card.hover()
-        app.buttons["Close"].firstMatch.click()
+        center(of: card).hover()
+        center(of: app.buttons["Close"].firstMatch).click()
         XCTAssertTrue(waitUntilGone(card), "Close left the card on screen")
         XCTAssertTrue(FileManager.default.fileExists(atPath: png.path), "Close deleted the PNG")
     }
@@ -117,7 +118,7 @@ final class QuickAccessUITests: GlintUITestCase {
         XCTAssertLessThanOrEqual(cardSpread(), 2 * Self.pileOffset, "three captures did not pile up")
 
         let top = cards.allElementsBoundByIndex.max { $0.frame.minY < $1.frame.minY }!
-        top.click()
+        center(of: top).click()
         XCTAssertTrue(waitUntil { self.cardSpread() > 2 * Self.pileOffset }, "clicking the pile did not expand it")
 
         moveAwayFromCards()
@@ -146,7 +147,7 @@ final class QuickAccessUITests: GlintUITestCase {
         onCard.hover()
         onCard.click()
         assertNoNewPNG()
-        overlay.typeKey(.escape, modifierFlags: [])
+        pressEscape()
         assertOverlayClosed(after: .window)
     }
 

@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import ImageIO
 import XCTest
 
@@ -30,6 +31,15 @@ class GlintUITestCase: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        guard CGPreflightPostEventAccess() else {
+            _ = CGRequestPostEventAccess()
+            XCTFail("""
+                the UI test runner can't post key and mouse events (kTCCServicePostEvent), so no hotkey would reach Glint. \
+                CI grants it with scripts/ci-grant-tcc.sh. locally, allow GlintUITests-Runner in \
+                System Settings > Privacy & Security > Accessibility and run again
+                """)
+            return
+        }
         try terminateRunningGlints()
         saveFolder = FileManager.default.temporaryDirectory.appending(path: "GlintUITests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: saveFolder, withIntermediateDirectories: true)
@@ -59,12 +69,36 @@ class GlintUITestCase: XCTestCase {
         }
     }
 
+    /// Keys go through the HID event tap like a real keyboard. XCUITest's `typeKey` activates the element's app first,
+    /// which a user's keypress never does, and it stalls while the non-activating overlay holds key focus (run 45284501150).
     @MainActor func press(_ hotkey: Hotkey) {
         switch hotkey {
-        case .area: finder.typeKey("2", modifierFlags: [.command, .shift])
-        case .window: finder.typeKey("2", modifierFlags: [.control, .command, .shift])
-        case .fullScreen: finder.typeKey("1", modifierFlags: [.command, .shift])
+        case .area: postKey(kVK_ANSI_2, flags: [.maskCommand, .maskShift])
+        case .window: postKey(kVK_ANSI_2, flags: [.maskControl, .maskCommand, .maskShift])
+        case .fullScreen: postKey(kVK_ANSI_1, flags: [.maskCommand, .maskShift])
         }
+    }
+
+    @MainActor func pressEscape() {
+        postKey(kVK_Escape)
+    }
+
+    private func postKey(_ key: Int, flags: CGEventFlags = []) {
+        for isDown in [true, false] {
+            let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(key), keyDown: isDown)!
+            event.flags = flags
+            event.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// A point in global screen coordinates (top-left origin), reached through Finder so XCUITest never activates Glint.
+    @MainActor func screenPoint(_ point: CGPoint) -> XCUICoordinate {
+        finder.menuBars.firstMatch.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y))
+    }
+
+    @MainActor func center(of element: XCUIElement) -> XCUICoordinate {
+        let frame = element.frame
+        return screenPoint(CGPoint(x: frame.midX, y: frame.midY))
     }
 
     @discardableResult
@@ -114,7 +148,8 @@ class GlintUITestCase: XCTestCase {
     }
 
     @MainActor func point(onOverlayAt offset: CGVector) -> XCUICoordinate {
-        overlay.coordinate(withNormalizedOffset: .zero).withOffset(offset)
+        let origin = overlay.frame.origin
+        return screenPoint(CGPoint(x: origin.x + offset.dx, y: origin.y + offset.dy))
     }
 
     @MainActor func waitForOverlay(after hotkey: Hotkey, file: StaticString = #filePath, line: UInt = #line) {
