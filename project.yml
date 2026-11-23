@@ -55,6 +55,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.glint.uitests
         TEST_TARGET_NAME: Glint
         SWIFT_VERSION: "5.0"
+        ENABLE_APP_SANDBOX: NO
 schemes:
   Glint:
     build:
