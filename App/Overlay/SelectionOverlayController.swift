@@ -107,6 +107,7 @@ final class OverlayPanel: NSPanel {
         animationBehavior = .none
         isReleasedWhenClosed = false
         contentView = view
+        setAccessibilityIdentifier(AccessibilityID.selectionOverlay)
         setFrame(screen.frame, display: false)
         makeFirstResponder(view)
     }
