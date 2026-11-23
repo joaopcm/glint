@@ -29,6 +29,10 @@ Other follow-ups:
 - The resize cursor uses the private WindowServer property `SetsCursorInBackground`. If a macOS update drops it, only the cursor hint is lost. Check this on each new macOS major.
 - `onSaved` returns the file after it is saved. OCR still needs a capture that skips saving, so the capture and delivery split above is still open.
 
+## macOS 15 private window picker prompt
+
+- On macOS 15, the first capture shows "Glint is requesting to bypass the system private window picker and directly access your screen and audio", on top of the Screen Recording grant (seen in CI run 45266766603). CI pre-approves it in `ScreenCaptureApprovals.plist`; real users will see it and macOS re-asks periodically. Decide whether to live with it or route some captures through `SCContentSharingPicker`.
+
 ## Plan 6 (release)
 
 - Sign nested code from the inside out. With a self-signed certificate (no Team ID), hardened runtime library validation will likely block dynamic frameworks such as Sparkle. Check this before adding one.

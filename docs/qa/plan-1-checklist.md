@@ -172,6 +172,9 @@ Expected: nothing happens, overlay stays, no file written.
 ## 6. Full screen capture
 
 ### 28. Display under the cursor
+
+CI: `SmokeUITests.testFullScreenHotkeyWritesDisplaySizedPNGAndKeepsFinderFrontmost` (one display; the external-display half stays manual).
+
 Steps: put the pointer on the external display, press `⇧⌘1`. Repeat on the built-in display.
 Expected: the PNG is the display the pointer was on, at native pixel resolution, with no cursor in it.
 [ ] pass  notes: ______________________
@@ -226,6 +229,9 @@ Expected: Safari is still the active app both times and keeps keyboard focus.
 ## 8. Saving and clipboard
 
 ### 36. File name
+
+CI: `SmokeUITests.testFullScreenHotkeyWritesDisplaySizedPNGAndKeepsFinderFrontmost`, `SmokeUITests.testSaveFolderIsTheTempFolder`.
+
 Steps: capture once.
 Expected: PNG in the save folder named like `Glint 2026-11-22 at 15.04.05.png`.
 [ ] pass  notes: ______________________
@@ -276,6 +282,9 @@ Added in PR #1. Defaults: thumbnails in the bottom right corner, about 240 pt wi
 Known gaps, not failures (tracked in the follow-ups doc): with auto-hide on, a card can vanish mid drag-out or while Save As is open. Growing the cards while the column is open can push it past the top of the screen. Expanding a pile on one display expands the piles on every display.
 
 ### 44. Thumbnail after a capture
+
+CI: `SmokeUITests.testFullScreenHotkeyWritesDisplaySizedPNGAndKeepsFinderFrontmost` (Finder frontmost instead of Safari).
+
 Steps: with Safari frontmost, press `⇧⌘1`.
 Expected: a thumbnail of the capture appears in the bottom right corner of the display the pointer is on. Safari stays the active app (title bar never greys out) and keeps keyboard focus. The PNG is already in the save folder.
 [ ] pass  notes: ______________________

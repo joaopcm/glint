@@ -25,6 +25,12 @@ xcodegen generate && xcodebuild -scheme Glint -destination 'platform=macOS' test
 (cd Packages/GlintCapture && swift test)
 ```
 
+UI tests drive the real app: they press the hotkeys, drag and click, so they take over the keyboard and pointer while they run. The first local run needs Screen Recording granted to the Debug build.
+
+```sh
+xcodegen generate && xcodebuild -scheme GlintUI -destination 'platform=macOS' test
+```
+
 `GlintCore` also builds and tests on Linux. The app and `GlintCapture` need macOS.
 
 ## Install a dev build
