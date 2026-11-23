@@ -60,11 +60,10 @@ final class QuickAccessUITests: GlintUITestCase {
         let (card, png) = captureOneCardAndFile()
         card.hover()
         app.buttons["Save As…"].firstMatch.click()
-        let panel = savePanel()
-        let name = panel.textFields.firstMatch
-        name.typeKey("a", modifierFlags: .command)
-        name.typeText("renamed")
-        name.typeKey(.return, modifierFlags: [])
+        _ = savePanelSaveButton()
+        app.typeKey("a", modifierFlags: .command)
+        app.typeText("renamed")
+        app.typeKey(.return, modifierFlags: [])
         XCTAssertTrue(waitUntilGone(card), "Save As left the card on screen")
         XCTAssertTrue(FileManager.default.fileExists(atPath: saveFolder.appending(path: "renamed.png").path), "Save As wrote no renamed.png")
         XCTAssertTrue(FileManager.default.fileExists(atPath: png.path), "Save As removed the original")
@@ -73,7 +72,7 @@ final class QuickAccessUITests: GlintUITestCase {
         let (second, _) = captureOneCardAndFile(expectedTotal: 3)
         second.hover()
         app.buttons["Save As…"].firstMatch.click()
-        savePanel().typeKey(.escape, modifierFlags: [])
+        savePanelSaveButton().typeKey(.escape, modifierFlags: [])
         assertNoNewPNG()
         XCTAssertTrue(second.exists, "cancelling Save As closed the card")
         assertFinderFrontmost()
@@ -180,10 +179,13 @@ final class QuickAccessUITests: GlintUITestCase {
         finder.menuBars.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).hover()
     }
 
-    @MainActor private func savePanel() -> XCUIElement {
-        let panel = app.windows.containing(.button, identifier: "Save").firstMatch
-        XCTAssertTrue(panel.waitForExistence(timeout: Self.captureTimeout), "Save As showed no save panel")
-        return panel
+    /// The save panel's Save button; its window is the panel.
+    @MainActor private func savePanelSaveButton() -> XCUIElement {
+        let save = app.buttons.matching(NSPredicate(format: "label == 'Save' OR title == 'Save'")).firstMatch
+        if !save.waitForExistence(timeout: Self.captureTimeout) {
+            XCTFail("Save As showed no save panel. Glint's accessibility tree:\n\(app.debugDescription)")
+        }
+        return save
     }
 
     @MainActor private func cardSpread() -> CGFloat {
