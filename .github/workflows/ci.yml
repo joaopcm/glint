@@ -16,6 +16,21 @@ concurrency:
 jobs:
   core-linux:
     runs-on: ubuntu-24.04
+    services:
+      minio:
+        # bitnamilegacy/minio:2025.4.22, pinned 2026-11-24. minio/minio and quay.io/minio/minio refused anonymous pulls (#53).
+        image: bitnamilegacy/minio@sha256:50cec18ac4184af4671a78aedd5554942c8ae105d51a465fa82037949046da01
+        ports: ["9000:9000"]
+        env:
+          MINIO_ROOT_USER: glintroot
+          MINIO_ROOT_PASSWORD: glintrootsecret
+    env:
+      GLINT_MINIO_ENDPOINT: http://127.0.0.1:9000
+      GLINT_MINIO_ROOT_USER: glintroot
+      GLINT_MINIO_ROOT_PASSWORD: glintrootsecret
+      GLINT_MINIO_READER_USER: glintreader
+      GLINT_MINIO_READER_PASSWORD: glintreadersecret
+      GLINT_MINIO_BUCKET: shots
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Swift
@@ -29,6 +44,23 @@ jobs:
           swiftly install --use --assume-yes 6.2.1
           echo "$HOME/.local/share/swiftly/bin" >> "$GITHUB_PATH"
       - run: swift --version
+      # The image runs a setup server, stops it and starts the real one, so retry until mc gets through to the real one.
+      # 60 s is a tripwire: a fresh container took 1.4 s locally (OrbStack, M-series Mac).
+      - name: Create the bucket and a read-only user in MinIO
+        env:
+          MINIO: ${{ job.services.minio.id }}
+        run: |
+          deadline=$((SECONDS + 60))
+          until docker exec -e B="$GLINT_MINIO_BUCKET" -e U="$GLINT_MINIO_READER_USER" -e P="$GLINT_MINIO_READER_PASSWORD" "$MINIO" sh -c '
+            mc alias set ci http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" &&
+            mc mb --ignore-existing "ci/$B" &&
+            mc admin user add ci "$U" "$P" &&
+            { mc admin policy attach ci readonly --user "$U" || mc admin user info ci "$U" | grep -q readonly; }'
+          do
+            [ "$SECONDS" -lt "$deadline" ] || { echo "MinIO wasn't ready for mc within 60 s"; docker logs "$MINIO"; exit 1; }
+            sleep 1
+          done
+          echo "MinIO ready after $SECONDS s"
       - run: swift test
         working-directory: Packages/GlintCore
 
