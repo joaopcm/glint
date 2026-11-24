@@ -21,6 +21,8 @@ final class ThumbnailPresenter {
     /// starts disappearing; when it fires every thumbnail goes together.
     private var autoDismissTask: Task<Void, Never>?
     private let autoDismissDelay: Duration
+    private var isDraggingOut = false
+    private var isRunningModal = false
     private let pointerLocation: @MainActor () -> CGPoint
     private var observers: [NSObjectProtocol] = []
     private var lastLayoutSettings: LayoutSettings?
@@ -61,6 +63,7 @@ final class ThumbnailPresenter {
         }
         item.view.onPointerChange = { [weak self] in self?.refreshHover() }
         item.view.onResize = { [weak self] change in self?.resize(change) }
+        item.view.onDragOut = { [weak self] inProgress in self?.setDraggingOut(inProgress) }
         items.insert(item, at: 0)
         expansion.collapse(on: screen)
         cancelAutoDismiss() // still stacking: restart the countdown (layout() schedules it again)
@@ -135,8 +138,8 @@ final class ThumbnailPresenter {
         for item in items { item.view.isHovered = item === hovered }
         scheduleFolding(pointerOver: hovered?.screen)
 
-        // Hovering any thumbnail pauses auto-hide for the whole overlay.
-        if hovered != nil {
+        // Hovering any thumbnail, dragging one out or a modal panel (Save As) pauses auto-hide for the whole overlay.
+        if hovered != nil || isDraggingOut || isRunningModal {
             cancelAutoDismiss()
             return
         }
@@ -202,6 +205,11 @@ final class ThumbnailPresenter {
     func settingsChanged() {
         guard LayoutSettings(settings) != lastLayoutSettings else { return }
         layout()
+    }
+
+    func setDraggingOut(_ inProgress: Bool) {
+        isDraggingOut = inProgress
+        refreshHover()
     }
 
     private func cancelAutoDismiss() {
@@ -325,8 +333,12 @@ final class ThumbnailPresenter {
     /// Modal UI needs Glint active; hand focus back to the app the user was in afterwards.
     private func runActivated<T>(_ body: () -> T) -> T {
         let previousApp = NSWorkspace.shared.frontmostApplication
+        isRunningModal = true
+        refreshHover()
         NSApp.activate()
         defer {
+            isRunningModal = false
+            refreshHover()
             if let previousApp, previousApp != NSRunningApplication.current {
                 NSApp.yieldActivation(to: previousApp)
                 previousApp.activate()
@@ -387,6 +399,7 @@ private final class ThumbnailView: NSView, NSDraggingSource {
     var onAction: ((Action) -> Void)?
     var onPointerChange: (() -> Void)?
     var onResize: ((Resize) -> Void)?
+    var onDragOut: ((_ inProgress: Bool) -> Void)?
 
     private let url: URL
     private let thumbnail: NSImage
@@ -627,6 +640,7 @@ private final class ThumbnailView: NSView, NSDraggingSource {
         mouseDownPoint = nil
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)
         item.setDraggingFrame(bounds, contents: thumbnail)
+        onDragOut?(true)
         beginDraggingSession(with: [item], event: event, source: self)
     }
 
@@ -664,6 +678,7 @@ private final class ThumbnailView: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        onDragOut?(false)
         if operation != [] { onAction?(.close) }
     }
 }

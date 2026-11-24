@@ -45,3 +45,20 @@ let offScreen = CGPoint(x: -10_000, y: -10_000) // the real pointer could hover 
     try await Task.sleep(for: .milliseconds(300))
     #expect(presenter.count == 1)
 }
+
+@MainActor @Test func dragOutPausesAutoHideAndItsEndRestartsTheCountdown() async throws {
+    let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    settings.overlayAutoDismiss = true
+    let presenter = ThumbnailPresenter(settings: settings, autoDismissDelay: .milliseconds(400), pointerLocation: { offScreen })
+
+    presenter.show(try writePNG())
+    presenter.setDraggingOut(true)
+    try await Task.sleep(for: .milliseconds(800))
+    #expect(presenter.count == 1) // twice the delay into the drag, the card is still there
+
+    presenter.setDraggingOut(false)
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(presenter.count == 1) // the countdown starts over when the drag ends
+    try await Task.sleep(for: .milliseconds(700))
+    #expect(presenter.count == 0)
+}
