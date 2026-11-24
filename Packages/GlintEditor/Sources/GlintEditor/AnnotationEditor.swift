@@ -29,6 +29,9 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         (.rectangle, "rectangle", "Rectangle"),
         (.text, "textformat", "Text"),
         (.highlighter, "highlighter", "Highlighter"),
+        (.blur, "drop", "Blur"),
+        (.pixelate, "squareshape.split.3x3", "Pixelate"),
+        (.crop, "crop", "Crop"),
     ]
 
     public init(
