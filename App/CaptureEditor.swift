@@ -15,9 +15,15 @@ enum CaptureEditorError: LocalizedError, Equatable {
 
 @MainActor
 enum CaptureEditor {
-    static func open(_ url: URL, on screen: NSScreen, onSaved: @escaping () -> Void, onClose: @escaping () -> Void) throws -> AnnotationEditor {
+    static func open(
+        _ document: AnnotationDocument,
+        savingTo url: URL,
+        on screen: NSScreen,
+        onSaved: @escaping () -> Void,
+        onClose: @escaping () -> Void
+    ) -> AnnotationEditor {
         let editor = AnnotationEditor(
-            document: AnnotationDocument(base: try image(at: url)),
+            document: document,
             title: url.lastPathComponent,
             pixelsPerPoint: screen.backingScaleFactor,
             save: { image in

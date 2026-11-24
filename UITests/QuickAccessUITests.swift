@@ -83,19 +83,7 @@ final class QuickAccessUITests: GlintUITestCase {
         let (card, png) = captureOneCardAndFile()
         let original = saveFolder.appending(path: "original.bak")
         try FileManager.default.copyItem(at: png, to: original)
-        center(of: card).hover()
-        center(of: app.buttons["Annotate"].firstMatch).click()
-        XCTAssertTrue(editorCanvas.waitForExistence(timeout: Self.captureTimeout), "Annotate opened no editor")
-
-        // Tool buttons are on/off toggles, which accessibility reports as checkboxes, not buttons (run 45495161930).
-        center(of: app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Rectangle'")).firstMatch).click()
-        let image = aspectFit(pixelSize(of: png), in: editorCanvas.frame)
-        let corner = { (fraction: CGFloat) in
-            self.screenPoint(CGPoint(x: image.minX + image.width * fraction, y: image.minY + image.height * fraction))
-        }
-        corner(0.3).press(forDuration: 0.1, thenDragTo: corner(0.6))
-        center(of: app.buttons["Save"].firstMatch).click()
-        XCTAssertTrue(waitUntilGone(editorCanvas), "Save left the editor open")
+        drawRectangleAndSave(from: card, png: png)
 
         let size = pixelSize(of: png)
         let around = CGRect(x: size.width * 0.28, y: size.height * 0.28, width: size.width * 0.34, height: size.height * 0.34).integral
@@ -104,6 +92,19 @@ final class QuickAccessUITests: GlintUITestCase {
         XCTAssertEqual(changedShare(original, png, in: away), 0, "Save changed pixels away from the rectangle")
         XCTAssertTrue(card.exists, "annotating closed the card")
         assertPNGCount(1)
+    }
+
+    @MainActor func testReannotatingFromTheSameCardKeepsTheRectangleSelectable() {
+        let (card, png) = captureOneCardAndFile()
+        drawRectangleAndSave(from: card, png: png)
+
+        openEditor(from: card)
+        XCTAssertTrue(waitUntil(editorCanvas, matches: "value BEGINSWITH '1 annotation,'"),
+                      "reopening showed \(editorCanvas.value ?? "nothing"), not the saved rectangle")
+        tool("Select").click()
+        imagePoint(0.45, png: png).click()
+        XCTAssertTrue(waitUntil(editorCanvas, matches: "value == '1 annotation, Rectangle selected'"),
+                      "clicking the rectangle left the canvas at \(editorCanvas.value ?? "nothing")")
     }
 
     @MainActor func testPinOpensFloatingWindowThatCloses() {
@@ -166,6 +167,30 @@ final class QuickAccessUITests: GlintUITestCase {
         assertPNGCount(3)
         pressEscape()
         assertOverlayClosed(after: .window)
+    }
+
+    @MainActor private func openEditor(from card: XCUIElement) {
+        center(of: card).hover()
+        center(of: app.buttons["Annotate"].firstMatch).click()
+        XCTAssertTrue(editorCanvas.waitForExistence(timeout: Self.captureTimeout), "Annotate opened no editor")
+    }
+
+    @MainActor private func drawRectangleAndSave(from card: XCUIElement, png: URL) {
+        openEditor(from: card)
+        tool("Rectangle").click()
+        imagePoint(0.3, png: png).press(forDuration: 0.1, thenDragTo: imagePoint(0.6, png: png))
+        center(of: app.buttons["Save"].firstMatch).click()
+        XCTAssertTrue(waitUntilGone(editorCanvas), "Save left the editor open")
+    }
+
+    /// Tool buttons are on/off toggles, which accessibility reports as checkboxes, not buttons (run 45495161930).
+    @MainActor private func tool(_ label: String) -> XCUICoordinate {
+        center(of: app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch)
+    }
+
+    @MainActor private func imagePoint(_ fraction: CGFloat, png: URL) -> XCUICoordinate {
+        let image = aspectFit(pixelSize(of: png), in: editorCanvas.frame)
+        return screenPoint(CGPoint(x: image.minX + image.width * fraction, y: image.minY + image.height * fraction))
     }
 
     @MainActor private var editorCanvas: XCUIElement {

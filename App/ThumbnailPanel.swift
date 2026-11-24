@@ -321,8 +321,12 @@ final class ThumbnailPresenter {
         let url = item.url
         if let open = editors[url] { return open.show(on: item.screen) }
         do {
-            editors[url] = try CaptureEditor.open(
-                url,
+            // The card keeps the objects and the unflattened capture, so reopening edits them again; dismissing the card drops them (#16).
+            let document = try item.annotations ?? AnnotationDocument(base: CaptureEditor.image(at: url))
+            item.annotations = document
+            editors[url] = CaptureEditor.open(
+                document,
+                savingTo: url,
                 on: item.screen,
                 onSaved: { [weak self] in self?.items.first { $0.url == url }?.reloadThumbnail() },
                 onClose: { [weak self] in
@@ -394,6 +398,7 @@ private final class ThumbnailItem {
     let view: ThumbnailView
     /// Where layout() put the panel (nil = hidden). Used for hover, since animated frames lag behind.
     var targetFrame: CGRect?
+    var annotations: AnnotationDocument?
     var isUploading = false {
         didSet { view.isUploading = isUploading }
     }
