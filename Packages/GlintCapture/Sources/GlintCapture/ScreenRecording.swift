@@ -23,9 +23,10 @@ public actor ScreenRecording {
     }
 
     /// Stopping before the first frame reaches the file fails the whole recording with RPRecordingErrorDomain -5822
-    /// ("failure to process first sample buffer", measured in the probe for #17), so stop waits for that frame.
+    /// ("failure to process first sample buffer"). Waiting for `recordingOutputDidStartRecording` still failed 13 of 30
+    /// instant stops; waiting for the first complete frame passed 75 of 75 (probes for #17).
     public func stop() async {
-        await events.waitUntilStartedOrEnded()
+        await events.waitUntilFirstFrameOrEnd()
         // Fails with -3808 when the stream already stopped on its own; the recording's own outcome reports that.
         await withCheckedContinuation { continuation in
             stream.stopCapture { _ in continuation.resume() }
@@ -57,6 +58,7 @@ extension ScreenCapturer {
         let events = RecordingEvents()
         let stream = SCStream(filter: filter, configuration: configuration, delegate: events)
         do {
+            try stream.addStreamOutput(events, type: .screen, sampleHandlerQueue: events.queue)
             try stream.addRecordingOutput(SCRecordingOutput(configuration: output, delegate: events))
             try await stream.startCapture()
         } catch SCStreamError.userDeclined {
@@ -100,9 +102,9 @@ private enum RecordingOutcome: Sendable {
     case failed(String)
 }
 
-private final class RecordingEvents: NSObject, SCRecordingOutputDelegate, SCStreamDelegate, Sendable {
+private final class RecordingEvents: NSObject, SCRecordingOutputDelegate, SCStreamDelegate, SCStreamOutput, Sendable {
     private struct State {
-        var hasStarted = false
+        var hasFirstFrame = false
         var streamError: String?
         var outcome: RecordingOutcome?
         var startWaiters: [CheckedContinuation<Void, Never>] = []
@@ -110,11 +112,12 @@ private final class RecordingEvents: NSObject, SCRecordingOutputDelegate, SCStre
     }
 
     private let state = Mutex(State())
+    let queue = DispatchQueue(label: "com.joaopcm.glint.recording-frames")
 
-    func waitUntilStartedOrEnded() async {
+    func waitUntilFirstFrameOrEnd() async {
         await withCheckedContinuation { continuation in
             let ready = state.withLock { state in
-                guard !state.hasStarted, state.outcome == nil else { return true }
+                guard !state.hasFirstFrame, state.outcome == nil else { return true }
                 state.startWaiters.append(continuation)
                 return false
             }
@@ -132,13 +135,22 @@ private final class RecordingEvents: NSObject, SCRecordingOutputDelegate, SCStre
         }
     }
 
-    func recordingOutputDidStartRecording(_ recordingOutput: SCRecordingOutput) {
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard Self.isCompleteFrame(sampleBuffer) else { return }
         let waiters = state.withLock { state in
-            state.hasStarted = true
+            guard !state.hasFirstFrame else { return [CheckedContinuation<Void, Never>]() }
+            state.hasFirstFrame = true
             defer { state.startWaiters = [] }
             return state.startWaiters
         }
         waiters.forEach { $0.resume() }
+    }
+
+    private static func isCompleteFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
+              let status = attachments.first?[.status] as? Int
+        else { return false }
+        return SCFrameStatus(rawValue: status) == .complete
     }
 
     func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
