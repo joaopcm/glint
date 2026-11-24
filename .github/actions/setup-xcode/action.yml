@@ -12,6 +12,9 @@ runs:
         [ -d "$XCODE_APP" ] || { echo "::error::$XCODE_APP is missing on this runner image; pick an Xcode from the list above and update .github/actions/setup-xcode"; exit 1; }
         sudo xcode-select -s "$XCODE_APP"
         xcodebuild -version
+        swift_path="$(xcrun --find swift)"
+        [[ "$swift_path" == "$XCODE_APP"/* ]] || { echo "::error::swift resolves to $swift_path, not the pinned $XCODE_APP toolchain"; exit 1; }
+        swift --version
     - name: Install XcodeGen
       shell: bash
       env:
