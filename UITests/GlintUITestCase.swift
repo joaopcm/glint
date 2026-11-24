@@ -80,8 +80,7 @@ class GlintUITestCase: XCTestCase {
             "-overlayAutoDismiss", "NO",
             "-overlayCorner", "bottomRight",
             "-thumbnailWidth", "240",
-            "-pickerPromptExplained", pickerPromptExplained ? "YES" : "NO",
-        ] + defaultShortcutArguments + extraLaunchArguments
+        ] + (pickerPromptExplained ? ["-pickerPromptExplained", "YES"] : []) + defaultShortcutArguments + extraLaunchArguments
         app.launchEnvironment = extraLaunchEnvironment
         app.launch()
         finder.activate()

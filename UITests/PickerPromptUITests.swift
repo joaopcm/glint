@@ -3,6 +3,14 @@ import XCTest
 final class PickerPromptUITests: GlintUITestCase {
     override var pickerPromptExplained: Bool { false }
 
+    /// Cleared in Glint's own defaults instead of passing `-pickerPromptExplained NO`: the argument domain would hide the
+    /// `YES` Glint writes after the first capture, and the second capture would explain again (run 45510454936).
+    override func setUpWithError() throws {
+        CFPreferencesSetAppValue("pickerPromptExplained" as CFString, nil, Self.glintBundleID as CFString)
+        CFPreferencesAppSynchronize(Self.glintBundleID as CFString)
+        try super.setUpWithError()
+    }
+
     @MainActor var toast: XCUIElement {
         app.descendants(matching: .any).matching(identifier: AccessibilityID.toast).firstMatch
     }
