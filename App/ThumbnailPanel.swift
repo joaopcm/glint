@@ -15,9 +15,8 @@ final class ThumbnailPresenter {
     private let settings: GlintSettings
     private var items: [ThumbnailItem] = [] // newest first
     private var pinned: [NSPanel] = []
-    // ponytail: one flag for all displays; per-screen piles only matter with captures on several displays at once.
-    private var expanded = false
-    private var collapseTask: Task<Void, Never>?
+    private var expansion = PileExpansion<NSScreen>()
+    private var collapseTasks: [NSScreen: Task<Void, Never>] = [:]
     /// One countdown for the whole overlay: each new capture restarts it, so a pile being built never
     /// starts disappearing; when it fires every thumbnail goes together.
     private var autoDismissTask: Task<Void, Never>?
@@ -63,7 +62,7 @@ final class ThumbnailPresenter {
         item.view.onPointerChange = { [weak self] in self?.refreshHover() }
         item.view.onResize = { [weak self] change in self?.resize(change) }
         items.insert(item, at: 0)
-        expanded = false
+        expansion.collapse(on: screen)
         cancelAutoDismiss() // still stacking: restart the countdown (layout() schedules it again)
 
         // ponytail: drops the oldest once the expanded column would overflow the screen.
@@ -98,7 +97,7 @@ final class ThumbnailPresenter {
         for item in items { groups[item.screen, default: []].append(item) }
 
         for (screen, group) in groups {
-            let collapsed = !expanded && group.count > 1
+            let collapsed = !expansion.isExpanded(on: screen) && group.count > 1
             for (index, item) in group.enumerated() {
                 item.view.stackCount = collapsed && index == 0 ? group.count : nil
                 item.view.isStacked = collapsed
@@ -129,12 +128,11 @@ final class ThumbnailPresenter {
         // Newest first and ordered on top, so the first hit is the card the pointer is actually over.
         let hovered = items.first { $0.targetFrame?.contains(pointer) == true }
         for item in items { item.view.isHovered = item === hovered }
+        scheduleFolding(pointerOver: hovered?.screen)
 
-        // Hovering any thumbnail pauses the whole overlay: auto-hide and folding the column back.
+        // Hovering any thumbnail pauses auto-hide for the whole overlay.
         if hovered != nil {
             cancelAutoDismiss()
-            collapseTask?.cancel()
-            collapseTask = nil
             return
         }
         if !settings.overlayAutoDismiss || items.isEmpty {
@@ -148,12 +146,19 @@ final class ThumbnailPresenter {
                 self.items.forEach(self.remove)
             }
         }
-        if expanded, collapseTask == nil {
-            collapseTask = Task { [weak self] in
+    }
+
+    private func scheduleFolding(pointerOver hovered: NSScreen?) {
+        let folding = expansion.pilesToFold(pointerOver: hovered)
+        for screen in collapseTasks.keys where !folding.contains(screen) {
+            collapseTasks.removeValue(forKey: screen)?.cancel()
+        }
+        for screen in folding where collapseTasks[screen] == nil {
+            collapseTasks[screen] = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(1)) // crossing the 10 pt gap between cards takes well under 1 s
                 guard !Task.isCancelled, let self else { return }
-                self.collapseTask = nil
-                self.expanded = false
+                self.collapseTasks[screen] = nil
+                self.expansion.collapse(on: screen)
                 self.layout()
             }
         }
@@ -236,7 +241,7 @@ final class ThumbnailPresenter {
         case .close:
             remove(item)
         case .expand:
-            expanded = true
+            expansion.expand(on: item.screen)
         }
         layout()
     }
