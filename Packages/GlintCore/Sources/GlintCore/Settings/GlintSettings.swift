@@ -35,6 +35,7 @@ public final class GlintSettings {
         static let bucketKeyPrefix = "bucketKeyPrefix"
         static let bucketPublicBaseURL = "bucketPublicBaseURL"
         static let uploadAfterCapture = "uploadAfterCapture"
+        static let pickerPromptExplained = "pickerPromptExplained"
     }
 
     private let store: KeyValueStore
@@ -174,5 +175,13 @@ public final class GlintSettings {
             return store.bool(forKey: Key.uploadAfterCapture) ?? false
         }
         set { withMutation(keyPath: \.uploadAfterCapture) { store.set(newValue, forKey: Key.uploadAfterCapture) } }
+    }
+
+    public var pickerPromptExplained: Bool {
+        get {
+            access(keyPath: \.pickerPromptExplained)
+            return store.bool(forKey: Key.pickerPromptExplained) ?? false
+        }
+        set { withMutation(keyPath: \.pickerPromptExplained) { store.set(newValue, forKey: Key.pickerPromptExplained) } }
     }
 }

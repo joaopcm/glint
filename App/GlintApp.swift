@@ -30,11 +30,13 @@ final class AppState {
     private let textCapture: TextCapture
     private let thumbnail: ThumbnailPresenter
     private let recordingIndicator: RecordingIndicator
+    private let toast: ToastPresenter
 
     init() {
         let bucket = BucketAccess(settings: settings, credentialStore: Self.bucketCredentialStore(), transport: URLSessionS3Transport())
         self.bucket = bucket
         let toast = ToastPresenter()
+        self.toast = toast
         let history = UploadHistory(file: Self.uploadHistoryFile())
         self.history = history
         let thumbnail = ThumbnailPresenter(
@@ -102,15 +104,29 @@ final class AppState {
     }
 
     func capture(_ mode: CaptureMode) {
-        Task { await coordinator.run(mode) }
+        explainingPickerPromptOnFirstUse { await self.coordinator.run(mode) }
     }
 
     func captureText() {
-        Task { await textCapture.run() }
+        explainingPickerPromptOnFirstUse { await self.textCapture.run() }
     }
 
     func record(_ mode: RecordingMode) {
-        Task { await coordinator.toggleRecording(mode) }
+        explainingPickerPromptOnFirstUse { await self.coordinator.toggleRecording(mode) }
+    }
+
+    /// The toast stays until `work` returns: macOS holds the first ScreenCaptureKit call until the prompt is answered.
+    private func explainingPickerPromptOnFirstUse(_ work: @escaping @MainActor () async -> Void) {
+        let major = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        let explains = PickerPromptNotice.shouldExplain(macOSMajor: major, alreadyExplained: settings.pickerPromptExplained)
+        if explains {
+            settings.pickerPromptExplained = true
+            toast.showUntilHidden(PickerPromptNotice.message)
+        }
+        Task {
+            await work()
+            if explains { toast.hide(PickerPromptNotice.message) }
+        }
     }
 }
 

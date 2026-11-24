@@ -84,3 +84,18 @@ private func makeCapture(
     try await Task.sleep(for: .seconds(1))
     #expect(toast.visibleMessage == nil)
 }
+
+@MainActor @Test func toastShownUntilHiddenStaysUpAndHidesOnlyItsOwnMessage() async throws {
+    let toast = ToastPresenter(visibleFor: .milliseconds(300), pointerLocation: { offScreen })
+    toast.showUntilHidden("Click Allow")
+    try await Task.sleep(for: .seconds(1))
+    #expect(toast.visibleMessage == "Click Allow")
+
+    toast.show("Copied 3 lines")
+    toast.hide("Click Allow")
+    #expect(toast.visibleMessage == "Copied 3 lines")
+
+    toast.showUntilHidden("Click Allow")
+    toast.hide("Click Allow")
+    #expect(toast.visibleMessage == nil)
+}
