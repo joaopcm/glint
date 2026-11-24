@@ -26,8 +26,10 @@ public actor ScreenRecording {
     /// ("failure to process first sample buffer", measured in the probe for #17), so stop waits for that frame.
     public func stop() async {
         await events.waitUntilStartedOrEnded()
-        // Throws -3808 when the stream already stopped on its own; the recording's own outcome reports that.
-        try? await stream.stopCapture()
+        // Fails with -3808 when the stream already stopped on its own; the recording's own outcome reports that.
+        await withCheckedContinuation { continuation in
+            stream.stopCapture { _ in continuation.resume() }
+        }
     }
 
     /// Returns once the file is finalized; throws when it is missing or only partly recorded.
