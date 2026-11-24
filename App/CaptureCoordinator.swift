@@ -282,7 +282,23 @@ final class CaptureCoordinator {
             guard case .area(let rect) = try await selector.selectArea(frozen: frozen) else { return nil }
             return try Self.crop(rect, from: frozen)
         case .window:
-            let windows = Task { try await capturer.shareableWindows() }
+            WindowListProbe.begin()
+            let capturer = capturer
+            let windows: Task<[CapturableWindow], any Error>
+            if WindowListProbe.mode == "detached" {
+                windows = Task.detached {
+                    let list = try await capturer.shareableWindows()
+                    WindowListProbe.mark("taskReturn")
+                    return list
+                }
+            } else {
+                windows = Task {
+                    let list = try await capturer.shareableWindows()
+                    WindowListProbe.mark("taskReturn")
+                    return list
+                }
+            }
+            if WindowListProbe.mode == "listFirst" { _ = try? await windows.value }
             guard case .window(let id) = try await selector.selectWindow(windows) else { return nil }
             return try await capturer.captureWindow(id: id)
         case .fullScreen:

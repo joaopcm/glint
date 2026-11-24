@@ -83,6 +83,8 @@ final class SelectionOverlayController: Selecting {
                 return OverlayPanel(screen: screen, view: view)
             }
             panels.forEach { $0.orderFrontRegardless() }
+            WindowListProbe.mark("overlayUp")
+            DispatchQueue.main.async { WindowListProbe.mark("mainFreeAfterOverlay") }
             let pointer = NSEvent.mouseLocation
             (panels.first { $0.frame.contains(pointer) } ?? panels[0]).makeKey()
             NSCursor.crosshair.set()
@@ -121,6 +123,7 @@ final class SelectionOverlayController: Selecting {
     }
 
     private func windowsLoaded(_ result: Result<[CapturableWindow], any Error>) {
+        WindowListProbe.mark("listOnMain")
         let windows: [CapturableWindow]
         do {
             windows = try result.get()

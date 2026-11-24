@@ -42,7 +42,10 @@ public actor ScreenCapturer {
     public func shareableWindows() async throws -> [CapturableWindow] {
         try Self.requirePermission()
         let ownBundleID = Bundle.main.bundleIdentifier
-        let windows = try await Self.shareableContent().windows
+        WindowListProbe.mark("scStart")
+        let content = try await Self.shareableContent()
+        WindowListProbe.mark("scEnd")
+        let windows = content.windows
             .filter { window in
                 window.isOnScreen
                     && window.windowLayer == 0
@@ -50,7 +53,9 @@ public actor ScreenCapturer {
                     && !window.frame.isEmpty
             }
             .map { CapturableWindow(id: $0.windowID, frame: $0.frame) }
-        return Self.sortedFrontToBack(windows, zOrder: Self.onScreenWindowIDsFrontToBack())
+        let sorted = Self.sortedFrontToBack(windows, zOrder: Self.onScreenWindowIDsFrontToBack())
+        WindowListProbe.mark("actorReturn")
+        return sorted
     }
 
     static func sortedFrontToBack(_ windows: [CapturableWindow], zOrder: [UInt32]) -> [CapturableWindow] {
