@@ -20,7 +20,7 @@ class WindowListProbeBase: GlintUITestCase {
             let script = NSAppleScript(source: "tell application \"Finder\" to close every window")
             script?.executeAndReturnError(nil)
         }
-        for _ in 0..<12 {
+        for _ in 0..<30 {
             press(.window)
             waitForOverlay(after: .window)
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
@@ -39,12 +39,12 @@ class WindowListProbeBase: GlintUITestCase {
         for phase in ["overlayUp", "mainFreeAfterOverlay", "scStart", "scEnd", "actorReturn", "taskReturn", "listOnMain"] {
             let values = presses.compactMap { $0[phase] }.sorted()
             guard !values.isEmpty else { continue }
-            print(String(format: "PROBE %@ %@ median %.2f min %.2f max %.2f n %d", mode, phase, values[values.count / 2], values[0], values[values.count - 1], values.count))
+            print(String(format: "PROBE %@ %@ p25 %.2f median %.2f p75 %.2f n %d", mode, phase, values[values.count / 4], values[values.count / 2], values[values.count * 3 / 4], values.count))
         }
         let hop = presses.compactMap { p in p["listOnMain"].flatMap { main in p["actorReturn"].map { main - $0 } } }.sorted()
-        if !hop.isEmpty { print(String(format: "PROBE %@ hop(actorReturn->listOnMain) median %.2f min %.2f max %.2f", mode, hop[hop.count / 2], hop[0], hop[hop.count - 1])) }
+        if !hop.isEmpty { print(String(format: "PROBE %@ hop(actorReturn->listOnMain) p25 %.2f median %.2f p75 %.2f", mode, hop[hop.count / 4], hop[hop.count / 2], hop[hop.count * 3 / 4])) }
         let sc = presses.compactMap { p in p["scEnd"].flatMap { end in p["scStart"].map { end - $0 } } }.sorted()
-        if !sc.isEmpty { print(String(format: "PROBE %@ sc(scStart->scEnd) median %.2f min %.2f max %.2f", mode, sc[sc.count / 2], sc[0], sc[sc.count - 1])) }
+        if !sc.isEmpty { print(String(format: "PROBE %@ sc(scStart->scEnd) p25 %.2f median %.2f p75 %.2f", mode, sc[sc.count / 4], sc[sc.count / 2], sc[sc.count * 3 / 4])) }
     }
 }
 
