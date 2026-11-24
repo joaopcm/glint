@@ -2,6 +2,7 @@ import Foundation
 import Network
 
 /// Stands in for an S3 bucket: answers every request on 127.0.0.1 with 200 and records it.
+/// `holdResponses()` keeps the answers back until `releaseResponses()`, like a slow bucket.
 final class StubS3Server: @unchecked Sendable {
     struct Request {
         let method: String
@@ -22,6 +23,8 @@ final class StubS3Server: @unchecked Sendable {
     private let lock = NSLock()
     private var received: [Request] = []
     private var listenError: NWError?
+    private var holding = false
+    private var held: [NWConnection] = []
 
     var port: UInt16 { listener.port?.rawValue ?? 0 }
 
@@ -60,6 +63,24 @@ final class StubS3Server: @unchecked Sendable {
         listener.cancel()
     }
 
+    func holdResponses() {
+        lock.withLock { holding = true }
+    }
+
+    func releaseResponses() {
+        let waiting = lock.withLock {
+            holding = false
+            defer { held = [] }
+            return held
+        }
+        queue.async { waiting.forEach(Self.answer) }
+    }
+
+    private static func answer(_ connection: NWConnection) {
+        let response = Data("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
+        connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+    }
+
     private func serve(_ connection: NWConnection) {
         connection.start(queue: queue)
         receive(on: connection, buffer: Data())
@@ -71,9 +92,12 @@ final class StubS3Server: @unchecked Sendable {
             var buffer = buffer
             if let data { buffer.append(data) }
             if let request = StubS3Server.parse(buffer) {
-                lock.withLock { self.received.append(request) }
-                let response = Data("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
-                connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+                let hold = lock.withLock {
+                    self.received.append(request)
+                    if self.holding { self.held.append(connection) }
+                    return self.holding
+                }
+                if !hold { Self.answer(connection) }
             } else if isComplete || error != nil {
                 connection.cancel()
             } else {

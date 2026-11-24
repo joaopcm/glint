@@ -8,4 +8,5 @@ enum AccessibilityID {
     static let uploadHistoryLink = "glint.uploadHistoryLink"
     static let uploadHistoryError = "glint.uploadHistoryError"
     static let deleteUpload = "glint.deleteUpload"
+    static let uploadProgress = "glint.uploadProgress"
 }

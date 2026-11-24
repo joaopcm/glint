@@ -149,8 +149,8 @@ final class ThumbnailPresenter {
         for item in items { item.view.isHovered = item === hovered }
         scheduleFolding(pointerOver: hovered?.screen)
 
-        // Hovering any thumbnail, dragging one out, a modal panel (Save As) or an open editor pauses auto-hide for the whole overlay.
-        if hovered != nil || isDraggingOut || isRunningModal || !editors.isEmpty {
+        // Hovering any thumbnail, dragging one out, a modal panel (Save As), an open editor or a running upload pauses auto-hide for the whole overlay.
+        if hovered != nil || isDraggingOut || isRunningModal || !editors.isEmpty || items.contains(where: \.isUploading) {
             cancelAutoDismiss()
             return
         }
@@ -277,16 +277,19 @@ final class ThumbnailPresenter {
     private func upload(_ item: ThumbnailItem) {
         guard !item.isUploading else { return }
         item.isUploading = true
+        refreshHover()
         Task {
-            defer { item.isUploading = false }
             do {
                 let uploaded = try await uploadFile(item.url)
+                item.isUploading = false
                 remove(item)
                 layout()
                 onUploaded(uploaded)
             } catch {
+                item.isUploading = false
                 showError("Glint couldn't upload the screenshot", error)
             }
+            refreshHover()
         }
     }
 
@@ -391,7 +394,9 @@ private final class ThumbnailItem {
     let view: ThumbnailView
     /// Where layout() put the panel (nil = hidden). Used for hover, since animated frames lag behind.
     var targetFrame: CGRect?
-    var isUploading = false
+    var isUploading = false {
+        didSet { view.isUploading = isUploading }
+    }
 
     init?(url: URL, screen: NSScreen) {
         guard let thumbnail = Self.thumbnail(of: url, on: screen) else { return nil }
@@ -450,6 +455,9 @@ private final class ThumbnailView: NSView, NSDraggingSource {
     private let controls = NSView()
     private let badgeLabel = NSTextField(labelWithString: "")
     private lazy var badge = Glass.capsule(holding: badgeLabel, tint: .controlAccentColor)
+    private var uploadButton: NSButton?
+    private let uploadSpinner = NSProgressIndicator()
+    private lazy var uploadIndicator = Glass.capsule(holding: uploadSpinner, tint: .controlAccentColor)
     private var mouseDownPoint: CGPoint?
     private var mouseDownScreenPoint: CGPoint?
     private var isResizing = false
@@ -476,6 +484,18 @@ private final class ThumbnailView: NSView, NSDraggingSource {
         didSet {
             updateControls()
             toolTip = isStacked ? "Click to expand" : nil
+        }
+    }
+
+    var isUploading = false {
+        didSet {
+            uploadButton?.isEnabled = !isUploading
+            uploadIndicator.isHidden = !isUploading
+            if isUploading {
+                uploadSpinner.startAnimation(nil)
+            } else {
+                uploadSpinner.stopAnimation(nil)
+            }
         }
     }
 
@@ -519,9 +539,11 @@ private final class ThumbnailView: NSView, NSDraggingSource {
         addSubview(controls)
 
         // One capsule, not loose glass buttons: loose ones vanish over busy captures.
+        let upload = button("icloud.and.arrow.up", "Upload", .upload)
+        uploadButton = upload
         let actionBar = Glass.toolbar([
             button("doc.on.doc", "Copy", .copy),
-            button("icloud.and.arrow.up", "Upload", .upload),
+            upload,
             button("square.and.arrow.down", "Save As…", .saveAs),
             button("pencil.tip.crop.circle", "Annotate", .annotate),
             button("pin", "Pin to Screen", .pin),
@@ -538,6 +560,15 @@ private final class ThumbnailView: NSView, NSDraggingSource {
         badge.isHidden = true
         badge.translatesAutoresizingMaskIntoConstraints = false
         addSubview(badge)
+
+        uploadSpinner.style = .spinning
+        uploadSpinner.controlSize = .small
+        uploadSpinner.isIndeterminate = true
+        uploadSpinner.setAccessibilityLabel("Uploading")
+        uploadSpinner.setAccessibilityIdentifier(AccessibilityID.uploadProgress)
+        uploadIndicator.isHidden = true
+        uploadIndicator.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(uploadIndicator)
 
         NSLayoutConstraint.activate([
             frame.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -562,6 +593,10 @@ private final class ThumbnailView: NSView, NSDraggingSource {
             badge.heightAnchor.constraint(equalToConstant: 22),
             badge.widthAnchor.constraint(greaterThanOrEqualToConstant: 22),
             badge.widthAnchor.constraint(greaterThanOrEqualTo: badgeLabel.widthAnchor, constant: 14),
+            uploadIndicator.centerXAnchor.constraint(equalTo: imageView.centerXAnchor),
+            uploadIndicator.centerYAnchor.constraint(equalTo: imageView.centerYAnchor),
+            uploadIndicator.widthAnchor.constraint(equalTo: badge.heightAnchor),
+            uploadIndicator.heightAnchor.constraint(equalTo: badge.heightAnchor),
         ])
 
         // .inVisibleRect follows resizes, so one area for the view's lifetime is enough.

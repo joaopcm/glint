@@ -56,3 +56,31 @@ import Testing
     ]))
     #expect(try store.load() == S3Credentials(accessKeyID: "id", secretAccessKey: "secret"))
 }
+
+@MainActor @Test func aRunningUploadHoldsAutoHideUntilItFinishes() async throws {
+    let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    settings.overlayAutoDismiss = true
+    settings.uploadAfterCapture = true
+    let bucketAnswers = AsyncStream<Void>.makeStream()
+    let reported = AsyncStream<UploadedCapture>.makeStream()
+    let uploaded = UploadedCapture(key: "shots/Ab3.png", link: URL(string: "https://shots.example.com/shots/Ab3.png")!)
+    let presenter = ThumbnailPresenter(
+        settings: settings,
+        upload: { _ in
+            for await _ in bucketAnswers.stream { break }
+            return uploaded
+        },
+        onUploaded: { reported.continuation.yield($0) },
+        autoDismissDelay: .milliseconds(100),
+        pointerLocation: { offScreen }
+    )
+
+    presenter.show(try writePNG())
+    try await Task.sleep(for: .milliseconds(400))
+    #expect(presenter.count == 1) // four auto-hide delays in, the card is still there because the upload is
+
+    bucketAnswers.continuation.yield()
+    var links = reported.stream.makeAsyncIterator()
+    #expect(await links.next() == uploaded)
+    #expect(presenter.count == 0)
+}
