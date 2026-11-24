@@ -7,14 +7,13 @@ final class TextCaptureUITests: GlintUITestCase {
     static let recognitionTimeout: TimeInterval = 60
 
     @MainActor func testDragOverTextCopiesItAndSavesNothing() throws {
-        let window = try openTextEditWindow(showing: Self.knownText)
-        let frame = window.frame
+        let body = try openTextEditDocumentBody(showing: Self.knownText).frame
         NSPasteboard.general.clearContents()
 
         press(.text)
         waitForOverlay(after: .text)
-        screenPoint(CGPoint(x: frame.minX + 4, y: frame.minY + 4))
-            .press(forDuration: 0.1, thenDragTo: screenPoint(CGPoint(x: frame.maxX - 4, y: frame.maxY - 4)))
+        screenPoint(CGPoint(x: body.minX, y: body.minY))
+            .press(forDuration: 0.1, thenDragTo: screenPoint(CGPoint(x: body.maxX, y: body.maxY)))
 
         let deadline = Date().addingTimeInterval(Self.recognitionTimeout)
         var copied = ""
@@ -31,7 +30,8 @@ final class TextCaptureUITests: GlintUITestCase {
         XCTAssertFalse(app.images.matching(NSPredicate(format: "label BEGINSWITH 'Screenshot '")).firstMatch.exists, "a text capture showed a thumbnail")
     }
 
-    @MainActor private func openTextEditWindow(showing text: String) throws -> XCUIElement {
+    /// Only the text view: the toolbar and ruler around it gave Vision enough noise to read "Glint" as "slint" (run 45441759860).
+    @MainActor private func openTextEditDocumentBody(showing text: String) throws -> XCUIElement {
         let folder = FileManager.default.temporaryDirectory.appending(path: "GlintTextUITests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let name = "glint-ocr-\(UUID().uuidString.prefix(8))"
@@ -45,6 +45,8 @@ final class TextCaptureUITests: GlintUITestCase {
         NSWorkspace.shared.open([file], withApplicationAt: URL(filePath: "/System/Applications/TextEdit.app"), configuration: NSWorkspace.OpenConfiguration())
         let window = textEdit.windows.matching(NSPredicate(format: "title BEGINSWITH %@", name)).firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: Self.captureTimeout), "TextEdit did not open \(file.path). TextEdit windows: \(textEdit.windows.debugDescription)")
-        return window
+        let body = window.textViews.firstMatch
+        XCTAssertTrue(body.waitForExistence(timeout: Self.captureTimeout), "TextEdit's \(name) window has no text view: \(window.debugDescription)")
+        return body
     }
 }
