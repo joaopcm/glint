@@ -6,6 +6,7 @@ import SwiftUI
 struct SettingsView: View {
     let settings: GlintSettings
     let bucket: BucketAccess
+    let history: UploadHistory
 
     var body: some View {
         TabView {
@@ -13,6 +14,8 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
             UploadSettingsView(bucket: bucket)
                 .tabItem { Label("Upload", systemImage: "icloud.and.arrow.up") }
+            UploadHistoryView(history: history, bucket: bucket)
+                .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
         }
     }
 }
