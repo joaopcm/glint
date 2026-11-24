@@ -14,8 +14,8 @@ final class CaptureUITests: GlintUITestCase {
         assertFinderFrontmost()
     }
 
-    @MainActor func testEscCancelsAreaAndWindow() {
-        for hotkey in [Hotkey.area, .window] {
+    @MainActor func testEscCancelsAreaWindowAndText() {
+        for hotkey in [Hotkey.area, .window, .text] {
             press(hotkey)
             waitForOverlay(after: hotkey)
             pressEscape()
@@ -54,6 +54,7 @@ final class CaptureUITests: GlintUITestCase {
         press(.area)
         press(.window)
         press(.fullScreen)
+        press(.text)
         assertPNGCount(0)
         XCTAssertEqual(overlays.count, NSScreen.screens.count, "a second overlay opened")
         pressEscape()

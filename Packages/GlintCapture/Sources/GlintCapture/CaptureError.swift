@@ -6,6 +6,7 @@ public enum CaptureError: Error, LocalizedError, Equatable {
     case displayNotFound(UInt32)
     case windowNotFound(UInt32)
     case writeFailed(path: String, underlying: String)
+    case textRecognitionFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -19,6 +20,8 @@ public enum CaptureError: Error, LocalizedError, Equatable {
             "Window \(id) is not available to capture. It may have closed or left the screen."
         case .writeFailed(let path, let underlying):
             "Could not save the screenshot to \(path): \(underlying)"
+        case .textRecognitionFailed(let reason):
+            "Could not read the text in the selection: \(reason)"
         }
     }
 }

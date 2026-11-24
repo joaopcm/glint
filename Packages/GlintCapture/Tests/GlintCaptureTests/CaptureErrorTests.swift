@@ -18,3 +18,8 @@ import Testing
     #expect(message.contains("/tmp/shots/a.png"))
     #expect(message.contains("Permission denied"))
 }
+
+@Test func textRecognitionFailedNamesTheReason() {
+    let message = CaptureError.textRecognitionFailed("The image is too small").errorDescription ?? ""
+    #expect(message.contains("The image is too small"))
+}
