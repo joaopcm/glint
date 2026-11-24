@@ -74,8 +74,10 @@ public struct S3Client: Sendable {
     }
 
     @discardableResult
-    public func put(key: String, body: Data, contentType: String) async throws(S3Error) -> Int {
-        try await send("PUT", key: key, headers: ["Content-Type": contentType], body: body)
+    public func put(key: String, body: Data, contentType: String, contentDisposition: String? = nil) async throws(S3Error) -> Int {
+        var headers = ["Content-Type": contentType]
+        headers["Content-Disposition"] = contentDisposition
+        return try await send("PUT", key: key, headers: headers, body: body)
     }
 
     @discardableResult

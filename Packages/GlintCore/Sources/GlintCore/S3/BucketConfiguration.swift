@@ -61,7 +61,7 @@ public struct BucketConfiguration: Sendable, Equatable {
         let endpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !endpoint.isEmpty else { throw .endpointMissing }
         guard let normalized = Self.webURL(endpoint) else { throw .endpointInvalid(endpoint) }
-        guard normalized.hasNoPath else { throw .endpointHasPath(endpoint) }
+        guard normalized.path.isEmpty else { throw .endpointHasPath(endpoint) }
         let region = region.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !region.isEmpty else { throw .regionMissing }
         let bucket = bucket.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -71,7 +71,7 @@ public struct BucketConfiguration: Sendable, Equatable {
         var publicURL: URL?
         if !publicBaseURL.isEmpty {
             guard let url = Self.webURL(publicBaseURL) else { throw .publicBaseURLInvalid(publicBaseURL) }
-            publicURL = url.url
+            publicURL = URL(string: url.url.absoluteString + url.path)
         }
 
         self.endpoint = normalized.url
@@ -84,6 +84,11 @@ public struct BucketConfiguration: Sendable, Equatable {
 
     public func objectKey(forName name: String) -> String {
         keyPrefix.isEmpty ? name : "\(keyPrefix)/\(name)"
+    }
+
+    public func publicURL(forKey key: String) -> URL {
+        guard let publicBaseURL else { return objectURL(forKey: key) }
+        return URL(string: publicBaseURL.absoluteString + "/" + SigV4.uriEncode(key, keepingSlashes: true))!
     }
 
     public func objectURL(forKey key: String) -> URL {
@@ -100,7 +105,7 @@ public struct BucketConfiguration: Sendable, Equatable {
 
     private struct WebURL {
         let url: URL
-        let hasNoPath: Bool
+        let path: String
     }
 
     // URLSession leaves a default port out of the Host header, and S3Signer signs the port it finds in the URL,
@@ -118,6 +123,7 @@ public struct BucketConfiguration: Sendable, Equatable {
         }
         components.percentEncodedPath = ""
         guard components.query == nil, components.fragment == nil, components.user == nil, let url = components.url else { return nil }
-        return WebURL(url: url, hasNoPath: path.isEmpty || path == "/")
+        let segments = path.split(separator: "/")
+        return WebURL(url: url, path: segments.isEmpty ? "" : "/" + segments.joined(separator: "/"))
     }
 }

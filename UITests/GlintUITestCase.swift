@@ -19,6 +19,7 @@ class GlintUITestCase: XCTestCase {
 
     /// Subclasses add `-key value` pairs to start Glint with other settings.
     var extraLaunchArguments: [String] { [] }
+    var extraLaunchEnvironment: [String: String] { [:] }
 
     @MainActor private(set) var app: XCUIApplication!
     @MainActor private(set) var finder: XCUIApplication!
@@ -61,6 +62,7 @@ class GlintUITestCase: XCTestCase {
             "-overlayCorner", "bottomRight",
             "-thumbnailWidth", "240",
         ] + extraLaunchArguments
+        app.launchEnvironment = extraLaunchEnvironment
         app.launch()
         finder.activate()
         XCTAssertFalse(overlay.exists, "a selection overlay is already up before the test started")

@@ -26,6 +26,10 @@ struct UploadSettingsView: View {
                 Text("The keys are stored in your Keychain.")
             }
             Section {
+                Toggle("Upload after capture", isOn: $settings.uploadAfterCapture)
+                    .help("Upload every new capture and copy its link, as if you clicked Upload on its thumbnail.")
+            }
+            Section {
                 HStack {
                     Button("Test Connection") { Task { await bucket.testConnection() } }
                         .disabled(bucket.connectionTest == .running)
