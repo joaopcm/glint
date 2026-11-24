@@ -17,6 +17,9 @@ class GlintUITestCase: XCTestCase {
     static let noFileWait: TimeInterval = 2
     static let terminateTimeout: TimeInterval = 5
 
+    /// Subclasses add `-key value` pairs to start Glint with other settings.
+    var extraLaunchArguments: [String] { [] }
+
     @MainActor private(set) var app: XCUIApplication!
     @MainActor private(set) var finder: XCUIApplication!
     private(set) var saveFolder: URL!
@@ -57,7 +60,7 @@ class GlintUITestCase: XCTestCase {
             "-overlayAutoDismiss", "NO",
             "-overlayCorner", "bottomRight",
             "-thumbnailWidth", "240",
-        ]
+        ] + extraLaunchArguments
         app.launch()
         finder.activate()
         XCTAssertFalse(overlay.exists, "a selection overlay is already up before the test started")
@@ -143,6 +146,29 @@ class GlintUITestCase: XCTestCase {
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         context?.draw(corner, in: CGRect(x: 0, y: 0, width: 1, height: 1))
         return pixel[3]
+    }
+
+    /// Share of pixels whose RGB differs by more than `tolerance` on any channel; 1 when the sizes differ.
+    func differingPixelShare(_ a: URL, _ b: URL, tolerance: UInt8 = 8) -> Double {
+        guard let first = rgba(of: a), let second = rgba(of: b), first.count == second.count, !first.isEmpty else { return 1 }
+        var differing = 0
+        for pixel in stride(from: 0, to: first.count, by: 4) {
+            let channels = (0..<3).map { abs(Int(first[pixel + $0]) - Int(second[pixel + $0])) }
+            if channels.contains(where: { $0 > Int(tolerance) }) { differing += 1 }
+        }
+        return Double(differing) / Double(first.count / 4)
+    }
+
+    private func rgba(of url: URL) -> [UInt8]? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { return nil }
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let context = CGContext(data: &pixels, width: image.width, height: image.height, bitsPerComponent: 8,
+                                bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        context?.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return pixels
     }
 
     func pixelSize(of url: URL) -> CGSize {
