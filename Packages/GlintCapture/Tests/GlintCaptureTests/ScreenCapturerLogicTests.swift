@@ -4,7 +4,7 @@ import Testing
 @testable import GlintCapture
 
 private func window(_ id: UInt32) -> CapturableWindow {
-    CapturableWindow(id: id, frame: CGRect(x: 0, y: 0, width: 100, height: 100), title: nil, appName: nil)
+    CapturableWindow(id: id, frame: CGRect(x: 0, y: 0, width: 100, height: 100))
 }
 
 @Test func windowsFollowZOrderWithUnknownWindowsLast() {

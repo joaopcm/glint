@@ -49,14 +49,7 @@ public actor ScreenCapturer {
                     && window.owningApplication?.bundleIdentifier != ownBundleID
                     && !window.frame.isEmpty
             }
-            .map { window in
-                CapturableWindow(
-                    id: window.windowID,
-                    frame: window.frame,
-                    title: window.title,
-                    appName: window.owningApplication?.applicationName
-                )
-            }
+            .map { CapturableWindow(id: $0.windowID, frame: $0.frame) }
         return Self.sortedFrontToBack(windows, zOrder: Self.onScreenWindowIDsFrontToBack())
     }
 
