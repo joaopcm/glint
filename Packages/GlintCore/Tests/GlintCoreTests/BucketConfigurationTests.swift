@@ -53,7 +53,14 @@ private func configuration(
 @Test func publicBaseURLIsOptionalButMustBeAWebURL() throws {
     #expect(try configuration().publicBaseURL == nil)
     #expect(try configuration(publicBaseURL: "https://shots.example.com/").publicBaseURL?.absoluteString == "https://shots.example.com")
+    #expect(try configuration(publicBaseURL: "http://localhost:9000/shots//").publicBaseURL?.absoluteString == "http://localhost:9000/shots")
     #expect(throws: BucketSetupError.publicBaseURLInvalid("shots.example.com")) { try configuration(publicBaseURL: "shots.example.com") }
+}
+
+@Test func publicURLFollowsThePublicBaseURLOrFallsBackToTheObjectURL() throws {
+    #expect(try configuration(publicBaseURL: "https://cdn.example.com/screens").publicURL(forKey: "glint/a b.png").absoluteString
+        == "https://cdn.example.com/screens/glint/a%20b.png")
+    #expect(try configuration().publicURL(forKey: "glint/a.png").absoluteString == "https://shots.s3.us-east-1.amazonaws.com/glint/a.png")
 }
 
 @Test func everyMissingOrBadFieldIsNamed() {

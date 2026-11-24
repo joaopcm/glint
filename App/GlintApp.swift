@@ -30,12 +30,21 @@ final class AppState {
     private let thumbnail: ThumbnailPresenter
 
     init() {
-        bucket = BucketAccess(
+        let bucket = BucketAccess(settings: settings, credentialStore: Self.bucketCredentialStore(), transport: URLSessionS3Transport())
+        self.bucket = bucket
+        let toast = ToastPresenter()
+        let thumbnail = ThumbnailPresenter(
             settings: settings,
-            credentialStore: KeychainCredentialStore(service: KeychainCredentialStore.bucketService),
-            transport: URLSessionS3Transport()
+            upload: { try await bucket.upload($0) },
+            onUploaded: { uploaded in
+                do {
+                    try NSPasteboard.general.copyText(uploaded.link.absoluteString)
+                    toast.show("Link copied")
+                } catch {
+                    toast.show("Uploaded, but the clipboard refused the link: \(error.localizedDescription)")
+                }
+            }
         )
-        let thumbnail = ThumbnailPresenter(settings: settings)
         self.thumbnail = thumbnail
         let capturer = ScreenCapturer()
         let coordinator = CaptureCoordinator(
@@ -46,7 +55,6 @@ final class AppState {
             onSaved: { thumbnail.show($0) }
         )
         self.coordinator = coordinator
-        let toast = ToastPresenter()
         textCapture = TextCapture(
             captureImage: { await coordinator.captureImage(.area) },
             alerts: NSAlertPresenter(),
@@ -61,6 +69,15 @@ final class AppState {
             KeyboardShortcuts.onKeyDown(for: name) { [weak self] in self?.capture(mode) }
         }
         KeyboardShortcuts.onKeyDown(for: .captureText) { [weak self] in self?.captureText() }
+    }
+
+    private static func bucketCredentialStore() -> any CredentialStore {
+        #if DEBUG
+        if let uiTestKeys = EnvironmentCredentialStore(environment: ProcessInfo.processInfo.environment) {
+            return uiTestKeys
+        }
+        #endif
+        return KeychainCredentialStore(service: KeychainCredentialStore.bucketService)
     }
 
     func capture(_ mode: CaptureMode) {

@@ -26,7 +26,7 @@ let offScreen = CGPoint(x: -10_000, y: -10_000) // the real pointer could hover 
 @MainActor @Test func autoHideWaitsUntilStackingStopsThenHidesThePileTogether() async throws {
     let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     settings.overlayAutoDismiss = true
-    let presenter = ThumbnailPresenter(settings: settings, autoDismissDelay: .seconds(1), pointerLocation: { offScreen })
+    let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, autoDismissDelay: .seconds(1), pointerLocation: { offScreen })
 
     presenter.show(try writePNG())
     try await Task.sleep(for: .milliseconds(600))
@@ -40,7 +40,7 @@ let offScreen = CGPoint(x: -10_000, y: -10_000) // the real pointer could hover 
 
 @MainActor @Test func autoHideOffKeepsThumbnails() async throws {
     let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
-    let presenter = ThumbnailPresenter(settings: settings, autoDismissDelay: .milliseconds(100), pointerLocation: { offScreen })
+    let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, autoDismissDelay: .milliseconds(100), pointerLocation: { offScreen })
     presenter.show(try writePNG())
     try await Task.sleep(for: .milliseconds(300))
     #expect(presenter.count == 1)
@@ -49,7 +49,7 @@ let offScreen = CGPoint(x: -10_000, y: -10_000) // the real pointer could hover 
 @MainActor @Test func dragOutPausesAutoHideAndItsEndRestartsTheCountdown() async throws {
     let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     settings.overlayAutoDismiss = true
-    let presenter = ThumbnailPresenter(settings: settings, autoDismissDelay: .milliseconds(400), pointerLocation: { offScreen })
+    let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, autoDismissDelay: .milliseconds(400), pointerLocation: { offScreen })
 
     presenter.show(try writePNG())
     presenter.setDraggingOut(true)

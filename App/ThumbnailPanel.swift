@@ -24,6 +24,8 @@ final class ThumbnailPresenter {
     private var isDraggingOut = false
     private var isRunningModal = false
     private let pointerLocation: @MainActor () -> CGPoint
+    private let uploadFile: @MainActor (URL) async throws -> UploadedCapture
+    private let onUploaded: @MainActor (UploadedCapture) -> Void
     private var observers: [NSObjectProtocol] = []
     private var lastLayoutSettings: LayoutSettings?
     private var liveWidth: CGFloat?
@@ -33,10 +35,14 @@ final class ThumbnailPresenter {
     // ponytail: fixed 6 s when auto-hide is on; make the delay a setting if someone asks.
     init(
         settings: GlintSettings,
+        upload: @escaping @MainActor (URL) async throws -> UploadedCapture,
+        onUploaded: @escaping @MainActor (UploadedCapture) -> Void,
         autoDismissDelay: Duration = .seconds(6),
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation }
     ) {
         self.settings = settings
+        uploadFile = upload
+        self.onUploaded = onUploaded
         self.autoDismissDelay = autoDismissDelay
         self.pointerLocation = pointerLocation
         BackgroundCursor.enable()
@@ -68,6 +74,9 @@ final class ThumbnailPresenter {
         expansion.collapse(on: screen)
         cancelAutoDismiss() // still stacking: restart the countdown (layout() schedules it again)
         layout()
+        if settings.uploadAfterCapture {
+            upload(item)
+        }
     }
 
     static func columnCapacity(in visible: CGRect, width: CGFloat) -> Int {
@@ -239,6 +248,8 @@ final class ThumbnailPresenter {
             } catch {
                 showError("Glint couldn't copy the screenshot", error)
             }
+        case .upload:
+            upload(item)
         case .saveAs:
             saveAs(item)
         case .annotate:
@@ -264,6 +275,22 @@ final class ThumbnailPresenter {
         items.removeAll { $0 === item }
         // Actions arrive from inside the panel's own event handling; free it on the next turn.
         DispatchQueue.main.async { withExtendedLifetime(item) {} }
+    }
+
+    private func upload(_ item: ThumbnailItem) {
+        guard !item.isUploading else { return }
+        item.isUploading = true
+        Task {
+            defer { item.isUploading = false }
+            do {
+                let uploaded = try await uploadFile(item.url)
+                remove(item)
+                layout()
+                onUploaded(uploaded)
+            } catch {
+                showError("Glint couldn't upload the screenshot", error)
+            }
+        }
     }
 
     private func saveAs(_ item: ThumbnailItem) {
@@ -349,6 +376,7 @@ private final class ThumbnailItem {
     let view: ThumbnailView
     /// Where layout() put the panel (nil = hidden). Used for hover, since animated frames lag behind.
     var targetFrame: CGRect?
+    var isUploading = false
 
     init?(url: URL, screen: NSScreen) {
         // A downsampled copy: the full capture can be tens of MB and thumbnails stay until dismissed.
@@ -383,7 +411,7 @@ private final class ThumbnailItem {
 }
 
 private final class ThumbnailView: NSView, NSDraggingSource {
-    enum Action: Int { case copy, saveAs, annotate, pin, close, expand }
+    enum Action: Int { case copy, upload, saveAs, annotate, pin, close, expand }
     enum Resize {
         case drag(translation: CGSize, ended: Bool)
         case magnify(CGFloat, ended: Bool)
@@ -471,6 +499,7 @@ private final class ThumbnailView: NSView, NSDraggingSource {
         // One capsule, not loose glass buttons: loose ones vanish over busy captures.
         let actionBar = Glass.toolbar([
             button("doc.on.doc", "Copy", .copy),
+            button("icloud.and.arrow.up", "Upload", .upload),
             button("square.and.arrow.down", "Save As…", .saveAs),
             button("pencil.tip.crop.circle", "Annotate in Preview", .annotate),
             button("pin", "Pin to Screen", .pin),

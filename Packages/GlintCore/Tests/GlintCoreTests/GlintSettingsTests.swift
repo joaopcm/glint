@@ -68,7 +68,7 @@ private let desktop = URL(filePath: "/Users/me/Desktop")
     settings.thumbnailWidth = 5000
     #expect(settings.thumbnailWidth == 480)
     store.set(10.0, forKey: "thumbnailWidth") // out-of-range value already on disk
-    #expect(settings.thumbnailWidth == 160)
+    #expect(settings.thumbnailWidth == 190)
     #expect(GlintSettings.clampWidth(.nan) == 240)
 }
 
@@ -96,6 +96,13 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(changeIsSeen(\.overlayAutoDismiss, becomes: true))
     #expect(changeIsSeen(\.thumbnailWidth, becomes: 300))
     #expect(changeIsSeen(\.freezeScreenWhileSelecting, becomes: true))
+}
+
+@MainActor @Test func uploadAfterCaptureDefaultsOffAndRoundTrips() {
+    let store = MemoryStore()
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).uploadAfterCapture == false)
+    GlintSettings(store: store, defaultSaveFolder: desktop).uploadAfterCapture = true
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).uploadAfterCapture == true)
 }
 
 @MainActor @Test func freezeScreenDefaultsOffAndRoundTrips() {

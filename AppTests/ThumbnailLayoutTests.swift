@@ -55,7 +55,7 @@ import Testing
 @MainActor @Test func showDropsOldestWhenTheColumnWouldOverflow() throws {
     let screen = try #require(NSScreen.main)
     let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
-    let presenter = ThumbnailPresenter(settings: settings, pointerLocation: { CGPoint(x: screen.frame.midX, y: screen.frame.midY) })
+    let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, pointerLocation: { CGPoint(x: screen.frame.midX, y: screen.frame.midY) })
     let fit = ThumbnailPresenter.columnCapacity(in: screen.visibleFrame, width: GlintSettings.defaultThumbnailWidth)
     let files = try (0..<(fit + 2)).map { _ in try writePNG() }
 
@@ -68,7 +68,7 @@ import Testing
 @MainActor @Test func growingTheCardsDropsOldestWhenTheColumnWouldOverflow() throws {
     let screen = try #require(NSScreen.main)
     let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
-    let presenter = ThumbnailPresenter(settings: settings, pointerLocation: { CGPoint(x: screen.frame.midX, y: screen.frame.midY) })
+    let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, pointerLocation: { CGPoint(x: screen.frame.midX, y: screen.frame.midY) })
     let widest = GlintSettings.thumbnailWidthRange.upperBound
     let fit = ThumbnailPresenter.columnCapacity(in: screen.visibleFrame, width: GlintSettings.defaultThumbnailWidth)
     let fitWhenWidest = ThumbnailPresenter.columnCapacity(in: screen.visibleFrame, width: widest)

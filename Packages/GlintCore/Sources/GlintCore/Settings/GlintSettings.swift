@@ -29,6 +29,7 @@ public final class GlintSettings {
         static let bucketPathStyle = "bucketPathStyle"
         static let bucketKeyPrefix = "bucketKeyPrefix"
         static let bucketPublicBaseURL = "bucketPublicBaseURL"
+        static let uploadAfterCapture = "uploadAfterCapture"
     }
 
     private let store: KeyValueStore
@@ -67,9 +68,10 @@ public final class GlintSettings {
     }
 
     public static let defaultThumbnailWidth: Double = 240
-    /// 160: narrowest card whose hover toolbar (4 × 28 pt buttons + insets = 130 pt) still fits with margins.
+    /// 190: narrowest card whose hover toolbar (5 × 28 pt buttons + 4 × 2 pt spacing + 12 pt insets = 160 pt) still fits
+    /// inside the 5 pt rim with 10 pt to spare on each side.
     /// 480: a 320 pt tall card; two still fit in the column on a 13" MacBook Air (≈ 900 pt visible height).
-    public static let thumbnailWidthRange: ClosedRange<Double> = 160...480
+    public static let thumbnailWidthRange: ClosedRange<Double> = 190...480
 
     /// Width of the quick-access thumbnails in points (height follows at 3:2), clamped to `thumbnailWidthRange`.
     public var thumbnailWidth: Double {
@@ -149,5 +151,14 @@ public final class GlintSettings {
             return store.string(forKey: Key.bucketPublicBaseURL) ?? ""
         }
         set { withMutation(keyPath: \.bucketPublicBaseURL) { store.set(newValue, forKey: Key.bucketPublicBaseURL) } }
+    }
+
+    /// Off by default: uploading sends the capture off this Mac, so the user asks for it.
+    public var uploadAfterCapture: Bool {
+        get {
+            access(keyPath: \.uploadAfterCapture)
+            return store.bool(forKey: Key.uploadAfterCapture) ?? false
+        }
+        set { withMutation(keyPath: \.uploadAfterCapture) { store.set(newValue, forKey: Key.uploadAfterCapture) } }
     }
 }
