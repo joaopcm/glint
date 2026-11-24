@@ -29,6 +29,7 @@ final class AppState {
     private let coordinator: CaptureCoordinator
     private let textCapture: TextCapture
     private let thumbnail: ThumbnailPresenter
+    private let recordingIndicator: RecordingIndicator
 
     init() {
         let bucket = BucketAccess(settings: settings, credentialStore: Self.bucketCredentialStore(), transport: URLSessionS3Transport())
@@ -51,14 +52,19 @@ final class AppState {
         )
         self.thumbnail = thumbnail
         let capturer = ScreenCapturer()
+        let recordingIndicator = RecordingIndicator()
+        self.recordingIndicator = recordingIndicator
         let coordinator = CaptureCoordinator(
             capturer: capturer,
+            recorder: capturer,
             selector: SelectionOverlayController(snapshot: { try await capturer.captureDisplay($0) }),
             alerts: NSAlertPresenter(),
             settings: settings,
-            onSaved: { thumbnail.show($0) }
+            onSaved: { thumbnail.show($0) },
+            onRecordingChange: { recordingIndicator.update(region: $0) }
         )
         self.coordinator = coordinator
+        recordingIndicator.onStop = { Task { await coordinator.stopRecording() } }
         textCapture = TextCapture(
             captureImage: { await coordinator.captureImage(.area) },
             alerts: NSAlertPresenter(),
@@ -73,6 +79,8 @@ final class AppState {
             KeyboardShortcuts.onKeyDown(for: name) { [weak self] in self?.capture(mode) }
         }
         KeyboardShortcuts.onKeyDown(for: .captureText) { [weak self] in self?.captureText() }
+        KeyboardShortcuts.onKeyDown(for: .recordArea) { [weak self] in self?.record(.area) }
+        KeyboardShortcuts.onKeyDown(for: .recordWindow) { [weak self] in self?.record(.window) }
     }
 
     private static func bucketCredentialStore() -> any CredentialStore {
@@ -100,6 +108,10 @@ final class AppState {
     func captureText() {
         Task { await textCapture.run() }
     }
+
+    func record(_ mode: RecordingMode) {
+        Task { await coordinator.toggleRecording(mode) }
+    }
 }
 
 private struct MenuContent: View {
@@ -111,6 +123,9 @@ private struct MenuContent: View {
         Button("Capture Window") { state.capture(.window) }
         Button("Capture Full Screen") { state.capture(.fullScreen) }
         Button("Capture Text") { state.captureText() }
+        Divider()
+        Button("Record Area") { state.record(.area) }
+        Button("Record Window") { state.record(.window) }
         Divider()
         Button("Settings…") {
             NSApplication.shared.activate()

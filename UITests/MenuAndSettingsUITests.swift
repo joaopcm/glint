@@ -6,7 +6,7 @@ final class MenuAndSettingsUITests: GlintUITestCase {
 
     @MainActor func testMenuShowsCaptureItemsSettingsVersionAndQuit() {
         let menu = openMenu()
-        for title in ["Capture Area", "Capture Window", "Capture Full Screen", "Capture Text", "Settings…", "Quit Glint"] {
+        for title in ["Capture Area", "Capture Window", "Capture Full Screen", "Capture Text", "Record Area", "Record Window", "Settings…", "Quit Glint"] {
             let item = menu.descendants(matching: .menuItem)[title]
             XCTAssertTrue(item.waitForExistence(timeout: Self.captureTimeout), "menu has no \"\(title)\"")
             XCTAssertTrue(item.isEnabled, "\"\(title)\" is disabled")
@@ -30,7 +30,7 @@ final class MenuAndSettingsUITests: GlintUITestCase {
     @MainActor func testSettingsShowsDefaultShortcuts() {
         openMenu().descendants(matching: .menuItem)["Settings…"].click()
         XCTAssertTrue(settingsWindowContent.waitForExistence(timeout: Self.captureTimeout))
-        for shortcut in ["⇧⌘2", "⌃⇧⌘2", "⇧⌘1", "⌥⇧⌘2"] {
+        for shortcut in ["⇧⌘2", "⌃⇧⌘2", "⇧⌘1", "⌥⇧⌘2", "⌥⇧⌘5", "⌃⌥⇧⌘5"] {
             let recorder = app.descendants(matching: .any).matching(NSPredicate(format: "value == %@", shortcut)).firstMatch
             XCTAssertTrue(recorder.exists, "no shortcut recorder shows \(shortcut)")
         }

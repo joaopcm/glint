@@ -9,6 +9,8 @@ class GlintUITestCase: XCTestCase {
         case window = "window ⌃⇧⌘2"
         case fullScreen = "full screen ⇧⌘1"
         case text = "text ⌥⇧⌘2"
+        case recordArea = "record area ⌥⇧⌘5"
+        case recordWindow = "record window ⌃⌥⇧⌘5"
 
         var shortcut: (name: String, key: Int, carbonModifiers: Int, flags: CGEventFlags) {
             switch self {
@@ -16,6 +18,8 @@ class GlintUITestCase: XCTestCase {
             case .window: ("captureWindow", kVK_ANSI_2, controlKey | cmdKey | shiftKey, [.maskControl, .maskCommand, .maskShift])
             case .fullScreen: ("captureFullScreen", kVK_ANSI_1, cmdKey | shiftKey, [.maskCommand, .maskShift])
             case .text: ("captureText", kVK_ANSI_2, optionKey | cmdKey | shiftKey, [.maskAlternate, .maskCommand, .maskShift])
+            case .recordArea: ("recordArea", kVK_ANSI_5, optionKey | cmdKey | shiftKey, [.maskAlternate, .maskCommand, .maskShift])
+            case .recordWindow: ("recordWindow", kVK_ANSI_5, controlKey | optionKey | cmdKey | shiftKey, [.maskControl, .maskAlternate, .maskCommand, .maskShift])
             }
         }
     }

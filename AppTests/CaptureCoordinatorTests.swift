@@ -29,13 +29,21 @@ private actor FakeCapturer: Capturing {
     let failure: CaptureError?
     let permissionGranted: Bool
     let windowListGate: Gate?
+    let windows: [CapturableWindow]
     private(set) var capturedDisplayIDs: [UInt32] = []
     private(set) var capturedWindowIDs: [UInt32] = []
     private(set) var windowListServed = false
     private(set) var areaCaptureCount = 0
 
-    init(displays: [DisplayInfo] = [mainDisplay], failure: CaptureError? = nil, permissionGranted: Bool = true, windowListGate: Gate? = nil) {
+    init(
+        displays: [DisplayInfo] = [mainDisplay],
+        failure: CaptureError? = nil,
+        permissionGranted: Bool = true,
+        windowListGate: Gate? = nil,
+        windows: [CapturableWindow] = []
+    ) {
         displayList = displays
+        self.windows = windows
         self.failure = failure
         self.permissionGranted = permissionGranted
         self.windowListGate = windowListGate
@@ -65,7 +73,7 @@ private actor FakeCapturer: Capturing {
         await windowListGate?.wait()
         windowListServed = true
         if let failure { throw failure }
-        return []
+        return windows
     }
 
     private func image(width: Int = 10, height: Int = 10) throws -> CGImage {
@@ -75,6 +83,49 @@ private actor FakeCapturer: Capturing {
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )!
         return context.makeImage()!
+    }
+}
+
+private actor FakeRecording: ActiveRecording {
+    let url: URL
+    let outcome: CaptureError?
+    private let stopGate = Gate()
+    private(set) var stopCount = 0
+
+    init(url: URL, outcome: CaptureError?) {
+        self.url = url
+        self.outcome = outcome
+    }
+
+    func stop() async {
+        stopCount += 1
+        await stopGate.open()
+    }
+
+    func finished() async throws {
+        await stopGate.wait()
+        FileManager.default.createFile(atPath: url.path, contents: Data("mp4".utf8))
+        if let outcome { throw outcome }
+    }
+}
+
+private actor FakeRecorder: Recording {
+    let startFailure: CaptureError?
+    let outcome: CaptureError?
+    private(set) var starts: [(target: RecordingTarget, url: URL, codec: VideoCodec)] = []
+    private(set) var recordings: [FakeRecording] = []
+
+    init(startFailure: CaptureError? = nil, outcome: CaptureError? = nil) {
+        self.startFailure = startFailure
+        self.outcome = outcome
+    }
+
+    func startRecording(_ target: RecordingTarget, to url: URL, codec: VideoCodec) async throws -> any ActiveRecording {
+        if let startFailure { throw startFailure }
+        starts.append((target, url, codec))
+        let recording = FakeRecording(url: url, outcome: outcome)
+        recordings.append(recording)
+        return recording
     }
 }
 
@@ -132,13 +183,16 @@ private struct Harness {
 
     init(
         capturer: FakeCapturer = FakeCapturer(),
+        recorder: FakeRecorder = FakeRecorder(),
         selection: SelectionResult,
         pointer: CGPoint = .zero,
         createFolder: Bool = true,
         clipboardOn: Bool? = nil,
         freezeOn: Bool = false,
+        codec: VideoCodec = .h264,
         copyToClipboard: (@MainActor (URL) throws -> Void)? = nil,
-        onSaved: @escaping @MainActor (URL) -> Void = { _ in }
+        onSaved: @escaping @MainActor (URL) -> Void = { _ in },
+        onRecordingChange: @escaping @MainActor (CGRect?) -> Void = { _ in }
     ) throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "GlintTests-\(UUID().uuidString)")
         folder = createFolder ? root : root.appending(path: "missing")
@@ -148,9 +202,11 @@ private struct Harness {
         let settings = GlintSettings(store: MemoryStore(), defaultSaveFolder: folder)
         settings.copyToClipboardAfterCapture = clipboardOn ?? (copyToClipboard != nil)
         settings.freezeScreenWhileSelecting = freezeOn
+        settings.recordingCodec = codec
         selector = FakeSelector(selection)
         coordinator = CaptureCoordinator(
             capturer: capturer,
+            recorder: recorder,
             selector: selector,
             alerts: alerts,
             settings: settings,
@@ -158,7 +214,8 @@ private struct Harness {
             fileExists: { FileManager.default.fileExists(atPath: $0.path) },
             pointerLocation: { pointer },
             copyToClipboard: copyToClipboard ?? { _ in },
-            onSaved: onSaved
+            onSaved: onSaved,
+            onRecordingChange: onRecordingChange
         )
     }
 
@@ -393,4 +450,127 @@ private struct PasteboardLocked: LocalizedError {
     let alert = try #require(harness.alerts.presented.first)
     #expect(alert.message == CaptureError.displayNotFound(1).localizedDescription)
     #expect(try harness.savedFiles().isEmpty)
+}
+
+private let recordedArea = CGRect(x: 100, y: 200, width: 300, height: 150)
+
+@MainActor @Test func recordingAnAreaStartsOnItsDisplayShowsTheBorderAndStopHandsOverTheMP4() async throws {
+    let recorder = FakeRecorder()
+    var regions: [CGRect?] = []
+    var handed: [URL] = []
+    let harness = try Harness(
+        recorder: recorder,
+        selection: .area(recordedArea),
+        onSaved: { handed.append($0) },
+        onRecordingChange: { regions.append($0) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    let start = try #require(await recorder.starts.first)
+    #expect(start.target == .area(recordedArea, on: mainDisplay))
+    #expect(start.codec == .h264)
+    #expect(start.url.deletingLastPathComponent().standardizedFileURL == harness.folder.standardizedFileURL)
+    #expect(start.url.lastPathComponent.hasPrefix("Glint ") && start.url.pathExtension == "mp4")
+    #expect(regions == [recordedArea])
+    #expect(handed.isEmpty)
+
+    await harness.coordinator.stopRecording()
+    #expect(regions == [recordedArea, nil])
+    #expect(handed == [start.url])
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func theRecordHotkeyStopsARunningRecordingInsteadOfStartingAnother() async throws {
+    let recorder = FakeRecorder()
+    var handed: [URL] = []
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), onSaved: { handed.append($0) })
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.toggleRecording(.window)
+    #expect(await recorder.starts.count == 1)
+    #expect(harness.selector.selectionCount == 1)
+    let recording = try #require(await recorder.recordings.first)
+    #expect(await recording.stopCount == 1)
+    #expect(handed.count == 1)
+}
+
+@MainActor @Test func recordingUsesTheCodecFromSettings() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), codec: .hevc)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(await recorder.starts.first?.codec == .hevc)
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func recordingAWindowBordersItsFrameInAppKitCoordinates() async throws {
+    let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
+    let recorder = FakeRecorder()
+    var regions: [CGRect?] = []
+    let harness = try Harness(
+        capturer: FakeCapturer(windows: [window]),
+        recorder: recorder,
+        selection: .window(42),
+        onRecordingChange: { regions.append($0) }
+    )
+    await harness.coordinator.toggleRecording(.window)
+    #expect(await recorder.starts.first?.target == .window(42))
+    #expect(regions == [CGRect(x: 50, y: 982 - 400, width: 400, height: 300)])
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func cancellingTheRecordingSelectionStartsNothing() async throws {
+    let recorder = FakeRecorder()
+    var regions: [CGRect?] = []
+    let harness = try Harness(recorder: recorder, selection: .cancelled, onRecordingChange: { regions.append($0) })
+    await harness.coordinator.toggleRecording(.area)
+    #expect(await recorder.starts.isEmpty)
+    #expect(regions.isEmpty)
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func recordingWithoutPermissionAlertsBeforeAnyOverlay() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(capturer: FakeCapturer(permissionGranted: false), recorder: recorder, selection: .area(recordedArea))
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.selector.selectionCount == 0)
+    #expect(await recorder.starts.isEmpty)
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.buttons.contains(.openSystemSettings))
+}
+
+@MainActor @Test func aRecordingThatFailsToStartSaysWhyAndShowsNoIndicator() async throws {
+    let failure = CaptureError.recordingFailed(path: "/tmp/x.mp4", reason: "Start stream failed")
+    var regions: [CGRect?] = []
+    let harness = try Harness(recorder: FakeRecorder(startFailure: failure), selection: .area(recordedArea), onRecordingChange: { regions.append($0) })
+    await harness.coordinator.toggleRecording(.area)
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.title == "Glint couldn't start the recording")
+    #expect(alert.message == failure.localizedDescription)
+    #expect(regions.isEmpty)
+}
+
+@MainActor @Test func aRecordingThatStopsOnItsOwnKeepsTheFileAndSaysWhy() async throws {
+    let failure = CaptureError.recordingStoppedEarly(path: "/tmp/x.mp4", reason: "Failed to find any displays or windows to capture.")
+    var handed: [URL] = []
+    var regions: [CGRect?] = []
+    let harness = try Harness(
+        recorder: FakeRecorder(outcome: failure),
+        selection: .area(recordedArea),
+        onSaved: { handed.append($0) },
+        onRecordingChange: { regions.append($0) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+    #expect(handed.count == 1)
+    #expect(regions.last == .some(nil))
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.title == "Glint's recording stopped early")
+    #expect(alert.message.contains("Failed to find any displays or windows to capture."))
+}
+
+@MainActor @Test func recordingWhileAnOverlayIsUpStartsNothing() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)))
+    harness.selector.whileSelecting = { await harness.coordinator.toggleRecording(.area) }
+    await harness.coordinator.run(.area)
+    #expect(harness.selector.selectionCount == 1)
+    #expect(await recorder.starts.isEmpty)
 }

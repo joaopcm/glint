@@ -41,10 +41,16 @@ private struct GeneralSettingsView: View {
             }
             Toggle("Hide thumbnail after a few seconds", isOn: $settings.overlayAutoDismiss)
             Toggle("Freeze screen while selecting", isOn: $settings.freezeScreenWhileSelecting)
+            Picker("Recording format", selection: $settings.recordingCodec) {
+                Text("H.264").tag(VideoCodec.h264)
+                Text("HEVC").tag(VideoCodec.hevc)
+            }
             KeyboardShortcuts.Recorder("Capture Area", name: .captureArea)
             KeyboardShortcuts.Recorder("Capture Window", name: .captureWindow)
             KeyboardShortcuts.Recorder("Capture Full Screen", name: .captureFullScreen)
             KeyboardShortcuts.Recorder("Capture Text", name: .captureText)
+            KeyboardShortcuts.Recorder("Record Area", name: .recordArea)
+            KeyboardShortcuts.Recorder("Record Window", name: .recordWindow)
         }
         .formStyle(.grouped)
         .frame(width: 480)
