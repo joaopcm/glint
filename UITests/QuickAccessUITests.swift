@@ -5,7 +5,7 @@ import XCTest
 final class QuickAccessUITests: GlintUITestCase {
     /// `ThumbnailPresenter` folds the column back 1 s after the pointer leaves it.
     static let foldBackTimeout: TimeInterval = 5
-    /// RECEIPT_PENDING
+    /// With no card in the capture, 0 of the 40080 card-region pixels changed (run 45505547400); a card changes nearly all of them.
     static let cardsInCaptureThreshold = 0.01
 
     @MainActor func testOneThumbnailPerSavedCaptureNoneAfterCancel() {

@@ -28,7 +28,7 @@ class GlintUITestCase: XCTestCase {
     static let noFileWait: TimeInterval = 2
     /// Glint quit within 1.03 s of every terminate in run 45499134237.
     static let terminateTimeout: TimeInterval = 5
-    /// RECEIPT_PENDING
+    /// Unchanged pixels match exactly between two captures: max channel delta 0 over 40080 pixels in run 45505547400.
     static let pixelTolerance: UInt8 = 8
 
     /// Subclasses add `-key value` pairs to start Glint with other settings.
