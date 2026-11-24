@@ -23,8 +23,8 @@ protocol Capturing: Sendable {
 
 @MainActor
 protocol Selecting {
-    func selectArea() async -> SelectionResult
-    func selectWindow(_ windows: [CapturableWindow]) async -> SelectionResult
+    func selectArea() async throws -> SelectionResult
+    func selectWindow(_ windows: Task<[CapturableWindow], any Error>) async throws -> SelectionResult
 }
 
 struct CaptureAlert: Equatable {
@@ -141,12 +141,12 @@ final class CaptureCoordinator {
     private func selectAndCapture(_ mode: CaptureMode) async throws -> CGImage? {
         switch mode {
         case .area:
-            guard case .area(let rect) = await selector.selectArea() else { return nil }
+            guard case .area(let rect) = try await selector.selectArea() else { return nil }
             let displays = await capturer.displays()
             return try await capturer.captureArea(rect, displays: displays)
         case .window:
-            let windows = try await capturer.shareableWindows()
-            guard case .window(let id) = await selector.selectWindow(windows) else { return nil }
+            let windows = Task { try await capturer.shareableWindows() }
+            guard case .window(let id) = try await selector.selectWindow(windows) else { return nil }
             return try await capturer.captureWindow(id: id)
         case .fullScreen:
             let displays = await capturer.displays()

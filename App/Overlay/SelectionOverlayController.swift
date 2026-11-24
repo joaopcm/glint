@@ -6,13 +6,15 @@ import GlintCore
 @MainActor
 final class SelectionOverlayController: Selecting {
     private var panels: [OverlayPanel] = []
-    private var continuation: CheckedContinuation<SelectionResult, Never>?
-    private var windowTargets: [WindowTarget] = []
+    private var continuation: CheckedContinuation<SelectionResult, any Error>?
+    private var windowLoading: Task<Void, Never>?
+    private var windowTargets: [WindowTarget]?
+    private var pendingClick: CGPoint?
     private var highlightedWindow: WindowTarget?
 
-    func selectArea() async -> SelectionResult {
+    func selectArea() async throws -> SelectionResult {
         let displays = DisplayInfo.onScreens()
-        return await present { screen in
+        return try await present { screen in
             let view = AreaSelectionView(screenFrame: screen.frame, displays: displays)
             view.onSelectionChange = { [weak self] rect in self?.updateAreaSelection(rect) }
             view.onFinish = { [weak self] result in self?.finish(result) }
@@ -20,25 +22,25 @@ final class SelectionOverlayController: Selecting {
         }
     }
 
-    func selectWindow(_ windows: [CapturableWindow]) async -> SelectionResult {
-        let mainDisplayHeight = NSScreen.screens.first { $0.frame.origin == .zero }?.frame.height ?? 0
-        windowTargets = windows.map {
-            WindowTarget(id: $0.id, frame: DisplayGeometry.appKitRect(fromTopLeftGlobal: $0.frame, mainDisplayHeight: mainDisplayHeight))
-        }
-        highlightedWindow = windowTarget(at: NSEvent.mouseLocation)
-        return await present { screen in
+    func selectWindow(_ windows: Task<[CapturableWindow], any Error>) async throws -> SelectionResult {
+        try await present { screen in
             let view = WindowPickerView(screenFrame: screen.frame)
-            view.highlight = highlightedWindow?.frame
             view.onPointerMove = { [weak self] point in self?.highlightWindow(at: point) }
-            view.onClick = { [weak self] in self?.pickHighlightedWindow() }
+            view.onClick = { [weak self] point in self?.pickWindow(at: point) }
             return view
+        } afterShowing: {
+            windowLoading = Task { [weak self] in
+                let result = await windows.result
+                guard !Task.isCancelled else { return }
+                self?.windowsLoaded(result)
+            }
         }
     }
 
-    private func present(_ makeView: (NSScreen) -> OverlayView) async -> SelectionResult {
+    private func present(_ makeView: (NSScreen) -> OverlayView, afterShowing: () -> Void = {}) async throws -> SelectionResult {
         let screens = NSScreen.screens
         guard !screens.isEmpty else { return .cancelled }
-        return await withCheckedContinuation { continuation in
+        return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
             panels = screens.map { screen in
                 let view = makeView(screen)
@@ -49,18 +51,30 @@ final class SelectionOverlayController: Selecting {
             let pointer = NSEvent.mouseLocation
             (panels.first { $0.frame.contains(pointer) } ?? panels[0]).makeKey()
             NSCursor.crosshair.set()
+            afterShowing()
         }
     }
 
     private func finish(_ result: SelectionResult) {
-        guard let continuation else { return }
+        close()?.resume(returning: result)
+    }
+
+    private func fail(_ error: any Error) {
+        close()?.resume(throwing: error)
+    }
+
+    private func close() -> CheckedContinuation<SelectionResult, any Error>? {
+        guard let continuation else { return nil }
         self.continuation = nil
+        windowLoading?.cancel()
+        windowLoading = nil
         panels.forEach { $0.orderOut(nil) }
         panels = []
-        windowTargets = []
+        windowTargets = nil
+        pendingClick = nil
         highlightedWindow = nil
         NSCursor.arrow.set()
-        continuation.resume(returning: result)
+        return continuation
     }
 
     private func updateAreaSelection(_ rect: CGRect?) {
@@ -69,8 +83,28 @@ final class SelectionOverlayController: Selecting {
         }
     }
 
+    private func windowsLoaded(_ result: Result<[CapturableWindow], any Error>) {
+        let windows: [CapturableWindow]
+        do {
+            windows = try result.get()
+        } catch {
+            fail(error)
+            return
+        }
+        let mainDisplayHeight = NSScreen.screens.first { $0.frame.origin == .zero }?.frame.height ?? 0
+        windowTargets = windows.map {
+            WindowTarget(id: $0.id, frame: DisplayGeometry.appKitRect(fromTopLeftGlobal: $0.frame, mainDisplayHeight: mainDisplayHeight))
+        }
+        if let pendingClick, let target = windowTarget(at: pendingClick) {
+            finish(.window(target.id))
+            return
+        }
+        pendingClick = nil
+        highlightWindow(at: NSEvent.mouseLocation)
+    }
+
     private func windowTarget(at point: CGPoint) -> WindowTarget? {
-        windowTargets.first { $0.frame.contains(point) }
+        windowTargets?.first { $0.frame.contains(point) }
     }
 
     private func highlightWindow(at point: CGPoint) {
@@ -82,9 +116,13 @@ final class SelectionOverlayController: Selecting {
         }
     }
 
-    private func pickHighlightedWindow() {
-        guard let highlightedWindow else { return }
-        finish(.window(highlightedWindow.id))
+    private func pickWindow(at point: CGPoint) {
+        guard windowTargets != nil else {
+            pendingClick = point
+            return
+        }
+        guard let target = windowTarget(at: point) else { return }
+        finish(.window(target.id))
     }
 }
 

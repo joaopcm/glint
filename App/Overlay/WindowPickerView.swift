@@ -5,7 +5,7 @@ final class WindowPickerView: OverlayView {
         didSet { needsDisplay = true }
     }
     var onPointerMove: ((CGPoint) -> Void)?
-    var onClick: (() -> Void)?
+    var onClick: ((CGPoint) -> Void)?
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
@@ -13,8 +13,9 @@ final class WindowPickerView: OverlayView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        onPointerMove?(NSEvent.mouseLocation)
-        onClick?()
+        let point = NSEvent.mouseLocation
+        onPointerMove?(point)
+        onClick?(point)
     }
 
     override func draw(_ dirtyRect: NSRect) {
