@@ -65,7 +65,7 @@ extension ScreenCapturer {
         return ScreenRecording(stream: stream, events: events, url: url)
     }
 
-    private static func recordingSetup(for target: RecordingTarget) async throws -> (SCContentFilter, SCStreamConfiguration) {
+    private static func recordingSetup(for target: RecordingTarget) async throws -> sending (SCContentFilter, SCStreamConfiguration) {
         let configuration = SCStreamConfiguration()
         switch target {
         case .area(let selection, let display):
