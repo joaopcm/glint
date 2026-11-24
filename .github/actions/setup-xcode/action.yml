@@ -6,9 +6,10 @@ runs:
     - name: Select Xcode
       shell: bash
       env:
-        XCODE_APP: /Applications/Xcode_16.4.app
+        XCODE_APP: /Applications/Xcode_26.6.app
       run: |
         ls -d /Applications/Xcode*.app
+        [ -d "$XCODE_APP" ] || { echo "::error::$XCODE_APP is missing on this runner image; pick an Xcode from the list above and update .github/actions/setup-xcode"; exit 1; }
         sudo xcode-select -s "$XCODE_APP"
         xcodebuild -version
     - name: Install XcodeGen

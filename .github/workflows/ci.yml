@@ -1,7 +1,9 @@
 name: ci
 
+# The free plan runs 5 macOS jobs at once (https://docs.github.com/en/actions/reference/limits); push runs on PR branches doubled ours and got jobs cancelled with 0 steps after ~15 min.
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -31,7 +33,7 @@ jobs:
         working-directory: Packages/GlintCore
 
   app-macos:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-xcode
@@ -87,11 +89,11 @@ jobs:
           path: Glint.zip
 
   ui-macos:
-    runs-on: macos-15
+    runs-on: macos-26
     env:
       DERIVED_DATA: build
-    # 3x the first green run of all 22 UI tests (45286549624: 5 min 55 s).
-    timeout-minutes: 18
+    # 3x the first green run of all 27 UI tests on macos-26 (45497261627: 7 min 8 s).
+    timeout-minutes: 22
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-xcode
@@ -109,7 +111,8 @@ jobs:
           defaults read "$APPROVALS" "$GLINT_EXECUTABLE"
       - run: xcodebuild -scheme GlintUI -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA" -resultBundlePath ui.xcresult test
       - uses: actions/upload-artifact@v4
-        if: failure() || cancelled()
+        if: always()
         with:
           name: ui-xcresult-${{ github.run_attempt }}
           path: ui.xcresult
+          retention-days: 7

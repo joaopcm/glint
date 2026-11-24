@@ -72,23 +72,23 @@ final class AreaSelectionView: OverlayView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        onPointerMove?(NSEvent.mouseLocation)
+        onPointerMove?(event.screenLocation)
     }
 
     override func mouseDown(with event: NSEvent) {
-        dragOrigin = NSEvent.mouseLocation
+        dragOrigin = event.screenLocation
     }
 
     override func mouseDragged(with event: NSEvent) {
-        onPointerMove?(NSEvent.mouseLocation)
+        onPointerMove?(event.screenLocation)
         guard let dragOrigin else { return }
-        onSelectionChange?(Self.rect(from: dragOrigin, to: NSEvent.mouseLocation))
+        onSelectionChange?(Self.rect(from: dragOrigin, to: event.screenLocation))
     }
 
     override func mouseUp(with event: NSEvent) {
         guard let dragOrigin else { return }
         self.dragOrigin = nil
-        let rect = Self.rect(from: dragOrigin, to: NSEvent.mouseLocation)
+        let rect = Self.rect(from: dragOrigin, to: event.screenLocation)
         onFinish?(rect.width >= 1 && rect.height >= 1 ? .area(rect) : .cancelled)
     }
 
