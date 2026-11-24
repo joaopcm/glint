@@ -7,6 +7,8 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         case rectangle
         case text(String)
         case highlighter
+        case blur
+        case pixelate
     }
 
     public enum Handle: CaseIterable, Sendable {
@@ -55,7 +57,7 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         switch kind {
         case .arrow:
             return distance(from: point, toSegment: start, end) <= lineWidth / 2 + tolerance
-        case .rectangle, .text, .highlighter:
+        case .rectangle, .text, .highlighter, .blur, .pixelate:
             return bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
         }
     }

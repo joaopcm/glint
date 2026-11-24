@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import CoreImage
 
 @MainActor
 public enum AnnotationRenderer {
@@ -15,14 +16,14 @@ public enum AnnotationRenderer {
         context.draw(base, in: rect)
         context.translateBy(x: 0, y: rect.height)
         context.scaleBy(x: 1, y: -1)
-        draw(annotations, inFlippedContext: context)
+        draw(annotations, over: base, inFlippedContext: context)
         return context.makeImage()
     }
 
-    public static func draw(_ annotations: [Annotation], inFlippedContext context: CGContext) {
+    public static func draw(_ annotations: [Annotation], over base: CGImage, inFlippedContext context: CGContext) {
         for annotation in annotations {
             context.saveGState()
-            draw(annotation, in: context)
+            draw(annotation, over: base, in: context)
             context.restoreGState()
         }
     }
@@ -38,7 +39,7 @@ public enum AnnotationRenderer {
         return CGSize(width: ceil(size.width), height: ceil(size.height))
     }
 
-    private static func draw(_ annotation: Annotation, in context: CGContext) {
+    private static func draw(_ annotation: Annotation, over base: CGImage, in context: CGContext) {
         switch annotation.kind {
         case .rectangle:
             context.setStrokeColor(ink)
@@ -53,7 +54,47 @@ public enum AnnotationRenderer {
             drawArrow(annotation, in: context)
         case .text(let text):
             drawText(text, in: annotation.bounds, context: context)
+        case .blur:
+            obscure(annotation, of: base, in: context) { region in blurred(base, region, sigma: obscuringSize(annotation)) }
+        case .pixelate:
+            context.interpolationQuality = .none
+            obscure(annotation, of: base, in: context) { region in pixelated(base, region, block: obscuringSize(annotation)) }
         }
+    }
+
+    // 4 strokes is 12 pt: just under the 13 pt system font (`NSFont.systemFontSize`), so a glyph turns into one smear or one block.
+    private static func obscuringSize(_ annotation: Annotation) -> CGFloat {
+        annotation.lineWidth * 4
+    }
+
+    private static let imageContext = CIContext(options: [.cacheIntermediates: false])
+
+    private static func obscure(_ annotation: Annotation, of base: CGImage, in context: CGContext, using render: (CGRect) -> CGImage?) {
+        let region = annotation.bounds.integral.intersection(CGRect(x: 0, y: 0, width: base.width, height: base.height))
+        guard !region.isEmpty, let patch = render(region) else { return }
+        context.translateBy(x: 0, y: region.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(patch, in: CGRect(x: region.minX, y: 0, width: region.width, height: region.height))
+    }
+
+    private static func blurred(_ base: CGImage, _ region: CGRect, sigma: CGFloat) -> CGImage? {
+        let flipped = CGRect(x: region.minX, y: CGFloat(base.height) - region.maxY, width: region.width, height: region.height)
+        let output = CIImage(cgImage: base).cropped(to: flipped).clampedToExtent().applyingGaussianBlur(sigma: sigma).cropped(to: flipped)
+        return imageContext.createCGImage(output, from: flipped)
+    }
+
+    private static func pixelated(_ base: CGImage, _ region: CGRect, block: CGFloat) -> CGImage? {
+        let width = max(Int((region.width / block).rounded(.up)), 1)
+        let height = max(Int((region.height / block).rounded(.up)), 1)
+        guard let patch = base.cropping(to: region),
+              let context = CGContext(
+                  data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else { return nil }
+        context.interpolationQuality = .high
+        context.draw(patch, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage()
     }
 
     private static func drawArrow(_ arrow: Annotation, in context: CGContext) {

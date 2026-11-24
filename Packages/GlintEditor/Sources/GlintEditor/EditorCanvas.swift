@@ -4,14 +4,16 @@ import Carbon.HIToolbox
 @MainActor
 public final class EditorCanvas: NSView, NSTextFieldDelegate {
     public enum Tool: CaseIterable {
-        case select, arrow, rectangle, text, highlighter
+        case select, arrow, rectangle, text, highlighter, blur, pixelate, crop
 
         var kind: Annotation.Kind? {
             switch self {
-            case .select, .text: nil
+            case .select, .text, .crop: nil
             case .arrow: .arrow
             case .rectangle: .rectangle
             case .highlighter: .highlighter
+            case .blur: .blur
+            case .pixelate: .pixelate
             }
         }
     }
@@ -20,6 +22,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case drawing(Annotation)
         case moving(UUID, from: CGPoint, to: CGPoint)
         case resizing(UUID, Annotation.Handle, to: CGPoint)
+        case cropping(from: CGPoint, to: CGPoint)
     }
 
     public var tool: Tool = .arrow {
@@ -71,7 +74,6 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
-
     private var imageSize: CGSize {
         CGSize(width: document.base.width, height: document.base.height)
     }
@@ -108,9 +110,15 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             return document.annotations.map { $0.id == id ? $0.moved(by: CGSize(width: to.x - from.x, height: to.y - from.y)) : $0 }
         case .resizing(let id, let handle, let to):
             return document.annotations.map { $0.id == id ? $0.resized(handle, to: to) : $0 }
+        case .cropping:
+            return document.annotations
         }
     }
 
+    private var displayedCrop: CGRect? {
+        guard case .cropping(let from, let to) = gesture else { return document.crop }
+        return CGRect(x: min(from.x, to.x), y: min(from.y, to.y), width: abs(to.x - from.x), height: abs(to.y - from.y))
+    }
 
     public override func draw(_ dirtyRect: NSRect) {
         NSColor.underPageBackgroundColor.setFill()
@@ -127,8 +135,12 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         context.scaleBy(x: 1, y: -1)
         context.draw(document.base, in: CGRect(origin: .zero, size: imageSize))
         context.restoreGState()
-        AnnotationRenderer.draw(annotations.filter { $0.id != editingTextID }, inFlippedContext: context)
+        AnnotationRenderer.draw(annotations.filter { $0.id != editingTextID }, over: document.base, inFlippedContext: context)
         context.restoreGState()
+
+        if let crop = displayedCrop {
+            drawCrop(crop)
+        }
 
         if let selected = annotations.first(where: { $0.id == selectedID }) {
             drawSelection(of: selected)
@@ -156,10 +168,22 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         }
     }
 
+    private func drawCrop(_ crop: CGRect) {
+        let kept = CGRect(origin: viewPoint(crop.origin), size: CGSize(width: crop.width * zoom, height: crop.height * zoom))
+        let outside = NSBezierPath(rect: imageRect)
+        outside.append(NSBezierPath(rect: kept))
+        outside.windingRule = .evenOdd
+        NSColor.black.withAlphaComponent(0.55).setFill()
+        outside.fill()
+        let border = NSBezierPath(rect: kept)
+        border.lineWidth = 1
+        NSColor.white.setStroke()
+        border.stroke()
+    }
+
     public override func resetCursorRects() {
         addCursorRect(imageRect, cursor: tool == .select ? .arrow : tool == .text ? .iBeam : .crosshair)
     }
-
 
     public override func mouseDown(with event: NSEvent) {
         if textField != nil { endTextEditing(commit: true) }
@@ -181,7 +205,10 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             gesture = selectedID.map { .moving($0, from: point, to: point) }
         case .text:
             beginTextEntry(at: point)
-        case .arrow, .rectangle, .highlighter:
+        case .crop:
+            selectedID = nil
+            gesture = .cropping(from: point, to: point)
+        case .arrow, .rectangle, .highlighter, .blur, .pixelate:
             selectedID = nil
             gesture = tool.kind.map { .drawing(Annotation(kind: $0, start: point, end: point, lineWidth: lineWidth)) }
         }
@@ -194,6 +221,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case .drawing(let draft): gesture = .drawing(draft.resized(.end, to: point))
         case .moving(let id, let from, _): gesture = .moving(id, from: from, to: point)
         case .resizing(let id, let handle, _): gesture = .resizing(id, handle, to: point)
+        case .cropping(let from, _): gesture = .cropping(from: from, to: point)
         }
         needsDisplay = true
     }
@@ -214,6 +242,9 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             document.move(id, by: CGSize(width: to.x - from.x, height: to.y - from.y))
         case .resizing(let id, let handle, let to):
             document.resize(id, handle, to: to)
+        case .cropping(let from, let to):
+            guard hypot(to.x - from.x, to.y - from.y) * zoom >= Self.minimumDrag, let crop = displayedCrop else { return }
+            document.setCrop(crop)
         }
     }
 
@@ -221,12 +252,15 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         hypot(handle.x - point.x, handle.y - point.y) * zoom <= Self.handleSize
     }
 
-
     public override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch Int(event.keyCode) {
         case kVK_Delete, kVK_ForwardDelete:
-            if let selectedID { document.delete(selectedID) }
+            if let selectedID {
+                document.delete(selectedID)
+            } else if tool == .crop {
+                document.setCrop(nil)
+            }
         case kVK_Escape:
             if gesture != nil {
                 gesture = nil
@@ -242,7 +276,9 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         }
     }
 
-    static let shortcuts: [String: Tool] = ["v": .select, "a": .arrow, "r": .rectangle, "t": .text, "h": .highlighter]
+    static let shortcuts: [String: Tool] = [
+        "v": .select, "a": .arrow, "r": .rectangle, "t": .text, "h": .highlighter, "b": .blur, "p": .pixelate, "c": .crop,
+    ]
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -258,7 +294,6 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         }
         return true
     }
-
 
     private func beginTextEntry(at point: CGPoint) {
         selectedID = nil
