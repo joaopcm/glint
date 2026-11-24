@@ -95,4 +95,12 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(changeIsSeen(\.overlayCorner, becomes: .bottomLeft))
     #expect(changeIsSeen(\.overlayAutoDismiss, becomes: true))
     #expect(changeIsSeen(\.thumbnailWidth, becomes: 300))
+    #expect(changeIsSeen(\.freezeScreenWhileSelecting, becomes: true))
+}
+
+@MainActor @Test func freezeScreenDefaultsOffAndRoundTrips() {
+    let store = MemoryStore()
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).freezeScreenWhileSelecting == false)
+    GlintSettings(store: store, defaultSaveFolder: desktop).freezeScreenWhileSelecting = true
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).freezeScreenWhileSelecting == true)
 }

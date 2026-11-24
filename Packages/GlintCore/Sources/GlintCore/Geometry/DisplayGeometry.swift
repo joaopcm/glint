@@ -52,6 +52,17 @@ public enum DisplayGeometry {
         (Int((rect.width * display.scale).rounded()), Int((rect.height * display.scale).rounded()))
     }
 
+    /// Same rounding as `pixelSize`, so a crop from a frozen grab matches a fresh capture of the selection.
+    public static func pixelRect(of sourceRect: CGRect, on display: DisplayInfo) -> CGRect {
+        let size = pixelSize(of: sourceRect, on: display)
+        return CGRect(
+            x: (sourceRect.minX * display.scale).rounded(),
+            y: (sourceRect.minY * display.scale).rounded(),
+            width: CGFloat(size.width),
+            height: CGFloat(size.height)
+        )
+    }
+
     private static func squaredDistance(from point: CGPoint, to rect: CGRect) -> CGFloat {
         let dx = max(rect.minX - point.x, 0, point.x - rect.maxX)
         let dy = max(rect.minY - point.y, 0, point.y - rect.maxY)
