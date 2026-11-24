@@ -64,15 +64,11 @@ final class ThumbnailPresenter {
         items.insert(item, at: 0)
         expansion.collapse(on: screen)
         cancelAutoDismiss() // still stacking: restart the countdown (layout() schedules it again)
-
-        // ponytail: drops the oldest once the expanded column would overflow the screen.
-        // ponytail: trimmed only here, so growing the cards later can push an expanded column past the top.
-        let fit = max(1, Int((screen.visibleFrame.height - Self.margin) / (Self.size(width: width).height + Self.spacing)))
-        while items.filter({ $0.screen == screen }).count > fit,
-              let oldest = items.last(where: { $0.screen == screen }) {
-            remove(oldest)
-        }
         layout()
+    }
+
+    static func columnCapacity(in visible: CGRect, width: CGFloat) -> Int {
+        max(1, Int((visible.height - margin) / (size(width: width).height + spacing)))
     }
 
     /// Frame of the thumbnail at `index` (0 = newest). Expanded: a column growing up from the corner.
@@ -91,6 +87,7 @@ final class ThumbnailPresenter {
 
     private func layout() {
         lastLayoutSettings = LayoutSettings(settings)
+        dropOverflow()
         guard !items.isEmpty else { return }
         let corner = settings.overlayCorner
         var groups: [NSScreen: [ThumbnailItem]] = [:]
@@ -119,6 +116,14 @@ final class ThumbnailPresenter {
             }
         }
         refreshHover()
+    }
+
+    // ponytail: drops the oldest once the expanded column would overflow the screen, on every layout, so a
+    // new capture, a resize, a Settings change and a smaller display all follow the same rule.
+    private func dropOverflow() {
+        for (screen, group) in Dictionary(grouping: items, by: { $0.screen }) {
+            group.dropFirst(Self.columnCapacity(in: screen.visibleFrame, width: width)).forEach(remove)
+        }
     }
 
     /// Hover is derived from the pointer position, not cached from enter/exit events: panels that move,
@@ -194,7 +199,7 @@ final class ThumbnailPresenter {
         return start + (abs(horizontal) > abs(vertical) ? horizontal : vertical)
     }
 
-    private func settingsChanged() {
+    func settingsChanged() {
         guard LayoutSettings(settings) != lastLayoutSettings else { return }
         layout()
     }
