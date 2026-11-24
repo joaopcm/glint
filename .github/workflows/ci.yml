@@ -92,8 +92,8 @@ jobs:
     runs-on: macos-26
     env:
       DERIVED_DATA: build
-    # 3x the first green run of all 22 UI tests (45286549624: 5 min 55 s).
-    timeout-minutes: 18
+    # 3x the first green run of all 27 UI tests on macos-26 (45497261627: 7 min 8 s).
+    timeout-minutes: 22
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-xcode
