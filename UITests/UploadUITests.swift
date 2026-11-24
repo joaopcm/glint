@@ -107,4 +107,33 @@ final class UploadUITests: GlintUITestCase {
         XCTAssertTrue(historyTab.waitForExistence(timeout: Self.captureTimeout), "Settings has no History tab")
         historyTab.click()
     }
+
+    @MainActor func testTheCardShowsTheUploadRunningUntilTheBucketAnswers() throws {
+        NSPasteboard.general.clearContents()
+        server.holdResponses()
+        press(.fullScreen)
+        let png = try XCTUnwrap(waitForPNGs(count: 1, after: .fullScreen).first)
+        let card = app.images["Screenshot \(png.lastPathComponent)"]
+        XCTAssertTrue(card.waitForExistence(timeout: Self.captureTimeout), "no thumbnail for \(png.lastPathComponent)")
+        center(of: card).hover()
+        let upload = app.buttons["Upload"].firstMatch
+        XCTAssertTrue(upload.waitForExistence(timeout: Self.captureTimeout), "hovering shows no Upload button")
+        center(of: upload).click()
+
+        let spinner = app.descendants(matching: .any).matching(identifier: AccessibilityID.uploadProgress).firstMatch
+        XCTAssertTrue(spinner.waitForExistence(timeout: Self.captureTimeout), "the card shows no upload in progress")
+        let disabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == false"), object: upload)
+        XCTAssertEqual(XCTWaiter.wait(for: [disabled], timeout: Self.captureTimeout), .completed, "Upload still looks clickable mid-upload")
+        XCTAssertNil(NSPasteboard.general.string(forType: .string), "a link was copied before the bucket answered")
+
+        server.releaseResponses()
+        let deadline = Date().addingTimeInterval(Self.captureTimeout)
+        while NSPasteboard.general.string(forType: .string) == nil, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        let key = try XCTUnwrap(server.requests.first).path.dropFirst("/shots/".count)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "\(Self.publicBaseURL)/\(key)")
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: spinner)
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: Self.captureTimeout), .completed, "the spinner stayed after the upload finished")
+    }
 }
