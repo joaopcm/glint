@@ -94,7 +94,7 @@ enum SigV4 {
             .joined(separator: "&")
     }
 
-    private static func uriEncode(_ text: String, keepingSlashes: Bool) -> String {
+    static func uriEncode(_ text: String, keepingSlashes: Bool) -> String {
         var encoded = ""
         for byte in text.utf8 {
             let character = Character(Unicode.Scalar(byte))

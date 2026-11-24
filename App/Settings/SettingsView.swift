@@ -4,6 +4,20 @@ import KeyboardShortcuts
 import SwiftUI
 
 struct SettingsView: View {
+    let settings: GlintSettings
+    let bucket: BucketAccess
+
+    var body: some View {
+        TabView {
+            GeneralSettingsView(settings: settings)
+                .tabItem { Label("General", systemImage: "gearshape") }
+            UploadSettingsView(bucket: bucket)
+                .tabItem { Label("Upload", systemImage: "icloud.and.arrow.up") }
+        }
+    }
+}
+
+private struct GeneralSettingsView: View {
     @Bindable var settings: GlintSettings
 
     var body: some View {

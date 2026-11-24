@@ -2,6 +2,8 @@ import AppKit
 import XCTest
 
 final class MenuAndSettingsUITests: GlintUITestCase {
+    override var extraLaunchArguments: [String] { ["-bucketEndpoint", "not-a-url"] }
+
     @MainActor func testMenuShowsCaptureItemsSettingsVersionAndQuit() {
         let menu = openMenu()
         for title in ["Capture Area", "Capture Window", "Capture Full Screen", "Capture Text", "Settings…", "Quit Glint"] {
@@ -32,6 +34,23 @@ final class MenuAndSettingsUITests: GlintUITestCase {
             let recorder = app.descendants(matching: .any).matching(NSPredicate(format: "value == %@", shortcut)).firstMatch
             XCTAssertTrue(recorder.exists, "no shortcut recorder shows \(shortcut)")
         }
+    }
+
+    @MainActor func testUploadTabTestsTheConnectionWithoutTouchingTheNetworkWhenTheEndpointIsBad() {
+        openMenu().descendants(matching: .menuItem)["Settings…"].click()
+        XCTAssertTrue(settingsWindowContent.waitForExistence(timeout: Self.captureTimeout))
+        let uploadTab = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Upload")).firstMatch
+        XCTAssertTrue(uploadTab.waitForExistence(timeout: Self.captureTimeout), "Settings has no Upload tab")
+        uploadTab.click()
+
+        let testConnection = app.descendants(matching: .any).matching(identifier: AccessibilityID.testConnection).firstMatch
+        XCTAssertTrue(testConnection.waitForExistence(timeout: Self.captureTimeout), "the Upload tab has no Test Connection button")
+        testConnection.click()
+
+        let result = app.descendants(matching: .any).matching(identifier: AccessibilityID.connectionTestResult).firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: Self.captureTimeout), "Test Connection showed no result")
+        let shown = "\(result.value ?? "") \(result.label)"
+        XCTAssertTrue(shown.contains("The endpoint URL not-a-url isn't an http:// or https:// URL with a host."), "result reads: \(shown)")
     }
 
     @MainActor private var settingsWindowContent: XCUIElement {
