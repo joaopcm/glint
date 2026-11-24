@@ -7,6 +7,6 @@ let package = Package(
     products: [.library(name: "GlintCore", targets: ["GlintCore"])],
     targets: [
         .target(name: "GlintCore"),
-        .testTarget(name: "GlintCoreTests", dependencies: ["GlintCore"]),
+        .testTarget(name: "GlintCoreTests", dependencies: ["GlintCore"], resources: [.copy("Fixtures")]),
     ]
 )

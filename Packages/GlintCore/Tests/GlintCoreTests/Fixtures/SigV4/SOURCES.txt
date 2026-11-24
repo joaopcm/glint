@@ -1,0 +1,22 @@
+aws-c-auth/
+  AWS SigV4 test suite, copied unchanged from
+  https://github.com/awslabs/aws-c-auth/tree/3281f8692e6fd10562c4585a4dded5c16b322698/tests/aws-signing-test-suite/v4
+  (Apache-2.0). Only the header-signing files are kept; the query (presigned URL) files are not.
+
+  Left out, because S3 does not normalize paths and these cases expect a normalized one:
+    get-relative-normalized, get-relative-relative-normalized, get-slash-dot-slash-normalized,
+    get-slash-normalized, get-slash-pointless-dot-normalized, get-slashes-normalized
+  Their *-unnormalized twins are kept. get-space-normalized is left out as an exact duplicate of
+  get-space-unnormalized.
+  Left out, because it adds the session token after signing instead of signing it, a mode S3
+  uploads don't use (post-sts-header-before, which signs it, is kept):
+    post-sts-header-after
+
+s3-docs/
+  The four worked examples in "Examples: Signature Calculations" of
+  https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html
+  (read from https://web.archive.org/web/20250102090230id_/https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html).
+  request.txt holds only what the caller sends: the x-amz-date, x-amz-content-sha256 and
+  Authorization headers of the doc's request come from the signer. The doc pads one canonical
+  request with trailing spaces; they are dropped here, and the SHA-256 of every canonical request
+  file matches the hash in its string to sign.
