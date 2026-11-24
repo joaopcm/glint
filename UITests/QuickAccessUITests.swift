@@ -37,7 +37,7 @@ final class QuickAccessUITests: GlintUITestCase {
     @MainActor func testHoverShowsToolbarAndHidesIt() {
         let card = captureOneCard()
         center(of: card).hover()
-        for label in ["Copy", "Save As…", "Annotate in Preview", "Pin to Screen", "Close"] {
+        for label in ["Copy", "Save As…", "Annotate", "Pin to Screen", "Close"] {
             let button = app.buttons[label].firstMatch
             XCTAssertTrue(button.waitForExistence(timeout: Self.captureTimeout), "hovering shows no \"\(label)\" button")
             XCTAssertTrue(button.isHittable, "\"\(label)\" is not clickable while hovered")
@@ -79,14 +79,31 @@ final class QuickAccessUITests: GlintUITestCase {
         assertFinderFrontmost()
     }
 
-    @MainActor func testAnnotateOpensPreviewAndClosesCard() {
-        let preview = XCUIApplication(bundleIdentifier: "com.apple.Preview")
-        addTeardownBlock { @MainActor in preview.terminate() }
-        let card = captureOneCard()
+    @MainActor func testAnnotateDrawsRectangleAndSavesOverCapture() throws {
+        let (card, png) = captureOneCardAndFile()
+        let original = saveFolder.appending(path: "original.bak")
+        try FileManager.default.copyItem(at: png, to: original)
         center(of: card).hover()
-        center(of: app.buttons["Annotate in Preview"].firstMatch).click()
-        XCTAssertTrue(preview.wait(for: .runningForeground, timeout: Self.captureTimeout), "Annotate did not open Preview")
-        XCTAssertTrue(waitUntilGone(card), "Annotate left the card on screen")
+        center(of: app.buttons["Annotate"].firstMatch).click()
+        XCTAssertTrue(editorCanvas.waitForExistence(timeout: Self.captureTimeout), "Annotate opened no editor")
+
+        // Tool buttons are on/off toggles, which accessibility reports as checkboxes, not buttons (run 45495161930).
+        center(of: app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Rectangle'")).firstMatch).click()
+        let image = aspectFit(pixelSize(of: png), in: editorCanvas.frame)
+        let corner = { (fraction: CGFloat) in
+            self.screenPoint(CGPoint(x: image.minX + image.width * fraction, y: image.minY + image.height * fraction))
+        }
+        corner(0.3).press(forDuration: 0.1, thenDragTo: corner(0.6))
+        center(of: app.buttons["Save"].firstMatch).click()
+        XCTAssertTrue(waitUntilGone(editorCanvas), "Save left the editor open")
+
+        let size = pixelSize(of: png)
+        let around = CGRect(x: size.width * 0.28, y: size.height * 0.28, width: size.width * 0.34, height: size.height * 0.34).integral
+        let away = CGRect(x: 0, y: 0, width: size.width * 0.2, height: size.height * 0.2).integral
+        XCTAssertGreaterThan(changedShare(original, png, in: around), 0.005, "the saved PNG has no rectangle where it was drawn")
+        XCTAssertEqual(changedShare(original, png, in: away), 0, "Save changed pixels away from the rectangle")
+        XCTAssertTrue(card.exists, "annotating closed the card")
+        assertPNGCount(1)
     }
 
     @MainActor func testPinOpensFloatingWindowThatCloses() {
@@ -149,6 +166,24 @@ final class QuickAccessUITests: GlintUITestCase {
         assertPNGCount(3)
         pressEscape()
         assertOverlayClosed(after: .window)
+    }
+
+    @MainActor private var editorCanvas: XCUIElement {
+        app.descendants(matching: .any).matching(identifier: AccessibilityID.editorCanvas).firstMatch
+    }
+
+    private func aspectFit(_ size: CGSize, in frame: CGRect) -> CGRect {
+        let scale = min(frame.width / size.width, frame.height / size.height)
+        let fitted = CGSize(width: size.width * scale, height: size.height * scale)
+        return CGRect(x: frame.midX - fitted.width / 2, y: frame.midY - fitted.height / 2, width: fitted.width, height: fitted.height)
+    }
+
+    private func changedShare(_ a: URL, _ b: URL, in region: CGRect) -> Double {
+        guard let first = rgba(of: a, region: region), let second = rgba(of: b, region: region), first.count == second.count, !first.isEmpty else { return 1 }
+        let changed = stride(from: 0, to: first.count, by: 4).filter { pixel in
+            (0..<3).contains { abs(Int(first[pixel + $0]) - Int(second[pixel + $0])) > 8 }
+        }.count
+        return Double(changed) / Double(first.count / 4)
     }
 
     @MainActor private var cards: XCUIElementQuery {

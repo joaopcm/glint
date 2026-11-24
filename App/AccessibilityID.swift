@@ -4,4 +4,5 @@ enum AccessibilityID {
     static let loupe = "glint.loupe"
     static let testConnection = "glint.testConnection"
     static let connectionTestResult = "glint.connectionTestResult"
+    static let editorCanvas = "glint.editorCanvas"
 }

@@ -10,6 +10,8 @@ packages:
     path: Packages/GlintCore
   GlintCapture:
     path: Packages/GlintCapture
+  GlintEditor:
+    path: Packages/GlintEditor
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     exactVersion: 2.4.0
@@ -32,6 +34,7 @@ targets:
     dependencies:
       - package: GlintCore
       - package: GlintCapture
+      - package: GlintEditor
       - package: KeyboardShortcuts
   GlintTests:
     type: bundle.unit-test
@@ -63,7 +66,9 @@ schemes:
       targets:
         Glint: all
     test:
-      targets: [GlintTests]
+      targets:
+        - GlintTests
+        - package: GlintEditor/GlintEditorTests
   GlintUI:
     build:
       targets:
