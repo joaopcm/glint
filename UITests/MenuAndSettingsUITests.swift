@@ -39,7 +39,8 @@ final class MenuAndSettingsUITests: GlintUITestCase {
     @MainActor func testUploadTabTestsTheConnectionWithoutTouchingTheNetworkWhenTheEndpointIsBad() {
         openMenu().descendants(matching: .menuItem)["Settings…"].click()
         XCTAssertTrue(settingsWindowContent.waitForExistence(timeout: Self.captureTimeout))
-        let uploadTab = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Upload")).firstMatch
+        // The Settings toolbar tab is a button titled "Upload" whose label is sometimes empty (ui.xcresult of run 45478719380).
+        let uploadTab = app.buttons.matching(NSPredicate(format: "title == %@ OR label == %@", "Upload", "Upload")).firstMatch
         XCTAssertTrue(uploadTab.waitForExistence(timeout: Self.captureTimeout), "Settings has no Upload tab")
         uploadTab.click()
 
