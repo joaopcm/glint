@@ -97,6 +97,18 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(changeIsSeen(\.thumbnailWidth, becomes: 300))
     #expect(changeIsSeen(\.freezeScreenWhileSelecting, becomes: true))
     #expect(changeIsSeen(\.recordingCodec, becomes: .hevc))
+    #expect(changeIsSeen(\.recordSystemAudio, becomes: true))
+    #expect(changeIsSeen(\.recordMicrophone, becomes: true))
+}
+
+@MainActor @Test func audioTogglesDefaultOffAndAreRemembered() {
+    let store = MemoryStore()
+    let first = GlintSettings(store: store, defaultSaveFolder: desktop)
+    #expect(first.recordSystemAudio == false && first.recordMicrophone == false)
+    first.recordSystemAudio = true
+    first.recordMicrophone = true
+    let next = GlintSettings(store: store, defaultSaveFolder: desktop)
+    #expect(next.recordSystemAudio && next.recordMicrophone)
 }
 
 @MainActor @Test func recordingCodecDefaultsToH264RoundTripsAndIgnoresUnknownValues() {

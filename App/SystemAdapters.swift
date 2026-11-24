@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import GlintCapture
 import GlintCore
 
@@ -13,8 +14,27 @@ extension ScreenCapturer: Capturing {
 }
 
 extension ScreenCapturer: Recording {
-    func startRecording(_ target: RecordingTarget, to url: URL, codec: VideoCodec) async throws -> any ActiveRecording {
-        try await record(target, to: url, codec: codec)
+    func startRecording(_ target: RecordingTarget, to url: URL, options: RecordingOptions) async throws -> any ActiveRecording {
+        try await record(target, to: url, options: options)
+    }
+}
+
+@MainActor
+struct SystemMicrophoneAccess: MicrophoneAccess {
+    var status: MicrophoneStatus {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: .authorized
+        case .notDetermined: .notDetermined
+        default: .denied
+        }
+    }
+
+    func requestAccess() async -> Bool {
+        await AVCaptureDevice.requestAccess(for: .audio)
+    }
+
+    func openSettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
     }
 }
 

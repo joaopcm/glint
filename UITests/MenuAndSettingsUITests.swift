@@ -6,7 +6,7 @@ final class MenuAndSettingsUITests: GlintUITestCase {
 
     @MainActor func testMenuShowsCaptureItemsSettingsVersionAndQuit() {
         let menu = openMenu()
-        for title in ["Capture Area", "Capture Window", "Capture Full Screen", "Capture Text", "Record Area", "Record Window", "Settings…", "Quit Glint"] {
+        for title in ["Capture Area", "Capture Window", "Capture Full Screen", "Capture Text", "Record Area", "Record Window", "Record System Audio", "Record Microphone", "Settings…", "Quit Glint"] {
             let item = menu.descendants(matching: .menuItem)[title]
             XCTAssertTrue(item.waitForExistence(timeout: Self.captureTimeout), "menu has no \"\(title)\"")
             XCTAssertTrue(item.isEnabled, "\"\(title)\" is disabled")

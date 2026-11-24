@@ -10,6 +10,18 @@ public enum RecordingTarget: Sendable, Equatable {
     case window(UInt32)
 }
 
+public struct RecordingOptions: Sendable, Equatable {
+    public var codec: VideoCodec
+    public var systemAudio: Bool
+    public var microphone: Bool
+
+    public init(codec: VideoCodec, systemAudio: Bool, microphone: Bool) {
+        self.codec = codec
+        self.systemAudio = systemAudio
+        self.microphone = microphone
+    }
+}
+
 /// A running SCStream writing straight to an MP4 through SCRecordingOutput.
 public actor ScreenRecording {
     private let stream: SCStream
@@ -47,14 +59,14 @@ public actor ScreenRecording {
 }
 
 extension ScreenCapturer {
-    public func record(_ target: RecordingTarget, to url: URL, codec: VideoCodec) async throws -> ScreenRecording {
+    public func record(_ target: RecordingTarget, to url: URL, options: RecordingOptions) async throws -> ScreenRecording {
         try Self.requirePermission()
         let (filter, configuration) = try await Self.recordingSetup(for: target)
-        configuration.showsCursor = true
+        Self.apply(options, to: configuration)
         let output = SCRecordingOutputConfiguration()
         output.outputURL = url
         output.outputFileType = .mp4
-        output.videoCodecType = codec == .hevc ? .hevc : .h264
+        output.videoCodecType = options.codec == .hevc ? .hevc : .h264
         let events = RecordingEvents()
         let stream = SCStream(filter: filter, configuration: configuration, delegate: events)
         do {
@@ -67,6 +79,13 @@ extension ScreenCapturer {
             throw CaptureError.recordingFailed(path: url.path, reason: error.localizedDescription)
         }
         return ScreenRecording(stream: stream, events: events, url: url)
+    }
+
+    static func apply(_ options: RecordingOptions, to configuration: SCStreamConfiguration) {
+        configuration.showsCursor = true
+        configuration.capturesAudio = options.systemAudio
+        configuration.excludesCurrentProcessAudio = true
+        configuration.captureMicrophone = options.microphone
     }
 
     private static func recordingSetup(for target: RecordingTarget) async throws -> sending (SCContentFilter, SCStreamConfiguration) {

@@ -57,6 +57,7 @@ final class AppState {
         let coordinator = CaptureCoordinator(
             capturer: capturer,
             recorder: capturer,
+            microphone: SystemMicrophoneAccess(),
             selector: SelectionOverlayController(snapshot: { try await capturer.captureDisplay($0) }),
             alerts: NSAlertPresenter(),
             settings: settings,
@@ -112,6 +113,10 @@ final class AppState {
     func record(_ mode: RecordingMode) {
         Task { await coordinator.toggleRecording(mode) }
     }
+
+    func setRecordMicrophone(_ on: Bool) {
+        Task { await coordinator.setRecordMicrophone(on) }
+    }
 }
 
 private struct MenuContent: View {
@@ -126,6 +131,8 @@ private struct MenuContent: View {
         Divider()
         Button("Record Area") { state.record(.area) }
         Button("Record Window") { state.record(.window) }
+        Toggle("Record System Audio", isOn: Bindable(state.settings).recordSystemAudio)
+        Toggle("Record Microphone", isOn: Binding(get: { state.settings.recordMicrophone }, set: { state.setRecordMicrophone($0) }))
         Divider()
         Button("Settings…") {
             NSApplication.shared.activate()

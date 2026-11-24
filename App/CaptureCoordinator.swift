@@ -26,7 +26,18 @@ protocol Capturing: Sendable {
 }
 
 protocol Recording: Sendable {
-    func startRecording(_ target: RecordingTarget, to url: URL, codec: VideoCodec) async throws -> any ActiveRecording
+    func startRecording(_ target: RecordingTarget, to url: URL, options: RecordingOptions) async throws -> any ActiveRecording
+}
+
+enum MicrophoneStatus {
+    case notDetermined, authorized, denied
+}
+
+@MainActor
+protocol MicrophoneAccess {
+    var status: MicrophoneStatus { get }
+    func requestAccess() async -> Bool
+    func openSettings()
 }
 
 protocol ActiveRecording: Sendable {
@@ -50,6 +61,7 @@ struct CaptureAlert: Equatable {
     enum Button: String {
         case ok = "OK"
         case openSystemSettings = "Open System Settings"
+        case openMicrophoneSettings = "Open Microphone Settings"
     }
 
     let title: String
@@ -65,6 +77,8 @@ protocol AlertPresenting {
 enum CoordinatorError: LocalizedError {
     case noDisplays
     case clipboardFailed(savedTo: URL, reason: String)
+    case microphoneDenied
+    case microphoneDeniedForRecording
 
     var errorDescription: String? {
         switch self {
@@ -72,6 +86,10 @@ enum CoordinatorError: LocalizedError {
             "No display is connected, so there is nothing to capture."
         case .clipboardFailed(let url, let reason):
             "The screenshot was saved to \(url.path), but copying it to the clipboard failed: \(reason)"
+        case .microphoneDenied:
+            "Glint isn't allowed to use the microphone. Turn on Glint in System Settings > Privacy & Security > Microphone, then turn on Record Microphone again."
+        case .microphoneDeniedForRecording:
+            "Record Microphone is on, but Glint isn't allowed to use the microphone. Turn on Glint in System Settings > Privacy & Security > Microphone, or turn off Record Microphone in the Glint menu."
         }
     }
 }
@@ -80,6 +98,7 @@ enum CoordinatorError: LocalizedError {
 final class CaptureCoordinator {
     private let capturer: any Capturing
     private let recorder: any Recording
+    private let microphone: any MicrophoneAccess
     private let selector: any Selecting
     private let alerts: any AlertPresenting
     private let settings: GlintSettings
@@ -96,6 +115,7 @@ final class CaptureCoordinator {
     init(
         capturer: any Capturing,
         recorder: any Recording,
+        microphone: any MicrophoneAccess,
         selector: any Selecting,
         alerts: any AlertPresenting,
         settings: GlintSettings,
@@ -108,6 +128,7 @@ final class CaptureCoordinator {
     ) {
         self.capturer = capturer
         self.recorder = recorder
+        self.microphone = microphone
         self.selector = selector
         self.alerts = alerts
         self.settings = settings
@@ -156,15 +177,36 @@ final class CaptureCoordinator {
         defer { isRunning = false }
         do {
             guard await capturer.hasPermission() else { throw CaptureError.permissionDenied }
+            if settings.recordMicrophone, microphone.status != .authorized { throw CoordinatorError.microphoneDeniedForRecording }
             guard let (target, region) = try await selectRecordingTarget(mode) else { return }
             let url = nextFileURL(ext: "mp4")
-            let active = try await recorder.startRecording(target, to: url, codec: settings.recordingCodec)
+            let options = RecordingOptions(
+                codec: settings.recordingCodec,
+                systemAudio: settings.recordSystemAudio,
+                microphone: settings.recordMicrophone
+            )
+            let active = try await recorder.startRecording(target, to: url, options: options)
             recording = active
             onRecordingChange(region)
             recordingEnd = Task { await self.awaitRecordingEnd(active, at: url) }
         } catch {
             present(error, failure: "Glint couldn't start the recording")
         }
+    }
+
+    /// The permission prompt only comes up when the toggle turns on; a refusal leaves the toggle off and says how to fix it.
+    func setRecordMicrophone(_ on: Bool) async {
+        guard on else {
+            settings.recordMicrophone = false
+            return
+        }
+        let allowed = switch microphone.status {
+        case .authorized: true
+        case .notDetermined: await microphone.requestAccess()
+        case .denied: false
+        }
+        settings.recordMicrophone = allowed
+        if !allowed { present(CoordinatorError.microphoneDenied, failure: "Glint can't record the microphone") }
     }
 
     func stopRecording() async {
@@ -279,13 +321,19 @@ final class CaptureCoordinator {
 
     private func present(_ error: any Error, failure: String = "Glint couldn't take the screenshot") {
         let needsPermission = (error as? CaptureError) == .permissionDenied
+        let needsMicrophone = switch error as? CoordinatorError {
+        case .microphoneDenied, .microphoneDeniedForRecording: true
+        default: false
+        }
         let savedButNotCopied = if case .clipboardFailed = error as? CoordinatorError { true } else { false }
         let alert = CaptureAlert(
             title: savedButNotCopied ? "Glint saved the screenshot but couldn't copy it" : failure,
             message: error.localizedDescription,
-            buttons: needsPermission ? [.openSystemSettings, .ok] : [.ok]
+            buttons: needsPermission ? [.openSystemSettings, .ok] : needsMicrophone ? [.openMicrophoneSettings, .ok] : [.ok]
         )
-        guard alerts.present(alert) == .openSystemSettings else { return }
+        let choice = alerts.present(alert)
+        if choice == .openMicrophoneSettings { microphone.openSettings() }
+        guard choice == .openSystemSettings else { return }
         // CGPreflightScreenCaptureAccess never registers Glint with TCC; without this request
         // Glint is missing from the Screen Recording list and the user has to add it by hand.
         _ = CapturePermission.request()

@@ -22,6 +22,8 @@
 	<string>$(GLINT_COMMIT)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Glint records your microphone into screen recordings when Record Microphone is on.</string>
 	<key>LSUIElement</key>
 	<true/>
 </dict>

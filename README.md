@@ -6,7 +6,7 @@ Open source screenshot and screen recording app for macOS.
 
 - Capture an area (`⇧⌘2`), a window (`⌃⇧⌘2`) or the full screen (`⇧⌘1`) to a PNG in your save folder
 - Capture Text (`⌥⇧⌘2`): drag over any text on screen and it goes to the clipboard as plain text. Recognition runs on-device, and nothing is saved to disk
-- Record an area (`⌥⇧⌘5`) or a window (`⌃⌥⇧⌘5`) to an MP4 (H.264, or HEVC in Settings). Stop from the menu bar or press the shortcut again
+- Record an area (`⌥⇧⌘5`) or a window (`⌃⌥⇧⌘5`) to an MP4 (H.264, or HEVC in Settings). Stop from the menu bar or press the shortcut again. System audio and microphone are separate toggles in the menu, both off by default
 - Quick-access thumbnail after each capture: copy, upload, save as, annotate, pin or drag it out
 - Upload to your own S3-compatible bucket (AWS S3, Cloudflare R2, MinIO, ...): one click puts the capture there and its public link on the clipboard. Turn on Upload after capture in Settings to skip the click. Your bucket is the only place Glint ever sends anything
 - Every shortcut can be changed in Settings

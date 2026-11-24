@@ -28,6 +28,8 @@ public final class GlintSettings {
         static let thumbnailWidth = "thumbnailWidth"
         static let freezeScreenWhileSelecting = "freezeScreenWhileSelecting"
         static let recordingCodec = "recordingCodec"
+        static let recordSystemAudio = "recordSystemAudio"
+        static let recordMicrophone = "recordMicrophone"
         static let bucketEndpoint = "bucketEndpoint"
         static let bucketRegion = "bucketRegion"
         static let bucketName = "bucketName"
@@ -117,6 +119,23 @@ public final class GlintSettings {
             return store.string(forKey: Key.recordingCodec).flatMap(VideoCodec.init(rawValue:)) ?? .h264
         }
         set { withMutation(keyPath: \.recordingCodec) { store.set(newValue.rawValue, forKey: Key.recordingCodec) } }
+    }
+
+    /// Off by default: a recording only picks up sound when the user asks for it (#18).
+    public var recordSystemAudio: Bool {
+        get {
+            access(keyPath: \.recordSystemAudio)
+            return store.bool(forKey: Key.recordSystemAudio) ?? false
+        }
+        set { withMutation(keyPath: \.recordSystemAudio) { store.set(newValue, forKey: Key.recordSystemAudio) } }
+    }
+
+    public var recordMicrophone: Bool {
+        get {
+            access(keyPath: \.recordMicrophone)
+            return store.bool(forKey: Key.recordMicrophone) ?? false
+        }
+        set { withMutation(keyPath: \.recordMicrophone) { store.set(newValue, forKey: Key.recordMicrophone) } }
     }
 
     public var bucketEndpoint: String {
