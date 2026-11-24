@@ -155,9 +155,22 @@ class GlintUITestCase: XCTestCase {
         return Double(hits) / Double(pixels.count / 4)
     }
 
-    func rgba(of url: URL) -> [UInt8]? {
+    /// Share of pixels whose RGB differs by more than `tolerance` on any channel; 1 when the sizes differ.
+    /// `regionOfB` compares `a` with that pixel rect of `b` (top-left origin).
+    func differingPixelShare(_ a: URL, _ b: URL, regionOfB: CGRect? = nil, tolerance: UInt8 = 8) -> Double {
+        guard let first = rgba(of: a), let second = rgba(of: b, region: regionOfB), first.count == second.count, !first.isEmpty else { return 1 }
+        var differing = 0
+        for pixel in stride(from: 0, to: first.count, by: 4) {
+            let channels = (0..<3).map { abs(Int(first[pixel + $0]) - Int(second[pixel + $0])) }
+            if channels.contains(where: { $0 > Int(tolerance) }) { differing += 1 }
+        }
+        return Double(differing) / Double(first.count / 4)
+    }
+
+    func rgba(of url: URL, region: CGRect? = nil) -> [UInt8]? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+              let full = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let image = region.map({ full.cropping(to: $0) }) ?? full
         else { return nil }
         var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
         let context = CGContext(data: &pixels, width: image.width, height: image.height, bitsPerComponent: 8,
@@ -179,6 +192,10 @@ class GlintUITestCase: XCTestCase {
     @MainActor func assertFinderFrontmost(file: StaticString = #filePath, line: UInt = #line) {
         let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         XCTAssertEqual(front, "com.apple.finder", "Finder lost focus to \(front ?? "nothing")", file: file, line: line)
+    }
+
+    @MainActor var loupe: XCUIElement {
+        app.descendants(matching: .any).matching(identifier: AccessibilityID.loupe).firstMatch
     }
 
     @MainActor var overlays: XCUIElementQuery {
