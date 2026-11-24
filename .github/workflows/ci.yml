@@ -17,7 +17,7 @@ jobs:
   core-linux:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Swift
         run: |
           curl -fsSLO "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz"
@@ -35,15 +35,17 @@ jobs:
   app-macos:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-xcode
       - run: xcodegen generate
       - name: Check generate left tracked files alone
         run: git diff --exit-code -- App/
       - run: xcodebuild -scheme Glint -destination 'platform=macOS' -derivedDataPath build test
-      - run: swift test
+      - name: swift test GlintCore (pinned Xcode's toolchain)
+        run: swift test
         working-directory: Packages/GlintCore
-      - run: swift test
+      - name: swift test GlintCapture (pinned Xcode's toolchain)
+        run: swift test
         working-directory: Packages/GlintCapture
       - name: Short sha
         id: sha
@@ -82,7 +84,7 @@ jobs:
       - name: Print designated requirement
         if: success() && steps.gate.outputs.enabled == 'true'
         run: codesign -d -r- build/Build/Products/Release/Glint.app
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: success() && steps.gate.outputs.enabled == 'true'
         with:
           name: Glint-${{ steps.sha.outputs.short }}
@@ -95,7 +97,7 @@ jobs:
     # 3x the first green run of all 27 UI tests on macos-26 (45497261627: 7 min 8 s).
     timeout-minutes: 22
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-xcode
       - run: xcodegen generate
       - run: scripts/ci-grant-tcc.sh kTCCServiceScreenCapture com.joaopcm.glint com.joaopcm.glint.uitests.xctrunner
@@ -110,7 +112,7 @@ jobs:
           defaults write "$APPROVALS" "$GLINT_EXECUTABLE" -date "4000-01-01 00:00:00 +0000"
           defaults read "$APPROVALS" "$GLINT_EXECUTABLE"
       - run: xcodebuild -scheme GlintUI -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA" -resultBundlePath ui.xcresult test
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: ui-xcresult-${{ github.run_attempt }}

@@ -22,9 +22,14 @@ done
 work_dir="$(mktemp -d)"
 keychain="$work_dir/glint-signing.keychain-db"
 keychain_password="$(uuidgen)"
-original_keychains="$(security list-keychains -d user | tr -d '"')"
+original_keychains=()
+while IFS= read -r line; do
+  line="${line#"${line%%[![:space:]]*}"}"
+  line="${line#\"}"
+  original_keychains+=("${line%\"}")
+done < <(security list-keychains -d user)
 cleanup() {
-  security list-keychains -d user -s $original_keychains >/dev/null 2>&1 || true
+  security list-keychains -d user -s ${original_keychains[@]+"${original_keychains[@]}"} >/dev/null 2>&1 || true
   security delete-keychain "$keychain" >/dev/null 2>&1 || true
   rm -rf "$work_dir"
 }
@@ -41,7 +46,7 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain
 cert_hash="$(security find-certificate -a -Z "$keychain" | awk '/^SHA-1 hash:/ {print $3}')"
 [[ -n "$cert_hash" ]] || { echo "error: no certificate found in keychain after importing the p12" >&2; exit 1; }
 
-security list-keychains -d user -s "$keychain" $original_keychains
+security list-keychains -d user -s "$keychain" ${original_keychains[@]+"${original_keychains[@]}"}
 
 codesign --force --options runtime \
   --entitlements "$entitlements" \
