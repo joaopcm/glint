@@ -32,6 +32,7 @@ private actor FakeCapturer: Capturing {
     private(set) var capturedDisplayIDs: [UInt32] = []
     private(set) var capturedWindowIDs: [UInt32] = []
     private(set) var windowListServed = false
+    private(set) var areaCaptureCount = 0
 
     init(displays: [DisplayInfo] = [mainDisplay], failure: CaptureError? = nil, permissionGranted: Bool = true, windowListGate: Gate? = nil) {
         displayList = displays
@@ -44,11 +45,16 @@ private actor FakeCapturer: Capturing {
 
     func displays() async -> [DisplayInfo] { displayList }
 
-    func captureArea(_ selection: CGRect, displays: [DisplayInfo]) async throws -> CGImage { try image() }
+    func captureArea(_ selection: CGRect, displays: [DisplayInfo]) async throws -> CGImage {
+        areaCaptureCount += 1
+        return try image()
+    }
 
     func captureDisplay(id: UInt32) async throws -> CGImage {
         capturedDisplayIDs.append(id)
-        return try image()
+        guard let display = displayList.first(where: { $0.id == id }) else { return try image() }
+        let size = DisplayGeometry.pixelSize(of: display.frame, on: display)
+        return try image(width: size.width, height: size.height)
     }
 
     func captureWindow(id: UInt32) async throws -> CGImage {
@@ -63,10 +69,10 @@ private actor FakeCapturer: Capturing {
         return []
     }
 
-    private func image() throws -> CGImage {
+    private func image(width: Int = 10, height: Int = 10) throws -> CGImage {
         if let failure { throw failure }
         let context = CGContext(
-            data: nil, width: 10, height: 10, bitsPerComponent: 8, bytesPerRow: 0,
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )!
         return context.makeImage()!
@@ -77,12 +83,14 @@ private actor FakeCapturer: Capturing {
 private final class FakeSelector: Selecting {
     let result: SelectionResult
     private(set) var selectionCount = 0
+    private(set) var frozenDisplayIDs: [UInt32] = []
     var whileSelecting: (@MainActor () async -> Void)?
 
     init(_ result: SelectionResult) { self.result = result }
 
-    func selectArea() async throws -> SelectionResult {
+    func selectArea(frozen: [FrozenDisplay]) async throws -> SelectionResult {
         selectionCount += 1
+        frozenDisplayIDs = frozen.map(\.display.id).sorted()
         await whileSelecting?()
         return result
     }
@@ -129,6 +137,7 @@ private struct Harness {
         pointer: CGPoint = .zero,
         createFolder: Bool = true,
         clipboardOn: Bool? = nil,
+        freezeOn: Bool = false,
         copyToClipboard: (@MainActor (URL) throws -> Void)? = nil,
         onSaved: @escaping @MainActor (URL) -> Void = { _ in }
     ) throws {
@@ -139,6 +148,7 @@ private struct Harness {
         }
         let settings = GlintSettings(store: MemoryStore(), defaultSaveFolder: folder)
         settings.copyToClipboardAfterCapture = clipboardOn ?? (copyToClipboard != nil)
+        settings.freezeScreenWhileSelecting = freezeOn
         selector = FakeSelector(selection)
         coordinator = CaptureCoordinator(
             capturer: capturer,
@@ -356,4 +366,32 @@ private struct PasteboardLocked: LocalizedError {
     #expect(harness.selector.selectionCount == 1)
     #expect(reentrantImage == nil)
     #expect(try harness.savedFiles().count == 1)
+}
+
+@MainActor @Test func freezeOnGrabsEveryDisplayBeforeTheOverlayAndCropsFromIt() async throws {
+    let capturer = FakeCapturer(displays: [mainDisplay, leftDisplay])
+    let harness = try Harness(capturer: capturer, selection: .area(CGRect(x: 100, y: 782, width: 200, height: 100)), freezeOn: true)
+    let image = try #require(await harness.coordinator.captureImage(.area))
+    #expect(harness.selector.frozenDisplayIDs == [mainDisplay.id, leftDisplay.id])
+    #expect(await capturer.capturedDisplayIDs.sorted() == [mainDisplay.id, leftDisplay.id])
+    #expect(await capturer.areaCaptureCount == 0)
+    #expect(image.width == 400 && image.height == 200)
+}
+
+@MainActor @Test func freezeOffNeverGrabsDisplays() async throws {
+    let capturer = FakeCapturer(displays: [mainDisplay, leftDisplay])
+    let harness = try Harness(capturer: capturer, selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)))
+    await harness.coordinator.run(.area)
+    #expect(harness.selector.frozenDisplayIDs.isEmpty)
+    #expect(await capturer.capturedDisplayIDs.isEmpty)
+    #expect(await capturer.areaCaptureCount == 1)
+}
+
+@MainActor @Test func freezeGrabFailureAlertsBeforeAnyOverlay() async throws {
+    let harness = try Harness(capturer: FakeCapturer(failure: .displayNotFound(1)), selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)), freezeOn: true)
+    await harness.coordinator.run(.area)
+    #expect(harness.selector.selectionCount == 0)
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.message == CaptureError.displayNotFound(1).localizedDescription)
+    #expect(try harness.savedFiles().isEmpty)
 }

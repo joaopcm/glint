@@ -17,6 +17,9 @@ class GlintUITestCase: XCTestCase {
     static let noFileWait: TimeInterval = 2
     static let terminateTimeout: TimeInterval = 5
 
+    /// Subclasses add `-key value` pairs to start Glint with other settings.
+    var extraLaunchArguments: [String] { [] }
+
     @MainActor private(set) var app: XCUIApplication!
     @MainActor private(set) var finder: XCUIApplication!
     private(set) var saveFolder: URL!
@@ -57,7 +60,7 @@ class GlintUITestCase: XCTestCase {
             "-overlayAutoDismiss", "NO",
             "-overlayCorner", "bottomRight",
             "-thumbnailWidth", "240",
-        ]
+        ] + extraLaunchArguments
         app.launch()
         finder.activate()
         XCTAssertFalse(overlay.exists, "a selection overlay is already up before the test started")
@@ -143,6 +146,25 @@ class GlintUITestCase: XCTestCase {
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         context?.draw(corner, in: CGRect(x: 0, y: 0, width: 1, height: 1))
         return pixel[3]
+    }
+
+    /// Share of the PNG's pixels whose RGB satisfies `matches`; 0 when the PNG can't be read.
+    func pixelShare(of url: URL, where matches: (_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Bool) -> Double {
+        guard let pixels = rgba(of: url), !pixels.isEmpty else { return 0 }
+        let hits = stride(from: 0, to: pixels.count, by: 4).filter { matches(pixels[$0], pixels[$0 + 1], pixels[$0 + 2]) }.count
+        return Double(hits) / Double(pixels.count / 4)
+    }
+
+    func rgba(of url: URL) -> [UInt8]? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { return nil }
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let context = CGContext(data: &pixels, width: image.width, height: image.height, bitsPerComponent: 8,
+                                bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        context?.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return pixels
     }
 
     func pixelSize(of url: URL) -> CGSize {

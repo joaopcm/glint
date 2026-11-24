@@ -23,6 +23,7 @@ struct SettingsView: View {
                 Text("Bottom right").tag(OverlayCorner.bottomRight)
             }
             Toggle("Hide thumbnail after a few seconds", isOn: $settings.overlayAutoDismiss)
+            Toggle("Freeze screen while selecting", isOn: $settings.freezeScreenWhileSelecting)
             KeyboardShortcuts.Recorder("Capture Area", name: .captureArea)
             KeyboardShortcuts.Recorder("Capture Window", name: .captureWindow)
             KeyboardShortcuts.Recorder("Capture Full Screen", name: .captureFullScreen)

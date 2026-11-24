@@ -93,3 +93,21 @@ private let above = DisplayInfo(id: 3, frame: CGRect(x: 0, y: 982, width: 1512, 
     #expect(rect == CGRect(x: -1820, y: 680, width: 300, height: 100))
     #expect(ext.frame.contains(rect))
 }
+
+@Test func frozenCropMatchesSelectionInPixelsOnRetina() {
+    let source = DisplayGeometry.sourceRect(for: CGRect(x: 100, y: 782, width: 200, height: 100), on: main)!
+    #expect(DisplayGeometry.pixelRect(of: source, on: main) == CGRect(x: 200, y: 200, width: 400, height: 200))
+}
+
+@Test func frozenCropMatchesSelectionInPixelsOnStandard() {
+    let source = DisplayGeometry.sourceRect(for: CGRect(x: -1820, y: 680, width: 300, height: 100), on: ext)!
+    #expect(DisplayGeometry.pixelRect(of: source, on: ext) == CGRect(x: 100, y: 100, width: 300, height: 100))
+}
+
+@Test func frozenCropSizeAgreesWithPixelSizeForFractionalPoints() {
+    let source = CGRect(x: 10.3, y: 20.7, width: 50.4, height: 30.6)
+    let rect = DisplayGeometry.pixelRect(of: source, on: main)
+    let size = DisplayGeometry.pixelSize(of: source, on: main)
+    #expect(rect.width == CGFloat(size.width) && rect.height == CGFloat(size.height))
+    #expect(rect.origin == CGPoint(x: 21, y: 41))
+}

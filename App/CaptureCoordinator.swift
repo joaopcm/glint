@@ -21,9 +21,15 @@ protocol Capturing: Sendable {
     func shareableWindows() async throws -> [CapturableWindow]
 }
 
+struct FrozenDisplay: Sendable {
+    let display: DisplayInfo
+    let image: CGImage
+}
+
 @MainActor
 protocol Selecting {
-    func selectArea() async throws -> SelectionResult
+    /// `frozen` is empty for a live overlay; otherwise it holds one grab per display, shown under the selection.
+    func selectArea(frozen: [FrozenDisplay]) async throws -> SelectionResult
     func selectWindow(_ windows: Task<[CapturableWindow], any Error>) async throws -> SelectionResult
 }
 
@@ -141,9 +147,14 @@ final class CaptureCoordinator {
     private func selectAndCapture(_ mode: CaptureMode) async throws -> CGImage? {
         switch mode {
         case .area:
-            guard case .area(let rect) = try await selector.selectArea() else { return nil }
-            let displays = await capturer.displays()
-            return try await capturer.captureArea(rect, displays: displays)
+            guard settings.freezeScreenWhileSelecting else {
+                guard case .area(let rect) = try await selector.selectArea(frozen: []) else { return nil }
+                let displays = await capturer.displays()
+                return try await capturer.captureArea(rect, displays: displays)
+            }
+            let frozen = try await freezeDisplays()
+            guard case .area(let rect) = try await selector.selectArea(frozen: frozen) else { return nil }
+            return try Self.crop(rect, from: frozen)
         case .window:
             let windows = Task { try await capturer.shareableWindows() }
             guard case .window(let id) = try await selector.selectWindow(windows) else { return nil }
@@ -155,6 +166,31 @@ final class CaptureCoordinator {
             }
             return try await capturer.captureDisplay(id: display.id)
         }
+    }
+
+    private func freezeDisplays() async throws -> [FrozenDisplay] {
+        let displays = await capturer.displays()
+        guard !displays.isEmpty else { throw CoordinatorError.noDisplays }
+        let capturer = capturer
+        return try await withThrowingTaskGroup(of: FrozenDisplay.self) { group in
+            for display in displays {
+                group.addTask { FrozenDisplay(display: display, image: try await capturer.captureDisplay(id: display.id)) }
+            }
+            var frozen: [FrozenDisplay] = []
+            for try await grab in group {
+                frozen.append(grab)
+            }
+            return frozen
+        }
+    }
+
+    static func crop(_ selection: CGRect, from frozen: [FrozenDisplay]) throws -> CGImage {
+        guard let display = DisplayGeometry.display(forSelection: selection, in: frozen.map(\.display)),
+              let grab = frozen.first(where: { $0.display == display }),
+              let sourceRect = DisplayGeometry.sourceRect(for: selection, on: display),
+              let image = grab.image.cropping(to: DisplayGeometry.pixelRect(of: sourceRect, on: display))
+        else { throw CaptureError.emptySelection }
+        return image
     }
 
     private func present(_ error: any Error) {

@@ -12,10 +12,11 @@ final class SelectionOverlayController: Selecting {
     private var pendingClick: CGPoint?
     private var highlightedWindow: WindowTarget?
 
-    func selectArea() async throws -> SelectionResult {
+    func selectArea(frozen: [FrozenDisplay]) async throws -> SelectionResult {
         let displays = DisplayInfo.onScreens()
         return try await present { screen in
-            let view = AreaSelectionView(screenFrame: screen.frame, displays: displays)
+            let backdrop = frozen.first { $0.display.frame == screen.frame }?.image
+            let view = AreaSelectionView(screenFrame: screen.frame, displays: displays, backdrop: backdrop)
             view.onSelectionChange = { [weak self] rect in self?.updateAreaSelection(rect) }
             view.onFinish = { [weak self] result in self?.finish(result) }
             return view

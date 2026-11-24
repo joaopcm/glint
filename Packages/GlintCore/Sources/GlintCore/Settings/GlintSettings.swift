@@ -22,6 +22,7 @@ public final class GlintSettings {
         static let overlayCorner = "overlayCorner"
         static let overlayAutoDismiss = "overlayAutoDismiss"
         static let thumbnailWidth = "thumbnailWidth"
+        static let freezeScreenWhileSelecting = "freezeScreenWhileSelecting"
     }
 
     private let store: KeyValueStore
@@ -85,5 +86,14 @@ public final class GlintSettings {
             return store.bool(forKey: Key.overlayAutoDismiss) ?? false
         }
         set { withMutation(keyPath: \.overlayAutoDismiss) { store.set(newValue, forKey: Key.overlayAutoDismiss) } }
+    }
+
+    /// Off by default: freezing grabs every display before the overlay shows, which delays the crosshair.
+    public var freezeScreenWhileSelecting: Bool {
+        get {
+            access(keyPath: \.freezeScreenWhileSelecting)
+            return store.bool(forKey: Key.freezeScreenWhileSelecting) ?? false
+        }
+        set { withMutation(keyPath: \.freezeScreenWhileSelecting) { store.set(newValue, forKey: Key.freezeScreenWhileSelecting) } }
     }
 }
