@@ -56,12 +56,21 @@ import Testing
     let screen = try #require(NSScreen.main)
     let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, pointerLocation: { CGPoint(x: screen.frame.midX, y: screen.frame.midY) })
-    let fit = ThumbnailPresenter.columnCapacity(in: screen.visibleFrame, width: GlintSettings.defaultThumbnailWidth)
-    let files = try (0..<(fit + 2)).map { _ in try writePNG() }
+    let width = CGFloat(GlintSettings.defaultThumbnailWidth)
+    let visible = screen.visibleFrame
+    let moreThanFit = Int(visible.height / ThumbnailPresenter.size(width: width).height) + 2
+    let files = try (0..<moreThanFit).map { _ in try writePNG() }
+    defer { files.forEach { try? FileManager.default.removeItem(at: $0) } }
 
     files.forEach(presenter.show)
 
-    #expect(presenter.count == fit)
+    let shown = presenter.urls
+    #expect(shown == Array(files.reversed().prefix(shown.count)))
+    #expect(shown.count < files.count)
+    let topCard = try #require(ThumbnailPresenter.frame(at: shown.count - 1, in: visible, corner: .bottomRight, collapsed: false, width: width))
+    let oneMore = try #require(ThumbnailPresenter.frame(at: shown.count, in: visible, corner: .bottomRight, collapsed: false, width: width))
+    #expect(topCard.maxY <= visible.maxY)
+    #expect(oneMore.maxY > visible.maxY - ThumbnailPresenter.margin)
     #expect(files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
 }
 
@@ -74,6 +83,7 @@ import Testing
     let fitWhenWidest = ThumbnailPresenter.columnCapacity(in: screen.visibleFrame, width: widest)
     try #require(fitWhenWidest < fit)
     let files = try (0..<fit).map { _ in try writePNG() }
+    defer { files.forEach { try? FileManager.default.removeItem(at: $0) } }
     files.forEach(presenter.show)
     #expect(presenter.count == fit)
 

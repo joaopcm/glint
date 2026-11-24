@@ -96,7 +96,7 @@ final class ThumbnailPresenter {
         }
         guard index < 3 else { return nil }
         let depth = CGFloat(index)
-        return base.insetBy(dx: 10 * depth, dy: 0).offsetBy(dx: 0, dy: 7 * depth)
+        return base.insetBy(dx: 10 * depth, dy: 0).offsetBy(dx: 0, dy: ThumbnailPile.offset * depth)
     }
 
     private func layout() {
@@ -230,6 +230,7 @@ final class ThumbnailPresenter {
 
     /// Thumbnails currently in the overlay (for tests).
     var count: Int { items.count }
+    var urls: [URL] { items.map(\.url) }
 
     private func screensChanged() {
         let screens = NSScreen.screens

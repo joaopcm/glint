@@ -45,6 +45,8 @@ UI tests drive the real app: they press the hotkeys, drag and click, so they tak
 xcodegen generate && xcodebuild -scheme GlintUI -destination 'platform=macOS' test
 ```
 
+A local UI test run quits your installed Glint and doesn't relaunch it, and the Copy test overwrites your clipboard.
+
 `GlintCore` also builds and tests on Linux. The app and `GlintCapture` need macOS.
 
 ## Install a dev build

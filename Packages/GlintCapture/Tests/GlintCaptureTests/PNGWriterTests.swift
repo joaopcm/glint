@@ -26,7 +26,7 @@ import Testing
 @Test func missingFolderReasonIsThePOSIXError() throws {
     let url = URL(filePath: "/nonexistent-\(UUID())/x.png")
     let error = try #require(throws: CaptureError.self) { try PNGWriter.write(makeSolidImage(width: 1, height: 1), to: url) }
-    #expect(error == .writeFailed(path: url.path, underlying: "No such file or directory"))
+    #expect(error == .writeFailed(path: url.path, underlying: String(cString: strerror(ENOENT))))
 }
 
 @Test func readOnlyFolderReasonIsThePOSIXError() throws {
@@ -36,7 +36,7 @@ import Testing
     defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
     let url = folder.appending(path: "x.png")
     let error = try #require(throws: CaptureError.self) { try PNGWriter.write(makeSolidImage(width: 1, height: 1), to: url) }
-    #expect(error == .writeFailed(path: url.path, underlying: "Permission denied"))
+    #expect(error == .writeFailed(path: url.path, underlying: String(cString: strerror(EACCES))))
 }
 
 @Test func failedWriteLeavesNoFileBehind() throws {

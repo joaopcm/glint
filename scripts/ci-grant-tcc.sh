@@ -20,5 +20,3 @@ for id in "$@"; do
   fi
   echo "granted $service to $id"
 done
-
-sudo automationmodetool enable-automationmode-without-authentication

@@ -134,6 +134,7 @@ jobs:
       - run: xcodegen generate
       - run: scripts/ci-grant-tcc.sh kTCCServiceScreenCapture com.joaopcm.glint com.joaopcm.glint.uitests.xctrunner
       - run: scripts/ci-grant-tcc.sh kTCCServicePostEvent com.joaopcm.glint.uitests.xctrunner
+      - run: sudo automationmodetool enable-automationmode-without-authentication
       # macOS 15 shows its own "bypass the private window picker" prompt on top of the TCC grant (run 45266766603).
       - name: Pre-approve the private window picker prompt
         env:
@@ -143,7 +144,12 @@ jobs:
           mkdir -p "$(dirname "$APPROVALS")"
           defaults write "$APPROVALS" "$GLINT_EXECUTABLE" -date "4000-01-01 00:00:00 +0000"
           defaults read "$APPROVALS" "$GLINT_EXECUTABLE"
-      - run: xcodebuild -scheme GlintUI -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA" -resultBundlePath ui.xcresult test
+      # A failing run took 8 min 1 s here (45493012014) and the slowest test 29.5 s (45499134237). The per-test cap lets
+      # xcodebuild kill a hung test and still finalize ui.xcresult; the step cap leaves the upload time inside the job's.
+      - run: |
+          xcodebuild -scheme GlintUI -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA" -resultBundlePath ui.xcresult \
+            -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 test
+        timeout-minutes: 19
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
