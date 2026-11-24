@@ -22,15 +22,23 @@ struct NSAlertPresenter: AlertPresenting {
         for button in alert.buttons {
             panel.addButton(withTitle: button.rawValue)
         }
-        let previousApp = NSWorkspace.shared.frontmostApplication
-        NSApp.activate()
-        let index = panel.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        let index = runWithGlintActive { panel.runModal() }.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        return alert.buttons.indices.contains(index) ? alert.buttons[index] : .ok
+    }
+}
+
+/// Modal UI needs Glint active; hand focus back to the app the user was in afterwards.
+@MainActor
+func runWithGlintActive<T>(_ body: () -> T) -> T {
+    let previousApp = NSWorkspace.shared.frontmostApplication
+    NSApp.activate()
+    defer {
         if let previousApp, previousApp != NSRunningApplication.current {
             NSApp.yieldActivation(to: previousApp)
             previousApp.activate()
         }
-        return alert.buttons.indices.contains(index) ? alert.buttons[index] : .ok
     }
+    return body()
 }
 
 enum PasteboardError: LocalizedError {

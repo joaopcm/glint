@@ -330,21 +330,14 @@ final class ThumbnailPresenter {
         runActivated { _ = alert.runModal() }
     }
 
-    /// Modal UI needs Glint active; hand focus back to the app the user was in afterwards.
     private func runActivated<T>(_ body: () -> T) -> T {
-        let previousApp = NSWorkspace.shared.frontmostApplication
         isRunningModal = true
         refreshHover()
-        NSApp.activate()
         defer {
             isRunningModal = false
             refreshHover()
-            if let previousApp, previousApp != NSRunningApplication.current {
-                NSApp.yieldActivation(to: previousApp)
-                previousApp.activate()
-            }
         }
-        return body()
+        return runWithGlintActive(body)
     }
 }
 
