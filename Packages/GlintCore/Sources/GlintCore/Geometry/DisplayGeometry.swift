@@ -48,13 +48,13 @@ public enum DisplayGeometry {
         )
     }
 
-    public static func pixelSize(of rect: CGRect, on display: DisplayInfo) -> (width: Int, height: Int) {
-        (Int((rect.width * display.scale).rounded()), Int((rect.height * display.scale).rounded()))
+    public static func pixelSize(of rect: CGRect, scale: CGFloat) -> (width: Int, height: Int) {
+        (Int((rect.width * scale).rounded()), Int((rect.height * scale).rounded()))
     }
 
     /// Same rounding as `pixelSize`, so a crop from a frozen grab matches a fresh capture of the selection.
     public static func pixelRect(of sourceRect: CGRect, on display: DisplayInfo) -> CGRect {
-        let size = pixelSize(of: sourceRect, on: display)
+        let size = pixelSize(of: sourceRect, scale: display.scale)
         return CGRect(
             x: (sourceRect.minX * display.scale).rounded(),
             y: (sourceRect.minY * display.scale).rounded(),

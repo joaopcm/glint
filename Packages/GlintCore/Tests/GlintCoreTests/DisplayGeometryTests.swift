@@ -33,10 +33,22 @@ private let above = DisplayInfo(id: 3, frame: CGRect(x: 0, y: 982, width: 1512, 
 
 @Test func scaleForDisplay() {
     let size = CGRect(x: 0, y: 0, width: 200, height: 100)
-    let retina = DisplayGeometry.pixelSize(of: size, on: main)
-    let standard = DisplayGeometry.pixelSize(of: size, on: ext)
+    let retina = DisplayGeometry.pixelSize(of: size, scale: main.scale)
+    let standard = DisplayGeometry.pixelSize(of: size, scale: ext.scale)
     #expect(retina.width == 400 && retina.height == 200)
     #expect(standard.width == 200 && standard.height == 100)
+}
+
+@Test func pixelSizeRoundsToNearestPixel() {
+    let size = DisplayGeometry.pixelSize(of: CGRect(x: 10, y: 10, width: 100.5, height: 50.2), scale: 2)
+    #expect(size.width == 201 && size.height == 100)
+}
+
+@Test(arguments: [CGFloat(1), 2])
+func pixelSizeIgnoresOrigin(scale: CGFloat) {
+    let atZero = DisplayGeometry.pixelSize(of: CGRect(x: 0, y: 0, width: 333.5, height: 101.75), scale: scale)
+    let offset = DisplayGeometry.pixelSize(of: CGRect(x: -1820.25, y: 680.5, width: 333.5, height: 101.75), scale: scale)
+    #expect(atZero == offset)
 }
 
 @Test func zeroAreaSelectionIsCancel() {
@@ -107,7 +119,7 @@ private let above = DisplayInfo(id: 3, frame: CGRect(x: 0, y: 982, width: 1512, 
 @Test func frozenCropSizeAgreesWithPixelSizeForFractionalPoints() {
     let source = CGRect(x: 10.3, y: 20.7, width: 50.4, height: 30.6)
     let rect = DisplayGeometry.pixelRect(of: source, on: main)
-    let size = DisplayGeometry.pixelSize(of: source, on: main)
+    let size = DisplayGeometry.pixelSize(of: source, scale: main.scale)
     #expect(rect.width == CGFloat(size.width) && rect.height == CGFloat(size.height))
     #expect(rect.origin == CGPoint(x: 21, y: 41))
 }

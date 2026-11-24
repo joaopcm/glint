@@ -12,16 +12,17 @@ public actor ScreenCapturer {
               let sourceRect = DisplayGeometry.sourceRect(for: selection, on: info)
         else { throw CaptureError.emptySelection }
         let filter = try await Self.filterExcludingGlint(displayID: info.id)
-        let size = DisplayGeometry.pixelSize(of: sourceRect, on: info)
+        let size = DisplayGeometry.pixelSize(of: sourceRect, scale: info.scale)
         let configuration = Self.configuration(width: size.width, height: size.height)
         configuration.sourceRect = sourceRect
         return try await Self.image(filter: filter, configuration: configuration)
     }
 
-    public func captureDisplay(id: UInt32) async throws -> CGImage {
+    public func captureDisplay(_ display: DisplayInfo) async throws -> CGImage {
         try Self.requirePermission()
-        let filter = try await Self.filterExcludingGlint(displayID: id)
-        return try await Self.image(filter: filter, configuration: Self.configuration(fullSizeOf: filter))
+        let filter = try await Self.filterExcludingGlint(displayID: display.id)
+        let size = DisplayGeometry.pixelSize(of: display.frame, scale: display.scale)
+        return try await Self.image(filter: filter, configuration: Self.configuration(width: size.width, height: size.height))
     }
 
     public func captureWindow(id: UInt32) async throws -> CGImage {
@@ -30,7 +31,8 @@ public actor ScreenCapturer {
             throw CaptureError.windowNotFound(id)
         }
         let filter = SCContentFilter(desktopIndependentWindow: window)
-        let configuration = Self.configuration(fullSizeOf: filter)
+        let size = DisplayGeometry.pixelSize(of: filter.contentRect, scale: CGFloat(filter.pointPixelScale))
+        let configuration = Self.configuration(width: size.width, height: size.height)
         configuration.ignoreShadowsSingleWindow = false
         configuration.shouldBeOpaque = false
         configuration.backgroundColor = CGColor.clear
@@ -63,11 +65,6 @@ public actor ScreenCapturer {
         return windows.sorted { rank[$0.id, default: .max] < rank[$1.id, default: .max] }
     }
 
-    static func pixelSize(of rect: CGRect, scale: Float) -> (width: Int, height: Int) {
-        let scale = CGFloat(scale)
-        return (Int((rect.width * scale).rounded()), Int((rect.height * scale).rounded()))
-    }
-
     // SCShareableContent does not document the order of `windows`; CGWindowList with
     // `.optionOnScreenOnly` is documented to return windows front to back.
     private static func onScreenWindowIDsFrontToBack() -> [UInt32] {
@@ -98,11 +95,6 @@ public actor ScreenCapturer {
         configuration.showsCursor = false
         configuration.captureResolution = .best
         return configuration
-    }
-
-    private static func configuration(fullSizeOf filter: SCContentFilter) -> SCStreamConfiguration {
-        let size = pixelSize(of: filter.contentRect, scale: filter.pointPixelScale)
-        return configuration(width: size.width, height: size.height)
     }
 
     private static func shareableContent() async throws -> sending SCShareableContent {

@@ -96,7 +96,7 @@ private final class SelectionCanvas: NSView {
         guard let display = DisplayGeometry.display(forSelection: selection, in: displays),
               let sourceRect = DisplayGeometry.sourceRect(for: selection, on: display)
         else { return }
-        let size = DisplayGeometry.pixelSize(of: sourceRect, on: display)
+        let size = DisplayGeometry.pixelSize(of: sourceRect, scale: display.scale)
         let label = NSAttributedString(string: "\(size.width) × \(size.height)", attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
             .foregroundColor: NSColor.white,

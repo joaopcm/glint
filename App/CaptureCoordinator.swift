@@ -16,7 +16,7 @@ protocol Capturing: Sendable {
     func hasPermission() async -> Bool
     func displays() async -> [DisplayInfo]
     func captureArea(_ selection: CGRect, displays: [DisplayInfo]) async throws -> CGImage
-    func captureDisplay(id: UInt32) async throws -> CGImage
+    func captureDisplay(_ display: DisplayInfo) async throws -> CGImage
     func captureWindow(id: UInt32) async throws -> CGImage
     func shareableWindows() async throws -> [CapturableWindow]
 }
@@ -164,7 +164,7 @@ final class CaptureCoordinator {
             guard let display = DisplayGeometry.display(nearest: pointerLocation(), in: displays) else {
                 throw CoordinatorError.noDisplays
             }
-            return try await capturer.captureDisplay(id: display.id)
+            return try await capturer.captureDisplay(display)
         }
     }
 
@@ -174,7 +174,7 @@ final class CaptureCoordinator {
         let capturer = capturer
         return try await withThrowingTaskGroup(of: FrozenDisplay.self) { group in
             for display in displays {
-                group.addTask { FrozenDisplay(display: display, image: try await capturer.captureDisplay(id: display.id)) }
+                group.addTask { FrozenDisplay(display: display, image: try await capturer.captureDisplay(display)) }
             }
             var frozen: [FrozenDisplay] = []
             for try await grab in group {

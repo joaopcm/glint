@@ -50,10 +50,9 @@ private actor FakeCapturer: Capturing {
         return try image()
     }
 
-    func captureDisplay(id: UInt32) async throws -> CGImage {
-        capturedDisplayIDs.append(id)
-        guard let display = displayList.first(where: { $0.id == id }) else { return try image() }
-        let size = DisplayGeometry.pixelSize(of: display.frame, on: display)
+    func captureDisplay(_ display: DisplayInfo) async throws -> CGImage {
+        capturedDisplayIDs.append(display.id)
+        let size = DisplayGeometry.pixelSize(of: display.frame, scale: display.scale)
         return try image(width: size.width, height: size.height)
     }
 
