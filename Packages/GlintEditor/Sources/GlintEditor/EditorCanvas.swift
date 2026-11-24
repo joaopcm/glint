@@ -34,7 +34,10 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     public var onToolChange: ((Tool) -> Void)?
     public var onSave: (() -> Void)?
     public private(set) var selectedID: UUID? {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            updateAccessibilityValue()
+        }
     }
 
     let document: AnnotationDocument
@@ -70,8 +73,14 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
 
     public func documentChanged() {
         if let selectedID, document.annotation(selectedID) == nil { self.selectedID = nil }
-        setAccessibilityValue("\(document.annotations.count) annotations")
+        updateAccessibilityValue()
         needsDisplay = true
+    }
+
+    private func updateAccessibilityValue() {
+        let count = document.annotations.count
+        let selected = selectedID.flatMap(document.annotation).map { "\($0.kind.name) selected" } ?? "nothing selected"
+        setAccessibilityValue("\(count) annotation\(count == 1 ? "" : "s"), \(selected)")
     }
 
     private var imageSize: CGSize {
