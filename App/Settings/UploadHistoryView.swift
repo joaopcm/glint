@@ -42,7 +42,7 @@ struct UploadHistoryView: View {
             Spacer()
             Button("Copy") { copy(record) }
             Button("Delete") {
-                Task { await history.delete(record) { try await bucket.deleteObject(key: $0) } }
+                Task { await history.delete(record) { try await bucket.deleteObject($0) } }
             }
             .disabled(history.deleting.contains(record.key))
             .accessibilityIdentifier(AccessibilityID.deleteUpload)
