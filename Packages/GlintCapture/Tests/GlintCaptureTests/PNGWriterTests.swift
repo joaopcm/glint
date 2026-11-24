@@ -23,6 +23,39 @@ import Testing
     #expect(error.errorDescription?.contains(url.path) == true)
 }
 
+@Test func missingFolderReasonIsThePOSIXError() throws {
+    let url = URL(filePath: "/nonexistent-\(UUID())/x.png")
+    let error = try #require(throws: CaptureError.self) { try PNGWriter.write(makeSolidImage(width: 1, height: 1), to: url) }
+    #expect(error == .writeFailed(path: url.path, underlying: "No such file or directory"))
+}
+
+@Test func readOnlyFolderReasonIsThePOSIXError() throws {
+    let folder = try makeTemporaryFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+    let url = folder.appending(path: "x.png")
+    let error = try #require(throws: CaptureError.self) { try PNGWriter.write(makeSolidImage(width: 1, height: 1), to: url) }
+    #expect(error == .writeFailed(path: url.path, underlying: "Permission denied"))
+}
+
+@Test func failedWriteLeavesNoFileBehind() throws {
+    let folder = try makeTemporaryFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let url = folder.appending(path: "x.png")
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+    let error = try #require(throws: CaptureError.self) { try PNGWriter.write(makeSolidImage(width: 30, height: 20), to: url) }
+    #expect(error == .writeFailed(path: url.path, underlying: "Is a directory"))
+    #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["x.png"])
+    #expect(try FileManager.default.contentsOfDirectory(atPath: url.path).isEmpty)
+}
+
+private func makeTemporaryFolder() throws -> URL {
+    let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+    return folder
+}
+
 private func makeSolidImage(width: Int, height: Int) -> CGImage {
     let context = CGContext(
         data: nil,
