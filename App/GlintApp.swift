@@ -13,7 +13,7 @@ struct GlintApp: App {
             Button("Quit Glint") { NSApplication.shared.terminate(nil) }
         }
         Settings {
-            SettingsView(settings: state.settings)
+            SettingsView(settings: state.settings, bucket: state.bucket)
         }
     }
 }
@@ -24,11 +24,17 @@ final class AppState {
         store: UserDefaultsStore(),
         defaultSaveFolder: FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
     )
+    let bucket: BucketAccess
     private let coordinator: CaptureCoordinator
     private let textCapture: TextCapture
     private let thumbnail: ThumbnailPresenter
 
     init() {
+        bucket = BucketAccess(
+            settings: settings,
+            credentialStore: KeychainCredentialStore(service: KeychainCredentialStore.bucketService),
+            transport: URLSessionS3Transport()
+        )
         let thumbnail = ThumbnailPresenter(settings: settings)
         self.thumbnail = thumbnail
         let capturer = ScreenCapturer()

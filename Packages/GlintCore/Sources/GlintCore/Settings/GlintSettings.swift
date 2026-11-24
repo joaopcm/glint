@@ -23,6 +23,12 @@ public final class GlintSettings {
         static let overlayAutoDismiss = "overlayAutoDismiss"
         static let thumbnailWidth = "thumbnailWidth"
         static let freezeScreenWhileSelecting = "freezeScreenWhileSelecting"
+        static let bucketEndpoint = "bucketEndpoint"
+        static let bucketRegion = "bucketRegion"
+        static let bucketName = "bucketName"
+        static let bucketPathStyle = "bucketPathStyle"
+        static let bucketKeyPrefix = "bucketKeyPrefix"
+        static let bucketPublicBaseURL = "bucketPublicBaseURL"
     }
 
     private let store: KeyValueStore
@@ -95,5 +101,53 @@ public final class GlintSettings {
             return store.bool(forKey: Key.freezeScreenWhileSelecting) ?? false
         }
         set { withMutation(keyPath: \.freezeScreenWhileSelecting) { store.set(newValue, forKey: Key.freezeScreenWhileSelecting) } }
+    }
+
+    public var bucketEndpoint: String {
+        get {
+            access(keyPath: \.bucketEndpoint)
+            return store.string(forKey: Key.bucketEndpoint) ?? ""
+        }
+        set { withMutation(keyPath: \.bucketEndpoint) { store.set(newValue, forKey: Key.bucketEndpoint) } }
+    }
+
+    public var bucketRegion: String {
+        get {
+            access(keyPath: \.bucketRegion)
+            return store.string(forKey: Key.bucketRegion) ?? ""
+        }
+        set { withMutation(keyPath: \.bucketRegion) { store.set(newValue, forKey: Key.bucketRegion) } }
+    }
+
+    public var bucketName: String {
+        get {
+            access(keyPath: \.bucketName)
+            return store.string(forKey: Key.bucketName) ?? ""
+        }
+        set { withMutation(keyPath: \.bucketName) { store.set(newValue, forKey: Key.bucketName) } }
+    }
+
+    public var bucketPathStyle: Bool {
+        get {
+            access(keyPath: \.bucketPathStyle)
+            return store.bool(forKey: Key.bucketPathStyle) ?? false
+        }
+        set { withMutation(keyPath: \.bucketPathStyle) { store.set(newValue, forKey: Key.bucketPathStyle) } }
+    }
+
+    public var bucketKeyPrefix: String {
+        get {
+            access(keyPath: \.bucketKeyPrefix)
+            return store.string(forKey: Key.bucketKeyPrefix) ?? ""
+        }
+        set { withMutation(keyPath: \.bucketKeyPrefix) { store.set(newValue, forKey: Key.bucketKeyPrefix) } }
+    }
+
+    public var bucketPublicBaseURL: String {
+        get {
+            access(keyPath: \.bucketPublicBaseURL)
+            return store.string(forKey: Key.bucketPublicBaseURL) ?? ""
+        }
+        set { withMutation(keyPath: \.bucketPublicBaseURL) { store.set(newValue, forKey: Key.bucketPublicBaseURL) } }
     }
 }
