@@ -3,17 +3,31 @@ import GlintCore
 
 final class AreaSelectionView: OverlayView {
     var selection: CGRect? {
-        didSet { needsDisplay = true }
+        didSet { canvas.selection = selection }
     }
     var onSelectionChange: ((CGRect?) -> Void)?
     var onFinish: ((SelectionResult) -> Void)?
 
-    private let displays: [DisplayInfo]
+    private let backdrop: CGImage?
+    private let canvas: SelectionCanvas
     private var dragOrigin: CGPoint?
 
-    init(screenFrame: CGRect, displays: [DisplayInfo]) {
-        self.displays = displays
+    /// `backdrop` is the frozen grab of this screen; nil keeps the overlay see-through.
+    init(screenFrame: CGRect, displays: [DisplayInfo], backdrop: CGImage? = nil) {
+        self.backdrop = backdrop
+        canvas = SelectionCanvas(screenFrame: screenFrame, displays: displays)
         super.init(screenFrame: screenFrame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .never
+        canvas.frame = bounds
+        canvas.autoresizingMask = [.width, .height]
+        addSubview(canvas)
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        layer?.contents = backdrop
     }
 
     @available(*, unavailable)
@@ -36,6 +50,33 @@ final class AreaSelectionView: OverlayView {
         let rect = Self.rect(from: dragOrigin, to: NSEvent.mouseLocation)
         onFinish?(rect.width >= 1 && rect.height >= 1 ? .area(rect) : .cancelled)
     }
+
+    private static func rect(from start: CGPoint, to end: CGPoint) -> CGRect {
+        CGRect(x: min(start.x, end.x), y: min(start.y, end.y), width: abs(end.x - start.x), height: abs(end.y - start.y))
+    }
+}
+
+/// Draws the dimming, the selection outline and its size on top of the (possibly frozen) backdrop.
+private final class SelectionCanvas: NSView {
+    var selection: CGRect? {
+        didSet { needsDisplay = true }
+    }
+
+    private let screenFrame: CGRect
+    private let displays: [DisplayInfo]
+
+    init(screenFrame: CGRect, displays: [DisplayInfo]) {
+        self.screenFrame = screenFrame
+        self.displays = displays
+        super.init(frame: CGRect(origin: .zero, size: screenFrame.size))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func draw(_ dirtyRect: NSRect) {
         let dim = NSBezierPath(rect: bounds)
@@ -73,7 +114,7 @@ final class AreaSelectionView: OverlayView {
         label.draw(at: CGPoint(x: box.minX + padding.width, y: box.minY + padding.height))
     }
 
-    private static func rect(from start: CGPoint, to end: CGPoint) -> CGRect {
-        CGRect(x: min(start.x, end.x), y: min(start.y, end.y), width: abs(end.x - start.x), height: abs(end.y - start.y))
+    private func local(_ globalRect: CGRect) -> CGRect {
+        globalRect.offsetBy(dx: -screenFrame.minX, dy: -screenFrame.minY)
     }
 }

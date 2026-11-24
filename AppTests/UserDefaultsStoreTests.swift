@@ -14,10 +14,12 @@ import Testing
     before.copyToClipboardAfterCapture = true
     before.overlayCorner = .bottomLeft
     before.thumbnailWidth = 300
+    before.freezeScreenWhileSelecting = true
 
     let after = GlintSettings(store: UserDefaultsStore(defaults: try #require(UserDefaults(suiteName: suite))), defaultSaveFolder: fallback)
     #expect(after.saveFolder.path == folder.path)
     #expect(after.copyToClipboardAfterCapture)
     #expect(after.overlayCorner == .bottomLeft)
     #expect(after.thumbnailWidth == 300)
+    #expect(after.freezeScreenWhileSelecting)
 }
