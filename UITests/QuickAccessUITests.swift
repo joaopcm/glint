@@ -5,8 +5,8 @@ import XCTest
 final class QuickAccessUITests: GlintUITestCase {
     /// `ThumbnailPresenter` folds the column back 1 s after the pointer leaves it.
     static let foldBackTimeout: TimeInterval = 5
-    /// The collapsed pile offsets each card 7 pt up (`ThumbnailPresenter.frame`).
-    static let pileOffset: CGFloat = 7
+    /// With no card in the capture, 0 of the 40080 card-region pixels changed (run 45505547400); a card changes nearly all of them.
+    static let cardsInCaptureThreshold = 0.01
 
     @MainActor func testOneThumbnailPerSavedCaptureNoneAfterCancel() {
         press(.fullScreen)
@@ -133,14 +133,14 @@ final class QuickAccessUITests: GlintUITestCase {
             waitForPNGs(count: count, after: .fullScreen)
         }
         XCTAssertTrue(waitUntil(cards, count: 3), "expected 3 cards, found \(cards.count)")
-        XCTAssertLessThanOrEqual(cardSpread(), 2 * Self.pileOffset, "three captures did not pile up")
+        XCTAssertLessThanOrEqual(cardSpread(), 2 * ThumbnailPile.offset, "three captures did not pile up")
 
         let top = cards.allElementsBoundByIndex.max { $0.frame.minY < $1.frame.minY }!
         center(of: top).click()
-        XCTAssertTrue(waitUntil { self.cardSpread() > 2 * Self.pileOffset }, "clicking the pile did not expand it")
+        XCTAssertTrue(waitUntil { self.cardSpread() > 2 * ThumbnailPile.offset }, "clicking the pile did not expand it")
 
         moveAwayFromCards()
-        XCTAssertTrue(waitUntil(timeout: Self.foldBackTimeout) { self.cardSpread() <= 2 * Self.pileOffset },
+        XCTAssertTrue(waitUntil(timeout: Self.foldBackTimeout) { self.cardSpread() <= 2 * ThumbnailPile.offset },
                       "the column did not fold back within \(Self.foldBackTimeout) s")
     }
 
@@ -157,7 +157,7 @@ final class QuickAccessUITests: GlintUITestCase {
 
         let region = cardFrames.reduce(CGRect.null) { $0.union($1) }
         let changed = try changedFraction(withoutCards, withCards, in: region)
-        XCTAssertLessThan(changed, 0.01, "\(Int(changed * 100))% of the thumbnail area differs: the cards are in the capture")
+        XCTAssertLessThan(changed, Self.cardsInCaptureThreshold, "\(Int(changed * 100))% of the thumbnail area differs: the cards are in the capture")
 
         press(.window)
         waitForOverlay(after: .window)
@@ -206,7 +206,7 @@ final class QuickAccessUITests: GlintUITestCase {
     private func changedShare(_ a: URL, _ b: URL, in region: CGRect) -> Double {
         guard let first = rgba(of: a, region: region), let second = rgba(of: b, region: region), first.count == second.count, !first.isEmpty else { return 1 }
         let changed = stride(from: 0, to: first.count, by: 4).filter { pixel in
-            (0..<3).contains { abs(Int(first[pixel + $0]) - Int(second[pixel + $0])) > 8 }
+            (0..<3).contains { abs(Int(first[pixel + $0]) - Int(second[pixel + $0])) > Int(Self.pixelTolerance) }
         }.count
         return Double(changed) / Double(first.count / 4)
     }
@@ -282,19 +282,23 @@ final class QuickAccessUITests: GlintUITestCase {
         XCTAssertEqual(first.width, second.width)
         let screen = pointerScreen
         let scale = CGFloat(first.width) / screen.frame.width
-        let pixels = CGRect(x: (region.minX - screen.frame.minX) * scale, y: region.minY * scale,
+        let screenTop = NSScreen.screens[0].frame.maxY - screen.frame.maxY
+        let pixels = CGRect(x: (region.minX - screen.frame.minX) * scale, y: (region.minY - screenTop) * scale,
                             width: region.width * scale, height: region.height * scale)
             .integral.intersection(CGRect(x: 0, y: 0, width: first.width, height: first.height))
-        var changed = 0, total = 0
+        var changed = 0, total = 0, maxDelta = 0
         for y in Int(pixels.minY)..<Int(pixels.maxY) {
             for x in Int(pixels.minX)..<Int(pixels.maxX) {
                 let i = y * first.width * 4 + x * 4
-                let differs = (0..<3).contains { abs(Int(first.bytes[i + $0]) - Int(second.bytes[i + $0])) > 8 }
-                changed += differs ? 1 : 0
+                let delta = (0..<3).map { abs(Int(first.bytes[i + $0]) - Int(second.bytes[i + $0])) }.max()!
+                maxDelta = max(maxDelta, delta)
+                changed += delta > Int(Self.pixelTolerance) ? 1 : 0
                 total += 1
             }
         }
-        return total == 0 ? 1 : Double(changed) / Double(total)
+        let fraction = total == 0 ? 1 : Double(changed) / Double(total)
+        XCTContext.runActivity(named: "card region: \(fraction) of \(total) pixels changed, max channel delta \(maxDelta)") { _ in }
+        return fraction
     }
 
     private func rgba(_ url: URL) throws -> (bytes: [UInt8], width: Int, height: Int) {

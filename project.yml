@@ -49,7 +49,7 @@ targets:
   GlintUITests:
     type: bundle.ui-testing
     platform: macOS
-    sources: [UITests, App/AccessibilityID.swift]
+    sources: [UITests, App/AccessibilityID.swift, App/ThumbnailPile.swift]
     dependencies:
       - target: Glint
     settings:

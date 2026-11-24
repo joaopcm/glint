@@ -4,18 +4,32 @@ import ImageIO
 import XCTest
 
 class GlintUITestCase: XCTestCase {
-    enum Hotkey: String {
+    enum Hotkey: String, CaseIterable {
         case area = "area ⇧⌘2"
         case window = "window ⌃⇧⌘2"
         case fullScreen = "full screen ⇧⌘1"
         case text = "text ⌥⇧⌘2"
+
+        var shortcut: (name: String, key: Int, carbonModifiers: Int, flags: CGEventFlags) {
+            switch self {
+            case .area: ("captureArea", kVK_ANSI_2, cmdKey | shiftKey, [.maskCommand, .maskShift])
+            case .window: ("captureWindow", kVK_ANSI_2, controlKey | cmdKey | shiftKey, [.maskControl, .maskCommand, .maskShift])
+            case .fullScreen: ("captureFullScreen", kVK_ANSI_1, cmdKey | shiftKey, [.maskCommand, .maskShift])
+            case .text: ("captureText", kVK_ANSI_2, optionKey | cmdKey | shiftKey, [.maskAlternate, .maskCommand, .maskShift])
+            }
+        }
     }
 
     static let glintBundleID = "com.joaopcm.glint"
-    /// Spike run 45262298278 measured 53 ms from the Screen Recording grant to the PNG on disk.
+    /// A PNG lands 53 ms after the hotkey (spike run 45262298278). The slowest other wait this covers in run 45499134237
+    /// was the Save As panel at 3.1 s; overlays, Finder windows and the editor all showed up faster.
     static let captureTimeout: TimeInterval = 10
+    /// 40 times the 53 ms a capture takes to land (run 45262298278), so a stray capture is on disk before the count is checked.
     static let noFileWait: TimeInterval = 2
+    /// Glint quit within 1.03 s of every terminate in run 45499134237.
     static let terminateTimeout: TimeInterval = 5
+    /// Unchanged pixels match exactly between two captures: max channel delta 0 over 40080 pixels in run 45505547400.
+    static let pixelTolerance: UInt8 = 8
 
     /// Subclasses add `-key value` pairs to start Glint with other settings.
     var extraLaunchArguments: [String] { [] }
@@ -61,11 +75,23 @@ class GlintUITestCase: XCTestCase {
             "-overlayAutoDismiss", "NO",
             "-overlayCorner", "bottomRight",
             "-thumbnailWidth", "240",
-        ] + extraLaunchArguments
+        ] + defaultShortcutArguments + extraLaunchArguments
         app.launchEnvironment = extraLaunchEnvironment
         app.launch()
         finder.activate()
-        XCTAssertFalse(overlay.exists, "a selection overlay is already up before the test started")
+        let previews = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Preview")
+        XCTAssertTrue(previews.isEmpty, "Preview is running (pid \(previews.map(\.processIdentifier))) and can cover what the test captures. Quit it")
+        let strays = finder.windows.matching(NSPredicate(format: "title BEGINSWITH 'GlintUITests-'"))
+        XCTAssertEqual(strays.count, 0, "Finder still shows \(strays.allElementsBoundByIndex.map(\.title)) from an earlier test")
+    }
+
+    /// The installed Glint shares the `com.joaopcm.glint` defaults, so a rebound shortcut there would make every hotkey miss.
+    /// The argument domain wins over those defaults; the quotes keep the JSON a plist string.
+    private var defaultShortcutArguments: [String] {
+        Hotkey.allCases.flatMap { hotkey in
+            let shortcut = hotkey.shortcut
+            return ["-KeyboardShortcuts_\(shortcut.name)", #""{\"carbonKeyCode\":\#(shortcut.key),\"carbonModifiers\":\#(shortcut.carbonModifiers)}""#]
+        }
     }
 
     override func tearDownWithError() throws {
@@ -78,12 +104,7 @@ class GlintUITestCase: XCTestCase {
     /// Keys go through the HID event tap like a real keyboard. XCUITest's `typeKey` activates the element's app first,
     /// which a user's keypress never does, and it stalls while the non-activating overlay holds key focus (run 45284501150).
     @MainActor func press(_ hotkey: Hotkey) {
-        switch hotkey {
-        case .area: postKey(kVK_ANSI_2, flags: [.maskCommand, .maskShift])
-        case .window: postKey(kVK_ANSI_2, flags: [.maskControl, .maskCommand, .maskShift])
-        case .fullScreen: postKey(kVK_ANSI_1, flags: [.maskCommand, .maskShift])
-        case .text: postKey(kVK_ANSI_2, flags: [.maskAlternate, .maskCommand, .maskShift])
-        }
+        postKey(hotkey.shortcut.key, flags: hotkey.shortcut.flags)
     }
 
     @MainActor func pressEscape() {
@@ -116,10 +137,10 @@ class GlintUITestCase: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
             found = pngs()
         }
-        guard found.count >= count else {
+        guard found.count == count else {
             XCTFail(
                 """
-                expected \(count) PNG(s) in \(saveFolder.path) within \(Self.captureTimeout) s \
+                expected exactly \(count) PNG(s) in \(saveFolder.path) within \(Self.captureTimeout) s \
                 after \(hotkey?.rawValue ?? "the last action"), found \(found.map(\.lastPathComponent)). \
                 \(dialogDescription())
                 """,
@@ -159,7 +180,7 @@ class GlintUITestCase: XCTestCase {
 
     /// Share of pixels whose RGB differs by more than `tolerance` on any channel; 1 when the sizes differ.
     /// `regionOfB` compares `a` with that pixel rect of `b` (top-left origin).
-    func differingPixelShare(_ a: URL, _ b: URL, regionOfB: CGRect? = nil, tolerance: UInt8 = 8) -> Double {
+    func differingPixelShare(_ a: URL, _ b: URL, regionOfB: CGRect? = nil, tolerance: UInt8 = GlintUITestCase.pixelTolerance) -> Double {
         guard let first = rgba(of: a), let second = rgba(of: b, region: regionOfB), first.count == second.count, !first.isEmpty else { return 1 }
         var differing = 0
         for pixel in stride(from: 0, to: first.count, by: 4) {
@@ -245,13 +266,27 @@ class GlintUITestCase: XCTestCase {
         return "Glint shows a dialog: \(texts). \(front)"
     }
 
+    struct GlintStillRunning: Error, CustomStringConvertible {
+        let description: String
+    }
+
     private func terminateRunningGlints() throws {
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: Self.glintBundleID)
         running.forEach { $0.terminate() }
+        let stubborn = waitForTermination(of: running)
+        stubborn.forEach { $0.forceTerminate() }
+        let survivors = waitForTermination(of: stubborn)
+        guard survivors.isEmpty else {
+            let list = survivors.map { "pid \($0.processIdentifier) at \($0.bundleURL?.path ?? "unknown path")" }.joined(separator: ", ")
+            throw GlintStillRunning(description: "Glint survived terminate and forceTerminate, \(Self.terminateTimeout) s each: \(list)")
+        }
+    }
+
+    private func waitForTermination(of apps: [NSRunningApplication]) -> [NSRunningApplication] {
         let deadline = Date().addingTimeInterval(Self.terminateTimeout)
-        while running.contains(where: { !$0.isTerminated }), Date() < deadline {
+        while apps.contains(where: { !$0.isTerminated }), Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        running.filter { !$0.isTerminated }.forEach { $0.forceTerminate() }
+        return apps.filter { !$0.isTerminated }
     }
 }
