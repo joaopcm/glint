@@ -17,7 +17,11 @@ import Testing
     let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     settings.uploadAfterCapture = true
     let log = UploadLog()
-    let uploaded = UploadedCapture(key: "shots/Ab3.png", link: URL(string: "https://shots.example.com/shots/Ab3.png")!)
+    let uploaded = UploadedCapture(
+        key: "shots/Ab3.png",
+        link: URL(string: "https://shots.example.com/shots/Ab3.png")!,
+        bucket: BucketIdentity(endpoint: URL(string: "http://localhost:9000")!, bucket: "shots")
+    )
     let presenter = ThumbnailPresenter(
         settings: settings,
         upload: { file in
@@ -63,7 +67,11 @@ import Testing
     settings.uploadAfterCapture = true
     let bucketAnswers = AsyncStream<Void>.makeStream()
     let reported = AsyncStream<UploadedCapture>.makeStream()
-    let uploaded = UploadedCapture(key: "shots/Ab3.png", link: URL(string: "https://shots.example.com/shots/Ab3.png")!)
+    let uploaded = UploadedCapture(
+        key: "shots/Ab3.png",
+        link: URL(string: "https://shots.example.com/shots/Ab3.png")!,
+        bucket: BucketIdentity(endpoint: URL(string: "http://localhost:9000")!, bucket: "shots")
+    )
     let presenter = ThumbnailPresenter(
         settings: settings,
         upload: { _ in

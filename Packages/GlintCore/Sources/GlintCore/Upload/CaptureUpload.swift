@@ -12,13 +12,27 @@ public enum ObjectID {
     }
 }
 
+public struct BucketIdentity: Codable, Equatable, Sendable, CustomStringConvertible {
+    public let endpoint: URL
+    public let bucket: String
+
+    public init(endpoint: URL, bucket: String) {
+        self.endpoint = endpoint
+        self.bucket = bucket
+    }
+
+    public var description: String { "\(bucket) at \(endpoint.absoluteString)" }
+}
+
 public struct UploadedCapture: Sendable, Equatable {
     public let key: String
     public let link: URL
+    public let bucket: BucketIdentity
 
-    public init(key: String, link: URL) {
+    public init(key: String, link: URL, bucket: BucketIdentity) {
         self.key = key
         self.link = link
+        self.bucket = bucket
     }
 }
 
@@ -28,6 +42,7 @@ public enum UploadError: Error, Equatable, LocalizedError {
     case unreadable(path: String, reason: String)
     case tooLarge(path: String, bytes: Int)
     case request(S3Error)
+    case otherBucket(uploadedTo: BucketIdentity, configured: BucketIdentity)
 
     public var errorDescription: String? {
         switch self {
@@ -41,6 +56,9 @@ public enum UploadError: Error, Equatable, LocalizedError {
             "\(path) is \(bytes) bytes. One S3 PUT takes at most \(S3Client.singlePutLimit) bytes (5 GiB), and Glint doesn't split uploads."
         case .request(let error):
             error.localizedDescription
+        case .otherBucket(let uploadedTo, let configured):
+            "It went to \(uploadedTo), but Settings > Upload points at \(configured) now. "
+                + "Glint sent nothing. Point Settings > Upload back at \(uploadedTo) to delete it."
         }
     }
 }
@@ -71,7 +89,7 @@ extension S3Client {
         } catch {
             throw .request(error)
         }
-        return UploadedCapture(key: key, link: configuration.publicURL(forKey: key))
+        return UploadedCapture(key: key, link: configuration.publicURL(forKey: key), bucket: configuration.identity)
     }
 
     private static func contentType(forExtension ext: String) -> String {

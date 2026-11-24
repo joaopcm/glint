@@ -6,8 +6,19 @@ private func temporaryHistoryFile() -> URL {
     FileManager.default.temporaryDirectory.appending(path: "glint-history-\(UUID().uuidString)/upload-history.json")
 }
 
+private let shotsBucket = BucketIdentity(endpoint: URL(string: "http://localhost:9000")!, bucket: "shots")
+
 private func uploaded(_ name: String) -> UploadedCapture {
-    UploadedCapture(key: "glint/\(name).png", link: URL(string: "https://shots.example.com/glint/\(name).png")!)
+    UploadedCapture(key: "glint/\(name).png", link: URL(string: "https://shots.example.com/glint/\(name).png")!, bucket: shotsBucket)
+}
+
+@MainActor private func shotsAccess(_ transport: FakeTransport) -> BucketAccess {
+    let settings = GlintSettings(store: MemoryStore(), defaultSaveFolder: URL(filePath: "/tmp"))
+    settings.bucketEndpoint = "http://localhost:9000"
+    settings.bucketRegion = "us-east-1"
+    settings.bucketName = "shots"
+    settings.bucketPathStyle = true
+    return BucketAccess(settings: settings, credentialStore: MemoryCredentialStore(testCredentials), transport: transport)
 }
 
 private struct DeleteRefused: Error, LocalizedError {
@@ -48,7 +59,7 @@ private struct DeleteRefused: Error, LocalizedError {
     history.add(uploaded("b"), at: Date(timeIntervalSince1970: 200))
     var deletedKeys: [String] = []
 
-    await history.delete(history.records[1]) { deletedKeys.append($0) }
+    await history.delete(history.records[1]) { deletedKeys.append($0.key) }
 
     #expect(deletedKeys == ["glint/a.png"])
     #expect(history.records.map(\.key) == ["glint/b.png"])
@@ -71,14 +82,9 @@ private struct DeleteRefused: Error, LocalizedError {
 
 @MainActor @Test func deleteThroughTheBucketSendsASignedDELETE() async throws {
     let transport = FakeTransport([ok(204)])
-    let settings = GlintSettings(store: MemoryStore(), defaultSaveFolder: URL(filePath: "/tmp"))
-    settings.bucketEndpoint = "http://localhost:9000"
-    settings.bucketRegion = "us-east-1"
-    settings.bucketName = "shots"
-    settings.bucketPathStyle = true
-    let bucket = BucketAccess(settings: settings, credentialStore: MemoryCredentialStore(testCredentials), transport: transport)
+    let bucket = shotsAccess(transport)
 
-    try await bucket.deleteObject(key: "glint/a.png")
+    try await bucket.deleteObject(UploadRecord(key: "glint/a.png", link: uploaded("a").link, date: Date(), bucket: shotsBucket))
 
     let request = try #require(transport.requests.first)
     #expect(request.method == "DELETE")
@@ -89,7 +95,51 @@ private struct DeleteRefused: Error, LocalizedError {
 @MainActor @Test func deleteWithNoBucketSetUpSaysSo() async {
     let settings = GlintSettings(store: MemoryStore(), defaultSaveFolder: URL(filePath: "/tmp"))
     let bucket = BucketAccess(settings: settings, credentialStore: MemoryCredentialStore(), transport: FakeTransport([]))
-    await #expect(throws: UploadError.notConfigured) { try await bucket.deleteObject(key: "glint/a.png") }
+    let record = UploadRecord(key: "glint/a.png", link: uploaded("a").link, date: Date(), bucket: shotsBucket)
+    await #expect(throws: UploadError.notConfigured) { try await bucket.deleteObject(record) }
+}
+
+@MainActor @Test func deleteAfterSwitchingBucketsSendsNothingAndNamesBothBuckets() async {
+    let file = temporaryHistoryFile()
+    let history = UploadHistory(file: file)
+    let transport = FakeTransport([])
+    let bucket = shotsAccess(transport)
+    history.add(uploaded("a"), at: Date(timeIntervalSince1970: 100))
+    bucket.settings.bucketEndpoint = "https://s3.us-west-2.amazonaws.com"
+    bucket.settings.bucketRegion = "us-west-2"
+    bucket.settings.bucketName = "archive"
+
+    await history.delete(history.records[0]) { try await bucket.deleteObject($0) }
+
+    #expect(transport.requests.isEmpty)
+    #expect(history.records.map(\.key) == ["glint/a.png"])
+    #expect(UploadHistory(file: file).records.map(\.key) == ["glint/a.png"])
+    #expect(history.error == "Couldn't delete glint/a.png: It went to shots at http://localhost:9000, "
+        + "but Settings > Upload points at archive at https://s3.us-west-2.amazonaws.com now. "
+        + "Glint sent nothing. Point Settings > Upload back at shots at http://localhost:9000 to delete it.")
+}
+
+@MainActor @Test func aHistoryFileFromBeforeBucketsWereRecordedStillLoadsAndDeletesFromTheCurrentBucket() async throws {
+    let file = temporaryHistoryFile()
+    try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data(#"[{"key":"glint/old.png","link":"https://shots.example.com/glint/old.png","date":100}]"#.utf8).write(to: file)
+    let transport = FakeTransport([ok(204)])
+    let bucket = shotsAccess(transport)
+
+    let history = UploadHistory(file: file)
+    #expect(history.error == nil)
+    #expect(history.records == [UploadRecord(
+        key: "glint/old.png",
+        link: URL(string: "https://shots.example.com/glint/old.png")!,
+        date: Date(timeIntervalSinceReferenceDate: 100),
+        bucket: nil
+    )])
+
+    await history.delete(history.records[0]) { try await bucket.deleteObject($0) }
+
+    #expect(transport.requests.map(\.url.absoluteString) == ["http://localhost:9000/shots/glint/old.png"])
+    #expect(history.records.isEmpty)
+    #expect(history.error == nil)
 }
 
 @MainActor @Test func anUnreadableHistoryFileIsReportedAndLeftAlone() throws {

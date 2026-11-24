@@ -82,6 +82,10 @@ public struct BucketConfiguration: Sendable, Equatable {
         self.publicBaseURL = publicURL
     }
 
+    public var identity: BucketIdentity {
+        BucketIdentity(endpoint: endpoint, bucket: bucket)
+    }
+
     public func objectKey(forName name: String) -> String {
         keyPrefix.isEmpty ? name : "\(keyPrefix)/\(name)"
     }

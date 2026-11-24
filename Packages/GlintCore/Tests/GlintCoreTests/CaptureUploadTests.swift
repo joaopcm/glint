@@ -43,7 +43,11 @@ private func client(_ transport: FakeTransport, publicBaseURL: String = "") thro
 
     let uploaded = try await client(transport).upload(file, id: "Ab3")
 
-    #expect(uploaded == UploadedCapture(key: "glint/Ab3.png", link: URL(string: "http://localhost:9000/shots/glint/Ab3.png")!))
+    #expect(uploaded == UploadedCapture(
+        key: "glint/Ab3.png",
+        link: URL(string: "http://localhost:9000/shots/glint/Ab3.png")!,
+        bucket: BucketIdentity(endpoint: URL(string: "http://localhost:9000")!, bucket: "shots")
+    ))
     #expect(transport.requests.count == 1)
     let request = try #require(transport.requests.first)
     #expect(request.method == "PUT")
