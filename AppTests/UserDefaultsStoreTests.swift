@@ -23,3 +23,18 @@ import Testing
     #expect(after.thumbnailWidth == 300)
     #expect(after.freezeScreenWhileSelecting)
 }
+
+/// `-key value` launch arguments land in the argument domain as strings; the UI tests rely on them.
+@MainActor @Test func launchArgumentStringsReadAsBoolAndDouble() throws {
+    let suite = "GlintTests-\(UUID().uuidString)"
+    defer { UserDefaults().removePersistentDomain(forName: suite) }
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defaults.set("YES", forKey: "freezeScreenWhileSelecting")
+    defaults.set("240", forKey: "thumbnailWidth")
+
+    let store = UserDefaultsStore(defaults: defaults)
+    #expect(store.bool(forKey: "freezeScreenWhileSelecting") == true)
+    #expect(store.double(forKey: "thumbnailWidth") == 240)
+    #expect(store.bool(forKey: "absent") == nil)
+    #expect(store.double(forKey: "absent") == nil)
+}
