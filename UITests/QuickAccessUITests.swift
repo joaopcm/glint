@@ -87,7 +87,8 @@ final class QuickAccessUITests: GlintUITestCase {
         center(of: app.buttons["Annotate"].firstMatch).click()
         XCTAssertTrue(editorCanvas.waitForExistence(timeout: Self.captureTimeout), "Annotate opened no editor")
 
-        center(of: app.buttons["Rectangle"].firstMatch).click()
+        // Tool buttons are on/off toggles, which accessibility reports as checkboxes, not buttons (run 45495161930).
+        center(of: app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Rectangle'")).firstMatch).click()
         let image = aspectFit(pixelSize(of: png), in: editorCanvas.frame)
         let corner = { (fraction: CGFloat) in
             self.screenPoint(CGPoint(x: image.minX + image.width * fraction, y: image.minY + image.height * fraction))
