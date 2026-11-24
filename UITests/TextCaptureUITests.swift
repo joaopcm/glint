@@ -16,11 +16,16 @@ final class TextCaptureUITests: GlintUITestCase {
         screenPoint(CGPoint(x: frame.minX + 4, y: frame.minY + 4))
             .press(forDuration: 0.1, thenDragTo: screenPoint(CGPoint(x: frame.maxX - 4, y: frame.maxY - 4)))
 
-        let toast = app.descendants(matching: .any).matching(identifier: AccessibilityID.toast).firstMatch
-        XCTAssertTrue(toast.waitForExistence(timeout: Self.recognitionTimeout), "no toast after \(Hotkey.text.rawValue). \(app.debugDescription)")
-        XCTAssertTrue("\(toast.value ?? "")".hasPrefix("Copied "), "the toast says \(toast.value ?? "nothing"), expected \"Copied N lines\"")
-        let copied = NSPasteboard.general.string(forType: .string) ?? ""
-        XCTAssertTrue(copied.contains(Self.knownText), "the clipboard holds \(copied.debugDescription), expected it to contain \"\(Self.knownText)\"")
+        let deadline = Date().addingTimeInterval(Self.recognitionTimeout)
+        var copied = ""
+        while !copied.contains(Self.knownText), Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            copied = NSPasteboard.general.string(forType: .string) ?? ""
+        }
+        XCTAssertTrue(
+            copied.contains(Self.knownText),
+            "\(Self.recognitionTimeout) s after \(Hotkey.text.rawValue) the clipboard holds \(copied.debugDescription), expected it to contain \"\(Self.knownText)\". \(app.debugDescription)"
+        )
         XCTAssertNil(NSPasteboard.general.data(forType: .png), "a text capture put an image on the clipboard")
         assertPNGCount(0)
         XCTAssertFalse(app.images.matching(NSPredicate(format: "label BEGINSWITH 'Screenshot '")).firstMatch.exists, "a text capture showed a thumbnail")

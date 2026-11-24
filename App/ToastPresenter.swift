@@ -44,6 +44,10 @@ final class ToastPresenter {
         panel.contentView = background
     }
 
+    var visibleMessage: String? {
+        panel.isVisible ? label.stringValue : nil
+    }
+
     func show(_ message: String) {
         label.stringValue = message
         let size = panel.contentView?.fittingSize ?? .zero

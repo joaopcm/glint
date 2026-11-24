@@ -76,3 +76,11 @@ private func makeCapture(
     #expect(spy.outcomes.isEmpty)
     #expect(spy.alerts.map(\.message) == ["Could not read the text in the selection: The image is too small"])
 }
+
+@MainActor @Test func toastShowsTheMessageThenHides() async throws {
+    let toast = ToastPresenter(visibleFor: .milliseconds(300), pointerLocation: { offScreen })
+    toast.show("Copied 3 lines")
+    #expect(toast.visibleMessage == "Copied 3 lines")
+    try await Task.sleep(for: .seconds(1))
+    #expect(toast.visibleMessage == nil)
+}
