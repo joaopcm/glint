@@ -8,7 +8,8 @@ final class ToastPresenter {
     private let pointerLocation: @MainActor () -> CGPoint
     private var hideTask: Task<Void, Never>?
 
-    // ponytail: 2 s reads a three-word message with time to spare; no measurement behind it yet.
+    // "Copied 12 lines" is 3 words, 0.76 s at the 238 wpm adult silent reading rate (Brysbaert 2019, doi:10.1016/j.jml.2019.104047).
+    // 2 s leaves the rest for the eye to travel to the bottom of the screen.
     init(visibleFor: Duration = .seconds(2), pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation }) {
         self.visibleFor = visibleFor
         self.pointerLocation = pointerLocation
