@@ -8,17 +8,36 @@ import Testing
 private let mainDisplay = DisplayInfo(id: 1, frame: CGRect(x: 0, y: 0, width: 1512, height: 982), scale: 2)
 private let leftDisplay = DisplayInfo(id: 2, frame: CGRect(x: -1920, y: -200, width: 1920, height: 1080), scale: 1)
 
+private actor Gate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        waiters.forEach { $0.resume() }
+        waiters = []
+    }
+}
+
 private actor FakeCapturer: Capturing {
     let displayList: [DisplayInfo]
     let failure: CaptureError?
     let permissionGranted: Bool
+    let windowListGate: Gate?
     private(set) var capturedDisplayIDs: [UInt32] = []
     private(set) var capturedWindowIDs: [UInt32] = []
+    private(set) var windowListServed = false
 
-    init(displays: [DisplayInfo] = [mainDisplay], failure: CaptureError? = nil, permissionGranted: Bool = true) {
+    init(displays: [DisplayInfo] = [mainDisplay], failure: CaptureError? = nil, permissionGranted: Bool = true, windowListGate: Gate? = nil) {
         displayList = displays
         self.failure = failure
         self.permissionGranted = permissionGranted
+        self.windowListGate = windowListGate
     }
 
     func hasPermission() async -> Bool { permissionGranted }
@@ -38,6 +57,8 @@ private actor FakeCapturer: Capturing {
     }
 
     func shareableWindows() async throws -> [CapturableWindow] {
+        await windowListGate?.wait()
+        windowListServed = true
         if let failure { throw failure }
         return []
     }
@@ -60,14 +81,16 @@ private final class FakeSelector: Selecting {
 
     init(_ result: SelectionResult) { self.result = result }
 
-    func selectArea() async -> SelectionResult {
+    func selectArea() async throws -> SelectionResult {
         selectionCount += 1
         await whileSelecting?()
         return result
     }
 
-    func selectWindow(_ windows: [CapturableWindow]) async -> SelectionResult {
+    func selectWindow(_ windows: Task<[CapturableWindow], any Error>) async throws -> SelectionResult {
         selectionCount += 1
+        await whileSelecting?()
+        _ = try await windows.value
         return result
     }
 }
@@ -167,6 +190,27 @@ private struct Harness {
     #expect(await capturer.capturedWindowIDs == [42])
     #expect(try harness.savedFiles().count == 1)
     #expect(harness.alerts.presented.isEmpty)
+}
+
+// A regression that awaits the list before showing the picker would hang on the gate; 1 minute is the smallest limit Swift Testing takes.
+@MainActor @Test(.timeLimit(.minutes(1))) func windowPickerShowsBeforeTheWindowListArrives() async throws {
+    let gate = Gate()
+    let capturer = FakeCapturer(windowListGate: gate)
+    let harness = try Harness(capturer: capturer, selection: .window(42))
+    var listServedBeforePicker: Bool?
+    harness.selector.whileSelecting = {
+        listServedBeforePicker = await capturer.windowListServed
+        await gate.open()
+    }
+    await harness.coordinator.run(.window)
+    #expect(listServedBeforePicker == false)
+    #expect(await capturer.capturedWindowIDs == [42])
+}
+
+@MainActor @Test func windowListFailureThrowsItsReasonFromThePicker() async {
+    let controller = SelectionOverlayController()
+    let windows = Task<[CapturableWindow], any Error> { throw CaptureError.permissionDenied }
+    await #expect(throws: CaptureError.permissionDenied) { try await controller.selectWindow(windows) }
 }
 
 @MainActor @Test func permissionDeniedShowsSettingsAlert() async throws {
