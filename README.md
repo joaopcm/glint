@@ -10,6 +10,10 @@ Open source screenshot and screen recording app for macOS.
 - Upload to your own S3-compatible bucket (AWS S3, Cloudflare R2, MinIO, ...): one click puts the capture there and its public link on the clipboard. Turn on Upload after capture in Settings to skip the click. Your bucket is the only place Glint ever sends anything
 - Every shortcut can be changed in Settings
 
+## Performance
+
+Measured 2026-11-24 on an M4 Pro, macOS 27.2.1: idle memory 19 MB vs 55 MB for CleanShot X (median of 3 launches); area overlay 36.1 ms median from hotkey vs 100.5 ms for CleanShot X. Latency is to the window server showing the overlay, not to photons on screen, and CleanShot X was triggered through its URL API, which adds time to its number only. Details in [#3](https://github.com/joaopcm/glint/issues/3#issuecomment-7145993290).
+
 ## Status
 
 Early development. Not usable yet.
