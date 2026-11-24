@@ -56,6 +56,7 @@ targets:
         TEST_TARGET_NAME: Glint
         SWIFT_VERSION: "5.0"
         ENABLE_APP_SANDBOX: NO
+        CODE_SIGN_ENTITLEMENTS: UITests/GlintUITests.entitlements
 schemes:
   Glint:
     build:
