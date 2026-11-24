@@ -8,6 +8,6 @@ let package = Package(
     dependencies: [.package(path: "../GlintCore")],
     targets: [
         .target(name: "GlintCapture", dependencies: ["GlintCore"]),
-        .testTarget(name: "GlintCaptureTests", dependencies: ["GlintCapture"]),
+        .testTarget(name: "GlintCaptureTests", dependencies: ["GlintCapture"], resources: [.copy("Fixtures")]),
     ]
 )

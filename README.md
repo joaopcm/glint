@@ -2,6 +2,13 @@
 
 Open source screenshot and screen recording app for macOS.
 
+## Features
+
+- Capture an area (`⇧⌘2`), a window (`⌃⇧⌘2`) or the full screen (`⇧⌘1`) to a PNG in your save folder
+- Capture Text (`⌥⇧⌘2`): drag over any text on screen and it goes to the clipboard as plain text. Recognition runs on-device, and nothing is saved to disk
+- Quick-access thumbnail after each capture: copy, save as, annotate, pin or drag it out
+- Every shortcut can be changed in Settings
+
 ## Status
 
 Early development. Not usable yet.

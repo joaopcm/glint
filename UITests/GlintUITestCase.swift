@@ -8,6 +8,7 @@ class GlintUITestCase: XCTestCase {
         case area = "area ⇧⌘2"
         case window = "window ⌃⇧⌘2"
         case fullScreen = "full screen ⇧⌘1"
+        case text = "text ⌥⇧⌘2"
     }
 
     static let glintBundleID = "com.joaopcm.glint"
@@ -76,6 +77,7 @@ class GlintUITestCase: XCTestCase {
         case .area: postKey(kVK_ANSI_2, flags: [.maskCommand, .maskShift])
         case .window: postKey(kVK_ANSI_2, flags: [.maskControl, .maskCommand, .maskShift])
         case .fullScreen: postKey(kVK_ANSI_1, flags: [.maskCommand, .maskShift])
+        case .text: postKey(kVK_ANSI_2, flags: [.maskAlternate, .maskCommand, .maskShift])
         }
     }
 

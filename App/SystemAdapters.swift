@@ -38,7 +38,7 @@ enum PasteboardError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .rejected: "The system pasteboard did not accept the image."
+        case .rejected: "The system pasteboard did not accept the capture."
         }
     }
 }
@@ -50,5 +50,10 @@ extension NSPasteboard {
         item.setData(try Data(contentsOf: url), forType: .png)
         clearContents()
         guard writeObjects([item]) else { throw PasteboardError.rejected }
+    }
+
+    func copyText(_ text: String) throws {
+        clearContents()
+        guard setString(text, forType: .string) else { throw PasteboardError.rejected }
     }
 }

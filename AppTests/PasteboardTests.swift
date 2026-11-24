@@ -17,3 +17,13 @@ import Testing
     #expect(pasteboard.string(forType: .fileURL) == url.absoluteString)
     #expect(pasteboard.data(forType: .png) == png)
 }
+
+@MainActor @Test func copyTextPutsPlainTextOnThePasteboard() throws {
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+
+    try pasteboard.copyText("one\ntwo")
+
+    #expect(pasteboard.string(forType: .string) == "one\ntwo")
+    #expect(pasteboard.data(forType: .png) == nil)
+}
