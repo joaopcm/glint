@@ -1,5 +1,6 @@
 import AppKit
 import GlintCore
+import GlintEditor
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -15,6 +16,7 @@ final class ThumbnailPresenter {
     private let settings: GlintSettings
     private var items: [ThumbnailItem] = [] // newest first
     private var pinned: [NSPanel] = []
+    private var editors: [URL: AnnotationEditor] = [:]
     private var expansion = PileExpansion<NSScreen>()
     private var collapseTasks: [NSScreen: Task<Void, Never>] = [:]
     /// One countdown for the whole overlay: each new capture restarts it, so a pile being built never
@@ -138,8 +140,8 @@ final class ThumbnailPresenter {
         for item in items { item.view.isHovered = item === hovered }
         scheduleFolding(pointerOver: hovered?.screen)
 
-        // Hovering any thumbnail, dragging one out or a modal panel (Save As) pauses auto-hide for the whole overlay.
-        if hovered != nil || isDraggingOut || isRunningModal {
+        // Hovering any thumbnail, dragging one out, a modal panel (Save As) or an open editor pauses auto-hide for the whole overlay.
+        if hovered != nil || isDraggingOut || isRunningModal || !editors.isEmpty {
             cancelAutoDismiss()
             return
         }
@@ -242,12 +244,7 @@ final class ThumbnailPresenter {
         case .saveAs:
             saveAs(item)
         case .annotate:
-            remove(item)
-            NSWorkspace.shared.open(
-                [item.url],
-                withApplicationAt: URL(filePath: "/System/Applications/Preview.app"),
-                configuration: NSWorkspace.OpenConfiguration()
-            )
+            annotate(item)
         case .pin:
             remove(item)
             pin(item.url, on: item.screen)
@@ -287,6 +284,24 @@ final class ThumbnailPresenter {
             remove(item)
         } catch {
             showError("Glint couldn't save the screenshot", error)
+        }
+    }
+
+    private func annotate(_ item: ThumbnailItem) {
+        let url = item.url
+        if let open = editors[url] { return open.show(on: item.screen) }
+        do {
+            editors[url] = try CaptureEditor.open(
+                url,
+                on: item.screen,
+                onSaved: { [weak self] in self?.items.first { $0.url == url }?.reloadThumbnail() },
+                onClose: { [weak self] in
+                    self?.editors[url] = nil
+                    self?.refreshHover()
+                }
+            )
+        } catch {
+            showError("Glint couldn't open the screenshot for annotation", error)
         }
     }
 
@@ -351,17 +366,7 @@ private final class ThumbnailItem {
     var targetFrame: CGRect?
 
     init?(url: URL, screen: NSScreen) {
-        // A downsampled copy: the full capture can be tens of MB and thumbnails stay until dismissed.
-        // Sized for the widest card the user can pick, so it stays sharp after resizing.
-        let options = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: GlintSettings.thumbnailWidthRange.upperBound * screen.backingScaleFactor,
-        ] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options)
-        else { return nil }
-
+        guard let thumbnail = Self.thumbnail(of: url, on: screen) else { return nil }
         self.url = url
         self.screen = screen
         view = ThumbnailView(url: url, thumbnail: thumbnail)
@@ -380,6 +385,23 @@ private final class ThumbnailItem {
         panel.backgroundColor = .clear
         panel.contentView = view
     }
+
+    func reloadThumbnail() {
+        guard let thumbnail = Self.thumbnail(of: url, on: screen) else { return }
+        view.show(thumbnail)
+    }
+
+    // A downsampled copy: the full capture can be tens of MB and thumbnails stay until dismissed.
+    // Sized for the widest card the user can pick, so it stays sharp after resizing.
+    private static func thumbnail(of url: URL, on screen: NSScreen) -> CGImage? {
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: GlintSettings.thumbnailWidthRange.upperBound * screen.backingScaleFactor,
+        ] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options)
+    }
 }
 
 private final class ThumbnailView: NSView, NSDraggingSource {
@@ -395,7 +417,7 @@ private final class ThumbnailView: NSView, NSDraggingSource {
     var onDragOut: ((_ inProgress: Bool) -> Void)?
 
     private let url: URL
-    private let thumbnail: NSImage
+    private var thumbnail: NSImage
     private let imageView = NSView()
     private let controls = NSView()
     private let badgeLabel = NSTextField(labelWithString: "")
@@ -472,7 +494,7 @@ private final class ThumbnailView: NSView, NSDraggingSource {
         let actionBar = Glass.toolbar([
             button("doc.on.doc", "Copy", .copy),
             button("square.and.arrow.down", "Save As…", .saveAs),
-            button("pencil.tip.crop.circle", "Annotate in Preview", .annotate),
+            button("pencil.tip.crop.circle", "Annotate", .annotate),
             button("pin", "Pin to Screen", .pin),
         ])
         actionBar.translatesAutoresizingMaskIntoConstraints = false
@@ -519,6 +541,11 @@ private final class ThumbnailView: NSView, NSDraggingSource {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    func show(_ thumbnail: CGImage) {
+        self.thumbnail = NSImage(cgImage: thumbnail, size: .zero)
+        imageView.layer?.contents = thumbnail
+    }
 
     /// Clicks anywhere but a button belong to the card (click, drag out, resize), not to the glass subviews.
     override func hitTest(_ point: NSPoint) -> NSView? {
