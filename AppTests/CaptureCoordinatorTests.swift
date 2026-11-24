@@ -112,7 +112,7 @@ private actor FakeRecording: ActiveRecording {
 private actor FakeRecorder: Recording {
     let startFailure: CaptureError?
     let outcome: CaptureError?
-    private(set) var starts: [(target: RecordingTarget, url: URL, codec: VideoCodec)] = []
+    private(set) var starts: [(target: RecordingTarget, url: URL, options: RecordingOptions)] = []
     private(set) var recordings: [FakeRecording] = []
 
     init(startFailure: CaptureError? = nil, outcome: CaptureError? = nil) {
@@ -120,12 +120,35 @@ private actor FakeRecorder: Recording {
         self.outcome = outcome
     }
 
-    func startRecording(_ target: RecordingTarget, to url: URL, codec: VideoCodec) async throws -> any ActiveRecording {
+    func startRecording(_ target: RecordingTarget, to url: URL, options: RecordingOptions) async throws -> any ActiveRecording {
         if let startFailure { throw startFailure }
-        starts.append((target, url, codec))
+        starts.append((target, url, options))
         let recording = FakeRecording(url: url, outcome: outcome)
         recordings.append(recording)
         return recording
+    }
+}
+
+@MainActor
+private final class FakeMicrophone: MicrophoneAccess {
+    var status: MicrophoneStatus
+    let grants: Bool
+    private(set) var requestCount = 0
+    private(set) var settingsOpened = 0
+
+    init(_ status: MicrophoneStatus = .authorized, grants: Bool = true) {
+        self.status = status
+        self.grants = grants
+    }
+
+    func requestAccess() async -> Bool {
+        requestCount += 1
+        status = grants ? .authorized : .denied
+        return grants
+    }
+
+    func openSettings() {
+        settingsOpened += 1
     }
 }
 
@@ -156,10 +179,11 @@ private final class FakeSelector: Selecting {
 @MainActor
 private final class FakeAlerts: AlertPresenting {
     private(set) var presented: [CaptureAlert] = []
+    var answer: CaptureAlert.Button = .ok
 
     func present(_ alert: CaptureAlert) -> CaptureAlert.Button {
         presented.append(alert)
-        return .ok
+        return answer
     }
 }
 
@@ -179,17 +203,22 @@ private struct Harness {
     let folder: URL
     let alerts = FakeAlerts()
     let selector: FakeSelector
+    let settings: GlintSettings
+    let microphone: FakeMicrophone
     let coordinator: CaptureCoordinator
 
     init(
         capturer: FakeCapturer = FakeCapturer(),
         recorder: FakeRecorder = FakeRecorder(),
+        microphone: FakeMicrophone = FakeMicrophone(),
         selection: SelectionResult,
         pointer: CGPoint = .zero,
         createFolder: Bool = true,
         clipboardOn: Bool? = nil,
         freezeOn: Bool = false,
         codec: VideoCodec = .h264,
+        systemAudio: Bool = false,
+        recordMicrophone: Bool = false,
         copyToClipboard: (@MainActor (URL) throws -> Void)? = nil,
         onSaved: @escaping @MainActor (URL) -> Void = { _ in },
         onRecordingChange: @escaping @MainActor (CGRect?) -> Void = { _ in }
@@ -203,10 +232,15 @@ private struct Harness {
         settings.copyToClipboardAfterCapture = clipboardOn ?? (copyToClipboard != nil)
         settings.freezeScreenWhileSelecting = freezeOn
         settings.recordingCodec = codec
+        settings.recordSystemAudio = systemAudio
+        settings.recordMicrophone = recordMicrophone
+        self.settings = settings
+        self.microphone = microphone
         selector = FakeSelector(selection)
         coordinator = CaptureCoordinator(
             capturer: capturer,
             recorder: recorder,
+            microphone: microphone,
             selector: selector,
             alerts: alerts,
             settings: settings,
@@ -467,7 +501,7 @@ private let recordedArea = CGRect(x: 100, y: 200, width: 300, height: 150)
     await harness.coordinator.toggleRecording(.area)
     let start = try #require(await recorder.starts.first)
     #expect(start.target == .area(recordedArea, on: mainDisplay))
-    #expect(start.codec == .h264)
+    #expect(start.options == RecordingOptions(codec: .h264, systemAudio: false, microphone: false))
     #expect(start.url.deletingLastPathComponent().standardizedFileURL == harness.folder.standardizedFileURL)
     #expect(start.url.lastPathComponent.hasPrefix("Glint ") && start.url.pathExtension == "mp4")
     #expect(regions == [recordedArea])
@@ -496,7 +530,7 @@ private let recordedArea = CGRect(x: 100, y: 200, width: 300, height: 150)
     let recorder = FakeRecorder()
     let harness = try Harness(recorder: recorder, selection: .area(recordedArea), codec: .hevc)
     await harness.coordinator.toggleRecording(.area)
-    #expect(await recorder.starts.first?.codec == .hevc)
+    #expect(await recorder.starts.first?.options.codec == .hevc)
     await harness.coordinator.stopRecording()
 }
 
@@ -573,4 +607,69 @@ private let recordedArea = CGRect(x: 100, y: 200, width: 300, height: 150)
     await harness.coordinator.run(.area)
     #expect(harness.selector.selectionCount == 1)
     #expect(await recorder.starts.isEmpty)
+}
+
+@MainActor @Test(arguments: [(false, false), (true, false), (false, true), (true, true)])
+func recordingAsksForExactlyTheAudioStreamsThatAreOn(systemAudio: Bool, microphone: Bool) async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), systemAudio: systemAudio, recordMicrophone: microphone)
+    await harness.coordinator.toggleRecording(.area)
+    let options = try #require(await recorder.starts.first?.options)
+    #expect(options.systemAudio == systemAudio)
+    #expect(options.microphone == microphone)
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func microphoneOnWithoutPermissionAlertsBeforeAnyOverlayAndRecordsNothing() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, microphone: FakeMicrophone(.denied), selection: .area(recordedArea), recordMicrophone: true)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.selector.selectionCount == 0)
+    #expect(await recorder.starts.isEmpty)
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.message == CoordinatorError.microphoneDeniedForRecording.localizedDescription)
+    #expect(alert.message.contains("System Settings > Privacy & Security > Microphone"))
+    #expect(alert.buttons == [.openMicrophoneSettings, .ok])
+}
+
+@MainActor @Test func turningTheMicrophoneOnWithPermissionNeverPrompts() async throws {
+    let harness = try Harness(microphone: FakeMicrophone(.authorized), selection: .cancelled)
+    await harness.coordinator.setRecordMicrophone(true)
+    #expect(harness.settings.recordMicrophone)
+    #expect(harness.microphone.requestCount == 0)
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func turningTheMicrophoneOnAsksOnceAndKeepsItOnWhenGranted() async throws {
+    let harness = try Harness(microphone: FakeMicrophone(.notDetermined, grants: true), selection: .cancelled)
+    await harness.coordinator.setRecordMicrophone(true)
+    #expect(harness.settings.recordMicrophone)
+    #expect(harness.microphone.requestCount == 1)
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test(arguments: [MicrophoneStatus.notDetermined, .denied])
+func aRefusedMicrophoneLeavesTheToggleOffAndSaysWhatToDo(status: MicrophoneStatus) async throws {
+    let harness = try Harness(microphone: FakeMicrophone(status, grants: false), selection: .cancelled)
+    await harness.coordinator.setRecordMicrophone(true)
+    #expect(!harness.settings.recordMicrophone)
+    #expect(harness.microphone.requestCount == (status == .notDetermined ? 1 : 0))
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.title == "Glint can't record the microphone")
+    #expect(alert.message == CoordinatorError.microphoneDenied.localizedDescription)
+    #expect(alert.buttons == [.openMicrophoneSettings, .ok])
+}
+
+@MainActor @Test func turningTheMicrophoneOffNeverPrompts() async throws {
+    let harness = try Harness(microphone: FakeMicrophone(.notDetermined), selection: .cancelled, recordMicrophone: true)
+    await harness.coordinator.setRecordMicrophone(false)
+    #expect(!harness.settings.recordMicrophone)
+    #expect(harness.microphone.requestCount == 0)
+}
+
+@MainActor @Test func theMicrophoneAlertButtonOpensTheMicrophonePane() async throws {
+    let harness = try Harness(microphone: FakeMicrophone(.denied), selection: .cancelled)
+    harness.alerts.answer = .openMicrophoneSettings
+    await harness.coordinator.setRecordMicrophone(true)
+    #expect(harness.microphone.settingsOpened == 1)
 }
