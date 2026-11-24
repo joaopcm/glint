@@ -253,3 +253,10 @@ extension DisplayInfo {
         self.init(id: number.uint32Value, frame: screen.frame, scale: screen.backingScaleFactor)
     }
 }
+
+extension NSEvent {
+    /// Where the event happened, not where the pointer is now: on a busy main thread the two drift apart (run 45493012014 started a text selection 42 pt right of and 39 pt below the press).
+    var screenLocation: CGPoint {
+        window?.convertPoint(toScreen: locationInWindow) ?? locationInWindow
+    }
+}

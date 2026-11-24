@@ -9,11 +9,11 @@ final class WindowPickerView: OverlayView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        onPointerMove?(NSEvent.mouseLocation)
+        onPointerMove?(event.screenLocation)
     }
 
     override func mouseDown(with event: NSEvent) {
-        let point = NSEvent.mouseLocation
+        let point = event.screenLocation
         onPointerMove?(point)
         onClick?(point)
     }
