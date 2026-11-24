@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 public protocol KeyValueStore: AnyObject {
     func string(forKey key: String) -> String?
@@ -13,7 +14,7 @@ public enum OverlayCorner: String, CaseIterable, Sendable {
     case bottomLeft, bottomRight
 }
 
-@MainActor
+@MainActor @Observable
 public final class GlintSettings {
     private enum Key {
         static let saveFolderPath = "saveFolderPath"
@@ -33,22 +34,29 @@ public final class GlintSettings {
 
     public var saveFolder: URL {
         get {
+            access(keyPath: \.saveFolder)
             guard let path = store.string(forKey: Key.saveFolderPath), !path.isEmpty else {
                 return defaultSaveFolder
             }
             return URL(filePath: path)
         }
-        set { store.set(newValue.path, forKey: Key.saveFolderPath) }
+        set { withMutation(keyPath: \.saveFolder) { store.set(newValue.path, forKey: Key.saveFolderPath) } }
     }
 
     public var copyToClipboardAfterCapture: Bool {
-        get { store.bool(forKey: Key.copyToClipboardAfterCapture) ?? false }
-        set { store.set(newValue, forKey: Key.copyToClipboardAfterCapture) }
+        get {
+            access(keyPath: \.copyToClipboardAfterCapture)
+            return store.bool(forKey: Key.copyToClipboardAfterCapture) ?? false
+        }
+        set { withMutation(keyPath: \.copyToClipboardAfterCapture) { store.set(newValue, forKey: Key.copyToClipboardAfterCapture) } }
     }
 
     public var overlayCorner: OverlayCorner {
-        get { store.string(forKey: Key.overlayCorner).flatMap(OverlayCorner.init(rawValue:)) ?? .bottomRight }
-        set { store.set(newValue.rawValue, forKey: Key.overlayCorner) }
+        get {
+            access(keyPath: \.overlayCorner)
+            return store.string(forKey: Key.overlayCorner).flatMap(OverlayCorner.init(rawValue:)) ?? .bottomRight
+        }
+        set { withMutation(keyPath: \.overlayCorner) { store.set(newValue.rawValue, forKey: Key.overlayCorner) } }
     }
 
     public static let defaultThumbnailWidth: Double = 240
@@ -58,8 +66,11 @@ public final class GlintSettings {
 
     /// Width of the quick-access thumbnails in points (height follows at 3:2), clamped to `thumbnailWidthRange`.
     public var thumbnailWidth: Double {
-        get { Self.clampWidth(store.double(forKey: Key.thumbnailWidth) ?? Self.defaultThumbnailWidth) }
-        set { store.set(Self.clampWidth(newValue), forKey: Key.thumbnailWidth) }
+        get {
+            access(keyPath: \.thumbnailWidth)
+            return Self.clampWidth(store.double(forKey: Key.thumbnailWidth) ?? Self.defaultThumbnailWidth)
+        }
+        set { withMutation(keyPath: \.thumbnailWidth) { store.set(Self.clampWidth(newValue), forKey: Key.thumbnailWidth) } }
     }
 
     public static func clampWidth(_ width: Double) -> Double {
@@ -69,7 +80,10 @@ public final class GlintSettings {
 
     /// Off by default: thumbnails stay until dismissed, like CleanShot.
     public var overlayAutoDismiss: Bool {
-        get { store.bool(forKey: Key.overlayAutoDismiss) ?? false }
-        set { store.set(newValue, forKey: Key.overlayAutoDismiss) }
+        get {
+            access(keyPath: \.overlayAutoDismiss)
+            return store.bool(forKey: Key.overlayAutoDismiss) ?? false
+        }
+        set { withMutation(keyPath: \.overlayAutoDismiss) { store.set(newValue, forKey: Key.overlayAutoDismiss) } }
     }
 }

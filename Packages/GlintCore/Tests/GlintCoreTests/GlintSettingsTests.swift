@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 @testable import GlintCore
 
@@ -69,4 +70,29 @@ private let desktop = URL(filePath: "/Users/me/Desktop")
     store.set(10.0, forKey: "thumbnailWidth") // out-of-range value already on disk
     #expect(settings.thumbnailWidth == 160)
     #expect(GlintSettings.clampWidth(.nan) == 240)
+}
+
+private final class ChangeFlag: @unchecked Sendable {
+    var raised = false
+}
+
+@MainActor private func changeIsSeen<Value: Equatable>(
+    _ keyPath: ReferenceWritableKeyPath<GlintSettings, Value>,
+    becomes value: Value
+) -> Bool {
+    let settings = GlintSettings(store: MemoryStore(), defaultSaveFolder: desktop)
+    let settingsWindow = settings
+    let resizeGesture = settings
+    let changed = ChangeFlag()
+    withObservationTracking { _ = settingsWindow[keyPath: keyPath] } onChange: { changed.raised = true }
+    resizeGesture[keyPath: keyPath] = value
+    return changed.raised && settingsWindow[keyPath: keyPath] == value
+}
+
+@MainActor @Test func changeThroughOneReferenceIsSeenThroughTheOther() {
+    #expect(changeIsSeen(\.saveFolder, becomes: URL(filePath: "/tmp/shots")))
+    #expect(changeIsSeen(\.copyToClipboardAfterCapture, becomes: true))
+    #expect(changeIsSeen(\.overlayCorner, becomes: .bottomLeft))
+    #expect(changeIsSeen(\.overlayAutoDismiss, becomes: true))
+    #expect(changeIsSeen(\.thumbnailWidth, becomes: 300))
 }
