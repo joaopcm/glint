@@ -58,6 +58,18 @@ private func client(_ transport: FakeTransport, publicBaseURL: String = "") thro
     #expect(request.headers["Authorization"]?.contains("SignedHeaders=content-disposition;content-type;host;") == true)
 }
 
+@Test func uploadSendsARecordingAsVideoMP4SoTheLinkPlaysInline() async throws {
+    let transport = FakeTransport([ok()])
+    let file = FileManager.default.temporaryDirectory.appending(path: "glint-upload-\(UUID().uuidString).mp4")
+    try Data("mp4 bytes".utf8).write(to: file)
+    defer { try? FileManager.default.removeItem(at: file) }
+
+    let uploaded = try await client(transport).upload(file, id: "Ab3")
+
+    #expect(uploaded.key == "glint/Ab3.mp4")
+    #expect(transport.requests.first?.headers["Content-Type"] == "video/mp4")
+}
+
 @Test func uploadLinksThroughThePublicBaseURLKeepingItsPath() async throws {
     let file = try temporaryPNG()
     defer { try? FileManager.default.removeItem(at: file) }

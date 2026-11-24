@@ -1,7 +1,9 @@
 import AppKit
+import AVFoundation
 import GlintCore
 import GlintEditor
 import ImageIO
+import os
 import UniformTypeIdentifiers
 
 /// Quick-access overlay. Never appears in captures: ScreenCapturer excludes Glint's own windows.
@@ -64,7 +66,23 @@ final class ThumbnailPresenter {
 
     func show(_ url: URL) {
         let screen = NSScreen.screens.first { $0.frame.contains(pointerLocation()) } ?? NSScreen.main
-        guard let screen, let item = ThumbnailItem(url: url, screen: screen) else { return }
+        guard let screen else { return }
+        guard ThumbnailItem.isVideo(url) else {
+            guard let thumbnail = ThumbnailItem.thumbnail(of: url, on: screen) else { return }
+            return show(url, thumbnail: thumbnail, on: screen)
+        }
+        Task {
+            do {
+                show(url, thumbnail: try await ThumbnailItem.videoThumbnail(of: url, on: screen), on: screen)
+            } catch {
+                Logger(subsystem: "com.joaopcm.glint", category: "thumbnail")
+                    .error("no thumbnail for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    private func show(_ url: URL, thumbnail: CGImage, on screen: NSScreen) {
+        let item = ThumbnailItem(url: url, screen: screen, thumbnail: thumbnail)
         item.view.onAction = { [weak self, weak item] action in
             guard let self, let item else { return }
             self.handle(action, for: item)
@@ -246,7 +264,11 @@ final class ThumbnailPresenter {
         switch action {
         case .copy:
             do {
-                try NSPasteboard.general.copyPNGFile(at: item.url)
+                if ThumbnailItem.isVideo(item.url) {
+                    try NSPasteboard.general.copyFileReference(item.url)
+                } else {
+                    try NSPasteboard.general.copyPNGFile(at: item.url)
+                }
                 remove(item)
             } catch {
                 showError("Glint couldn't copy the screenshot", error)
@@ -297,7 +319,7 @@ final class ThumbnailPresenter {
     private func saveAs(_ item: ThumbnailItem) {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = item.url.lastPathComponent
-        panel.allowedContentTypes = [.png]
+        panel.allowedContentTypes = [UTType(filenameExtension: item.url.pathExtension) ?? .png]
         panel.directoryURL = settings.saveFolder
         guard runActivated({ panel.runModal() }) == .OK, let destination = panel.url else { return }
         guard destination.standardizedFileURL != item.url.standardizedFileURL else { return remove(item) }
@@ -404,11 +426,22 @@ private final class ThumbnailItem {
         didSet { view.isUploading = isUploading }
     }
 
-    init?(url: URL, screen: NSScreen) {
-        guard let thumbnail = Self.thumbnail(of: url, on: screen) else { return nil }
+    static func isVideo(_ url: URL) -> Bool {
+        UTType(filenameExtension: url.pathExtension)?.conforms(to: .movie) == true
+    }
+
+    static func videoThumbnail(of url: URL, on screen: NSScreen) async throws -> CGImage {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.appliesPreferredTrackTransform = true
+        let side = maxPixelSize(on: screen)
+        generator.maximumSize = CGSize(width: side, height: side)
+        return try await generator.image(at: .zero).image
+    }
+
+    init(url: URL, screen: NSScreen, thumbnail: CGImage) {
         self.url = url
         self.screen = screen
-        view = ThumbnailView(url: url, thumbnail: thumbnail)
+        view = ThumbnailView(url: url, thumbnail: thumbnail, isVideo: Self.isVideo(url))
         panel = NSPanel(
             contentRect: CGRect(origin: .zero, size: ThumbnailPresenter.size(width: GlintSettings.defaultThumbnailWidth)), // layout() sets the real frame
             styleMask: [.borderless, .nonactivatingPanel],
@@ -432,14 +465,18 @@ private final class ThumbnailItem {
 
     // A downsampled copy: the full capture can be tens of MB and thumbnails stay until dismissed.
     // Sized for the widest card the user can pick, so it stays sharp after resizing.
-    private static func thumbnail(of url: URL, on screen: NSScreen) -> CGImage? {
+    static func thumbnail(of url: URL, on screen: NSScreen) -> CGImage? {
         let options = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: GlintSettings.thumbnailWidthRange.upperBound * screen.backingScaleFactor,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize(on: screen),
         ] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options)
+    }
+
+    private static func maxPixelSize(on screen: NSScreen) -> CGFloat {
+        GlintSettings.thumbnailWidthRange.upperBound * screen.backingScaleFactor
     }
 }
 
@@ -513,13 +550,13 @@ private final class ThumbnailView: NSView, NSDraggingSource {
         }
     }
 
-    init(url: URL, thumbnail: CGImage) {
+    init(url: URL, thumbnail: CGImage, isVideo: Bool) {
         self.url = url
         self.thumbnail = NSImage(cgImage: thumbnail, size: .zero)
         super.init(frame: CGRect(origin: .zero, size: ThumbnailPresenter.size(width: GlintSettings.defaultThumbnailWidth)))
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
-        setAccessibilityLabel("Screenshot \(url.lastPathComponent)")
+        setAccessibilityLabel("\(isVideo ? "Recording" : "Screenshot") \(url.lastPathComponent)")
 
         let frame = Glass.background(cornerRadius: Self.cornerRadius)
         frame.translatesAutoresizingMaskIntoConstraints = false
@@ -547,13 +584,15 @@ private final class ThumbnailView: NSView, NSDraggingSource {
         // One capsule, not loose glass buttons: loose ones vanish over busy captures.
         let upload = button("icloud.and.arrow.up", "Upload", .upload)
         uploadButton = upload
+        // The editor and a pinned panel work on still images, so a video card has no Annotate or Pin.
         let actionBar = Glass.toolbar([
             button("doc.on.doc", "Copy", .copy),
             upload,
             button("square.and.arrow.down", "Save As…", .saveAs),
+        ] + (isVideo ? [] : [
             button("pencil.tip.crop.circle", "Annotate", .annotate),
             button("pin", "Pin to Screen", .pin),
-        ])
+        ]))
         actionBar.translatesAutoresizingMaskIntoConstraints = false
         controls.addSubview(actionBar)
 

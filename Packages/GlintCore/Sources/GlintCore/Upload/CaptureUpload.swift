@@ -93,7 +93,11 @@ extension S3Client {
     }
 
     private static func contentType(forExtension ext: String) -> String {
-        ext == "png" ? "image/png" : "application/octet-stream"
+        switch ext {
+        case "png": "image/png"
+        case "mp4": "video/mp4"
+        default: "application/octet-stream"
+        }
     }
 }
 

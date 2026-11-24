@@ -12,6 +12,14 @@ extension ScreenCapturer: Capturing {
     }
 }
 
+extension ScreenCapturer: Recording {
+    func startRecording(_ target: RecordingTarget, to url: URL, codec: VideoCodec) async throws -> any ActiveRecording {
+        try await record(target, to: url, codec: codec)
+    }
+}
+
+extension ScreenRecording: ActiveRecording {}
+
 @MainActor
 struct NSAlertPresenter: AlertPresenting {
     func present(_ alert: CaptureAlert) -> CaptureAlert.Button {
@@ -58,6 +66,11 @@ extension NSPasteboard {
         item.setData(try Data(contentsOf: url), forType: .png)
         clearContents()
         guard writeObjects([item]) else { throw PasteboardError.rejected }
+    }
+
+    func copyFileReference(_ url: URL) throws {
+        clearContents()
+        guard writeObjects([url as NSURL]) else { throw PasteboardError.rejected }
     }
 
     func copyText(_ text: String) throws {

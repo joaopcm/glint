@@ -65,11 +65,11 @@ public actor ScreenCapturer {
         return info.compactMap { $0[kCGWindowNumber as String] as? UInt32 }
     }
 
-    private static func requirePermission() throws {
+    static func requirePermission() throws {
         guard CapturePermission.isGranted() else { throw CaptureError.permissionDenied }
     }
 
-    private static func filterExcludingGlint(displayID: UInt32) async throws -> sending SCContentFilter {
+    static func filterExcludingGlint(displayID: UInt32) async throws -> sending SCContentFilter {
         let content = try await shareableContent()
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
             throw CaptureError.displayNotFound(displayID)
@@ -90,7 +90,7 @@ public actor ScreenCapturer {
         return configuration
     }
 
-    private static func shareableContent() async throws -> sending SCShareableContent {
+    static func shareableContent() async throws -> sending SCShareableContent {
         do {
             return try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         } catch SCStreamError.userDeclined {

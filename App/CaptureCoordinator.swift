@@ -6,6 +6,10 @@ enum CaptureMode {
     case area, window, fullScreen
 }
 
+enum RecordingMode {
+    case area, window
+}
+
 enum SelectionResult: Equatable {
     case area(CGRect)
     case window(UInt32)
@@ -19,6 +23,15 @@ protocol Capturing: Sendable {
     func captureDisplay(_ display: DisplayInfo) async throws -> CGImage
     func captureWindow(id: UInt32) async throws -> CGImage
     func shareableWindows() async throws -> [CapturableWindow]
+}
+
+protocol Recording: Sendable {
+    func startRecording(_ target: RecordingTarget, to url: URL, codec: VideoCodec) async throws -> any ActiveRecording
+}
+
+protocol ActiveRecording: Sendable {
+    func stop() async
+    func finished() async throws
 }
 
 struct FrozenDisplay: Sendable {
@@ -66,6 +79,7 @@ enum CoordinatorError: LocalizedError {
 @MainActor
 final class CaptureCoordinator {
     private let capturer: any Capturing
+    private let recorder: any Recording
     private let selector: any Selecting
     private let alerts: any AlertPresenting
     private let settings: GlintSettings
@@ -74,10 +88,14 @@ final class CaptureCoordinator {
     private let pointerLocation: @MainActor () -> CGPoint
     private let copyToClipboard: @MainActor (URL) throws -> Void
     private let onSaved: @MainActor (URL) -> Void
+    private let onRecordingChange: @MainActor (_ region: CGRect?) -> Void
     private var isRunning = false
+    private var recording: (any ActiveRecording)?
+    private var recordingEnd: Task<Void, Never>?
 
     init(
         capturer: any Capturing,
+        recorder: any Recording,
         selector: any Selecting,
         alerts: any AlertPresenting,
         settings: GlintSettings,
@@ -85,9 +103,11 @@ final class CaptureCoordinator {
         fileExists: @escaping (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
         copyToClipboard: @escaping @MainActor (URL) throws -> Void = { try NSPasteboard.general.copyPNGFile(at: $0) },
-        onSaved: @escaping @MainActor (URL) -> Void = { _ in }
+        onSaved: @escaping @MainActor (URL) -> Void = { _ in },
+        onRecordingChange: @escaping @MainActor (_ region: CGRect?) -> Void = { _ in }
     ) {
         self.capturer = capturer
+        self.recorder = recorder
         self.selector = selector
         self.alerts = alerts
         self.settings = settings
@@ -96,6 +116,7 @@ final class CaptureCoordinator {
         self.pointerLocation = pointerLocation
         self.copyToClipboard = copyToClipboard
         self.onSaved = onSaved
+        self.onRecordingChange = onRecordingChange
     }
 
     func run(_ mode: CaptureMode) async {
@@ -127,13 +148,76 @@ final class CaptureCoordinator {
         }
     }
 
-    private func deliver(_ image: CGImage) throws {
-        let url = CaptureNaming.uniqueFileURL(
+    /// The record hotkeys and the menu items toggle: while a recording runs, they stop it.
+    func toggleRecording(_ mode: RecordingMode) async {
+        guard recording == nil else { return await stopRecording() }
+        guard !isRunning else { return }
+        isRunning = true
+        defer { isRunning = false }
+        do {
+            guard await capturer.hasPermission() else { throw CaptureError.permissionDenied }
+            guard let (target, region) = try await selectRecordingTarget(mode) else { return }
+            let url = nextFileURL(ext: "mp4")
+            let active = try await recorder.startRecording(target, to: url, codec: settings.recordingCodec)
+            recording = active
+            onRecordingChange(region)
+            recordingEnd = Task { await self.awaitRecordingEnd(active, at: url) }
+        } catch {
+            present(error, failure: "Glint couldn't start the recording")
+        }
+    }
+
+    func stopRecording() async {
+        guard let recording, let recordingEnd else { return }
+        await recording.stop()
+        await recordingEnd.value
+    }
+
+    private func awaitRecordingEnd(_ active: any ActiveRecording, at url: URL) async {
+        var failure: (any Error)?
+        do {
+            try await active.finished()
+        } catch {
+            failure = error
+        }
+        recording = nil
+        recordingEnd = nil
+        onRecordingChange(nil)
+        if fileExists(url) { onSaved(url) }
+        guard let failure else { return }
+        let stoppedEarly = if case .recordingStoppedEarly = failure as? CaptureError { true } else { false }
+        present(failure, failure: stoppedEarly ? "Glint's recording stopped early" : "Glint couldn't finish the recording")
+    }
+
+    private func selectRecordingTarget(_ mode: RecordingMode) async throws -> (RecordingTarget, region: CGRect)? {
+        switch mode {
+        case .area:
+            guard case .area(let selection) = try await selector.selectArea(frozen: []) else { return nil }
+            guard let display = DisplayGeometry.display(forSelection: selection, in: await capturer.displays()) else {
+                throw CaptureError.emptySelection
+            }
+            let region = selection.intersection(display.frame)
+            return (.area(region, on: display), region)
+        case .window:
+            let windows = Task { try await capturer.shareableWindows() }
+            guard case .window(let id) = try await selector.selectWindow(windows) else { return nil }
+            guard let window = try await windows.value.first(where: { $0.id == id }) else { throw CaptureError.windowNotFound(id) }
+            let mainDisplayHeight = await capturer.displays().first { $0.frame.origin == .zero }?.frame.height ?? 0
+            return (.window(id), DisplayGeometry.appKitRect(fromTopLeftGlobal: window.frame, mainDisplayHeight: mainDisplayHeight))
+        }
+    }
+
+    private func nextFileURL(ext: String) -> URL {
+        CaptureNaming.uniqueFileURL(
             in: settings.saveFolder,
             baseName: CaptureNaming.baseName(for: now(), timeZone: .current),
-            ext: "png",
+            ext: ext,
             exists: fileExists
         )
+    }
+
+    private func deliver(_ image: CGImage) throws {
+        let url = nextFileURL(ext: "png")
         try PNGWriter.write(image, to: url)
         onSaved(url)
         guard settings.copyToClipboardAfterCapture else { return }
@@ -193,11 +277,11 @@ final class CaptureCoordinator {
         return image
     }
 
-    private func present(_ error: any Error) {
+    private func present(_ error: any Error, failure: String = "Glint couldn't take the screenshot") {
         let needsPermission = (error as? CaptureError) == .permissionDenied
         let savedButNotCopied = if case .clipboardFailed = error as? CoordinatorError { true } else { false }
         let alert = CaptureAlert(
-            title: savedButNotCopied ? "Glint saved the screenshot but couldn't copy it" : "Glint couldn't take the screenshot",
+            title: savedButNotCopied ? "Glint saved the screenshot but couldn't copy it" : failure,
             message: error.localizedDescription,
             buttons: needsPermission ? [.openSystemSettings, .ok] : [.ok]
         )

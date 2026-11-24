@@ -7,6 +7,8 @@ public enum CaptureError: Error, LocalizedError, Equatable {
     case windowNotFound(UInt32)
     case writeFailed(path: String, underlying: String)
     case textRecognitionFailed(String)
+    case recordingFailed(path: String, reason: String)
+    case recordingStoppedEarly(path: String, reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -22,6 +24,10 @@ public enum CaptureError: Error, LocalizedError, Equatable {
             "Could not save the screenshot to \(path): \(underlying)"
         case .textRecognitionFailed(let reason):
             "Could not read the text in the selection: \(reason)"
+        case .recordingFailed(let path, let reason):
+            "Could not record to \(path): \(reason)"
+        case .recordingStoppedEarly(let path, let reason):
+            "The recording stopped on its own: \(reason) What was recorded until then is saved to \(path)."
         }
     }
 }

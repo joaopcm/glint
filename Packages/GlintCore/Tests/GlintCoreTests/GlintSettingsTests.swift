@@ -96,6 +96,16 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(changeIsSeen(\.overlayAutoDismiss, becomes: true))
     #expect(changeIsSeen(\.thumbnailWidth, becomes: 300))
     #expect(changeIsSeen(\.freezeScreenWhileSelecting, becomes: true))
+    #expect(changeIsSeen(\.recordingCodec, becomes: .hevc))
+}
+
+@MainActor @Test func recordingCodecDefaultsToH264RoundTripsAndIgnoresUnknownValues() {
+    let store = MemoryStore()
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).recordingCodec == .h264)
+    GlintSettings(store: store, defaultSaveFolder: desktop).recordingCodec = .hevc
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).recordingCodec == .hevc)
+    store.set("prores", forKey: "recordingCodec")
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).recordingCodec == .h264)
 }
 
 @MainActor @Test func uploadAfterCaptureDefaultsOffAndRoundTrips() {

@@ -14,6 +14,10 @@ public enum OverlayCorner: String, CaseIterable, Sendable {
     case bottomLeft, bottomRight
 }
 
+public enum VideoCodec: String, CaseIterable, Sendable {
+    case h264, hevc
+}
+
 @MainActor @Observable
 public final class GlintSettings {
     private enum Key {
@@ -23,6 +27,7 @@ public final class GlintSettings {
         static let overlayAutoDismiss = "overlayAutoDismiss"
         static let thumbnailWidth = "thumbnailWidth"
         static let freezeScreenWhileSelecting = "freezeScreenWhileSelecting"
+        static let recordingCodec = "recordingCodec"
         static let bucketEndpoint = "bucketEndpoint"
         static let bucketRegion = "bucketRegion"
         static let bucketName = "bucketName"
@@ -103,6 +108,15 @@ public final class GlintSettings {
             return store.bool(forKey: Key.freezeScreenWhileSelecting) ?? false
         }
         set { withMutation(keyPath: \.freezeScreenWhileSelecting) { store.set(newValue, forKey: Key.freezeScreenWhileSelecting) } }
+    }
+
+    /// H.264 by default: it plays everywhere, HEVC does not.
+    public var recordingCodec: VideoCodec {
+        get {
+            access(keyPath: \.recordingCodec)
+            return store.string(forKey: Key.recordingCodec).flatMap(VideoCodec.init(rawValue:)) ?? .h264
+        }
+        set { withMutation(keyPath: \.recordingCodec) { store.set(newValue.rawValue, forKey: Key.recordingCodec) } }
     }
 
     public var bucketEndpoint: String {
