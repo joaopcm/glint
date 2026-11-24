@@ -56,11 +56,13 @@ private actor FakeCapturer: Capturing {
 private final class FakeSelector: Selecting {
     let result: SelectionResult
     private(set) var selectionCount = 0
+    var whileSelecting: (@MainActor () async -> Void)?
 
     init(_ result: SelectionResult) { self.result = result }
 
     func selectArea() async -> SelectionResult {
         selectionCount += 1
+        await whileSelecting?()
         return result
     }
 
@@ -271,4 +273,43 @@ private struct PasteboardLocked: LocalizedError {
     #expect(alert.message.contains(savedPath))
     #expect(alert.message.contains("the pasteboard is locked"))
     #expect(alert.buttons == [.ok])
+}
+
+@MainActor @Test func captureImageWritesNothingAndLeavesClipboardAlone() async throws {
+    var copied: [URL] = []
+    var handed: [URL] = []
+    let harness = try Harness(
+        selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)),
+        clipboardOn: true,
+        copyToClipboard: { copied.append($0) },
+        onSaved: { handed.append($0) }
+    )
+    let image = await harness.coordinator.captureImage(.area)
+    #expect(image?.width == 10)
+    #expect(try harness.savedFiles().isEmpty)
+    #expect(copied.isEmpty)
+    #expect(handed.isEmpty)
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func captureImageChecksPermissionBeforeAnyOverlay() async throws {
+    let harness = try Harness(capturer: FakeCapturer(permissionGranted: false), selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)))
+    let image = await harness.coordinator.captureImage(.area)
+    #expect(image == nil)
+    #expect(harness.selector.selectionCount == 0)
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.buttons.contains(.openSystemSettings))
+}
+
+@MainActor @Test func captureWhileSelectingStartsNothing() async throws {
+    let harness = try Harness(selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)))
+    var reentrantImage: CGImage?
+    harness.selector.whileSelecting = {
+        await harness.coordinator.run(.area)
+        reentrantImage = await harness.coordinator.captureImage(.area)
+    }
+    await harness.coordinator.run(.area)
+    #expect(harness.selector.selectionCount == 1)
+    #expect(reentrantImage == nil)
+    #expect(try harness.savedFiles().count == 1)
 }

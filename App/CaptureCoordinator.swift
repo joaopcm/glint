@@ -96,30 +96,49 @@ final class CaptureCoordinator {
         guard !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
+        guard let image = await takeImage(mode) else { return }
         do {
-            guard await capturer.hasPermission() else { throw CaptureError.permissionDenied }
-            guard let image = try await image(for: mode) else { return }
-            let url = CaptureNaming.uniqueFileURL(
-                in: settings.saveFolder,
-                baseName: CaptureNaming.baseName(for: now(), timeZone: .current),
-                ext: "png",
-                exists: fileExists
-            )
-            try PNGWriter.write(image, to: url)
-            onSaved(url)
-            if settings.copyToClipboardAfterCapture {
-                do {
-                    try copyToClipboard(url)
-                } catch {
-                    throw CoordinatorError.clipboardFailed(savedTo: url, reason: error.localizedDescription)
-                }
-            }
+            try deliver(image)
         } catch {
             present(error)
         }
     }
 
-    private func image(for mode: CaptureMode) async throws -> CGImage? {
+    func captureImage(_ mode: CaptureMode) async -> CGImage? {
+        guard !isRunning else { return nil }
+        isRunning = true
+        defer { isRunning = false }
+        return await takeImage(mode)
+    }
+
+    private func takeImage(_ mode: CaptureMode) async -> CGImage? {
+        do {
+            guard await capturer.hasPermission() else { throw CaptureError.permissionDenied }
+            return try await selectAndCapture(mode)
+        } catch {
+            present(error)
+            return nil
+        }
+    }
+
+    private func deliver(_ image: CGImage) throws {
+        let url = CaptureNaming.uniqueFileURL(
+            in: settings.saveFolder,
+            baseName: CaptureNaming.baseName(for: now(), timeZone: .current),
+            ext: "png",
+            exists: fileExists
+        )
+        try PNGWriter.write(image, to: url)
+        onSaved(url)
+        guard settings.copyToClipboardAfterCapture else { return }
+        do {
+            try copyToClipboard(url)
+        } catch {
+            throw CoordinatorError.clipboardFailed(savedTo: url, reason: error.localizedDescription)
+        }
+    }
+
+    private func selectAndCapture(_ mode: CaptureMode) async throws -> CGImage? {
         switch mode {
         case .area:
             guard case .area(let rect) = await selector.selectArea() else { return nil }
