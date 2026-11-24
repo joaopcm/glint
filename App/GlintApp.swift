@@ -31,9 +31,10 @@ final class AppState {
     init() {
         let thumbnail = ThumbnailPresenter(settings: settings)
         self.thumbnail = thumbnail
+        let capturer = ScreenCapturer()
         let coordinator = CaptureCoordinator(
-            capturer: ScreenCapturer(),
-            selector: SelectionOverlayController(),
+            capturer: capturer,
+            selector: SelectionOverlayController(snapshot: { try await capturer.captureDisplay($0) }),
             alerts: NSAlertPresenter(),
             settings: settings,
             onSaved: { thumbnail.show($0) }

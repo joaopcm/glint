@@ -7,13 +7,18 @@ final class AreaSelectionView: OverlayView {
     }
     var onSelectionChange: ((CGRect?) -> Void)?
     var onFinish: ((SelectionResult) -> Void)?
+    var onPointerMove: ((CGPoint) -> Void)?
 
+    let display: DisplayInfo?
     private let backdrop: CGImage?
     private let canvas: SelectionCanvas
     private var dragOrigin: CGPoint?
+    private let loupe = LoupeLayer()
+    private let loupeElement = NSAccessibilityElement()
 
     /// `backdrop` is the frozen grab of this screen; nil keeps the overlay see-through.
-    init(screenFrame: CGRect, displays: [DisplayInfo], backdrop: CGImage? = nil) {
+    init(screenFrame: CGRect, display: DisplayInfo?, displays: [DisplayInfo], backdrop: CGImage? = nil) {
+        self.display = display
         self.backdrop = backdrop
         canvas = SelectionCanvas(screenFrame: screenFrame, displays: displays)
         super.init(screenFrame: screenFrame)
@@ -22,6 +27,36 @@ final class AreaSelectionView: OverlayView {
         canvas.frame = bounds
         canvas.autoresizingMask = [.width, .height]
         addSubview(canvas)
+        layer?.addSublayer(loupe)
+        loupeElement.setAccessibilityRole(.image)
+        loupeElement.setAccessibilityLabel("Magnifier")
+        loupeElement.setAccessibilityIdentifier(AccessibilityID.loupe)
+        loupeElement.setAccessibilityParent(self)
+        if let backdrop {
+            setSnapshot(backdrop)
+        }
+    }
+
+    /// Without a frozen backdrop, the controller grabs the screen after the overlay shows and hands it here.
+    var needsSnapshot: Bool { !loupe.hasImage }
+
+    func setSnapshot(_ image: CGImage) {
+        loupe.setImage(image, scale: display?.scale ?? 1)
+        updateLoupe(at: NSEvent.mouseLocation)
+    }
+
+    func updateLoupe(at pointer: CGPoint) {
+        guard let display, loupe.hasImage, screenFrame.contains(pointer) else {
+            loupe.hide()
+            return
+        }
+        let frame = LoupeGeometry.frame(size: LoupeLayer.size, pointer: pointer, in: screenFrame, offset: LoupeLayer.pointerGap)
+        loupe.show(pixel: LoupeGeometry.pixel(at: pointer, on: display), at: local(frame).origin)
+        loupeElement.setAccessibilityFrame(frame)
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        loupe.isHidden ? [] : [loupeElement]
     }
 
     override var wantsUpdateLayer: Bool { true }
@@ -35,11 +70,17 @@ final class AreaSelectionView: OverlayView {
         fatalError("init(coder:) is not supported")
     }
 
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        onPointerMove?(NSEvent.mouseLocation)
+    }
+
     override func mouseDown(with event: NSEvent) {
         dragOrigin = NSEvent.mouseLocation
     }
 
     override func mouseDragged(with event: NSEvent) {
+        onPointerMove?(NSEvent.mouseLocation)
         guard let dragOrigin else { return }
         onSelectionChange?(Self.rect(from: dragOrigin, to: NSEvent.mouseLocation))
     }

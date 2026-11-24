@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import GlintCapture
 import GlintCore
+import os
 
 @MainActor
 final class SelectionOverlayController: Selecting {
@@ -11,15 +12,48 @@ final class SelectionOverlayController: Selecting {
     private var windowTargets: [WindowTarget]?
     private var pendingClick: CGPoint?
     private var highlightedWindow: WindowTarget?
+    private var snapshotTasks: [Task<Void, Never>] = []
+    private let snapshot: @Sendable (DisplayInfo) async throws -> CGImage
+    private let log = Logger(subsystem: "com.joaopcm.glint", category: "loupe")
+
+    init(snapshot: @escaping @Sendable (DisplayInfo) async throws -> CGImage) {
+        self.snapshot = snapshot
+    }
 
     func selectArea(frozen: [FrozenDisplay]) async throws -> SelectionResult {
         let displays = DisplayInfo.onScreens()
         return try await present { screen in
+            let display = displays.first { $0.frame == screen.frame }
             let backdrop = frozen.first { $0.display.frame == screen.frame }?.image
-            let view = AreaSelectionView(screenFrame: screen.frame, displays: displays, backdrop: backdrop)
+            let view = AreaSelectionView(screenFrame: screen.frame, display: display, displays: displays, backdrop: backdrop)
             view.onSelectionChange = { [weak self] rect in self?.updateAreaSelection(rect) }
+            view.onPointerMove = { [weak self] point in self?.updateLoupes(at: point) }
             view.onFinish = { [weak self] result in self?.finish(result) }
             return view
+        } afterShowing: {
+            loadSnapshots()
+        }
+    }
+
+    private func loadSnapshots() {
+        for view in panels.compactMap({ $0.contentView as? AreaSelectionView }) where view.needsSnapshot {
+            guard let display = view.display else { continue }
+            let id = display.id
+            snapshotTasks.append(Task { [weak self, weak view, snapshot, log] in
+                do {
+                    let image = try await snapshot(display)
+                    guard !Task.isCancelled, let view, self?.panels.contains(where: { $0.contentView === view }) == true else { return }
+                    view.setSnapshot(image)
+                } catch {
+                    log.error("loupe snapshot failed for display \(id): \(error.localizedDescription, privacy: .public)")
+                }
+            })
+        }
+    }
+
+    private func updateLoupes(at point: CGPoint) {
+        for view in panels.compactMap({ $0.contentView as? AreaSelectionView }) {
+            view.updateLoupe(at: point)
         }
     }
 
@@ -69,6 +103,8 @@ final class SelectionOverlayController: Selecting {
         self.continuation = nil
         windowLoading?.cancel()
         windowLoading = nil
+        snapshotTasks.forEach { $0.cancel() }
+        snapshotTasks = []
         panels.forEach { $0.orderOut(nil) }
         panels = []
         windowTargets = nil
