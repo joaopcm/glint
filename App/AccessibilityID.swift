@@ -5,4 +5,7 @@ enum AccessibilityID {
     static let testConnection = "glint.testConnection"
     static let connectionTestResult = "glint.connectionTestResult"
     static let editorCanvas = "glint.editorCanvas"
+    static let uploadHistoryLink = "glint.uploadHistoryLink"
+    static let uploadHistoryError = "glint.uploadHistoryError"
+    static let deleteUpload = "glint.deleteUpload"
 }

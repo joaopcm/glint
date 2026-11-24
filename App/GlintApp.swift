@@ -13,7 +13,7 @@ struct GlintApp: App {
             Button("Quit Glint") { NSApplication.shared.terminate(nil) }
         }
         Settings {
-            SettingsView(settings: state.settings, bucket: state.bucket)
+            SettingsView(settings: state.settings, bucket: state.bucket, history: state.history)
         }
     }
 }
@@ -25,6 +25,7 @@ final class AppState {
         defaultSaveFolder: FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
     )
     let bucket: BucketAccess
+    let history: UploadHistory
     private let coordinator: CaptureCoordinator
     private let textCapture: TextCapture
     private let thumbnail: ThumbnailPresenter
@@ -33,10 +34,13 @@ final class AppState {
         let bucket = BucketAccess(settings: settings, credentialStore: Self.bucketCredentialStore(), transport: URLSessionS3Transport())
         self.bucket = bucket
         let toast = ToastPresenter()
+        let history = UploadHistory(file: Self.uploadHistoryFile())
+        self.history = history
         let thumbnail = ThumbnailPresenter(
             settings: settings,
             upload: { try await bucket.upload($0) },
             onUploaded: { uploaded in
+                history.add(uploaded)
                 do {
                     try NSPasteboard.general.copyText(uploaded.link.absoluteString)
                     toast.show("Link copied")
@@ -78,6 +82,15 @@ final class AppState {
         }
         #endif
         return KeychainCredentialStore(service: KeychainCredentialStore.bucketService)
+    }
+
+    private static func uploadHistoryFile() -> URL {
+        #if DEBUG
+        if let uiTestFile = ProcessInfo.processInfo.environment["GLINT_UI_TEST_UPLOAD_HISTORY"] {
+            return URL(filePath: uiTestFile)
+        }
+        #endif
+        return URL.applicationSupportDirectory.appending(path: "Glint/upload-history.json")
     }
 
     func capture(_ mode: CaptureMode) {
