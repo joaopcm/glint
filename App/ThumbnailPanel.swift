@@ -736,15 +736,12 @@ private final class ThumbnailView: NSView, NSDraggingSource {
 @MainActor
 private enum Glass {
     static func background(cornerRadius: CGFloat, tint: NSColor? = nil) -> NSView {
-        // NSGlassEffectView exists only in the macOS 26 SDK; CI still builds with Xcode 16 (Swift 6.1).
-        #if compiler(>=6.2)
         if #available(macOS 26, *) {
             let glass = NSGlassEffectView()
             glass.cornerRadius = cornerRadius
             glass.tintColor = tint
             return glass
         }
-        #endif
         if let tint {
             let view = NSView()
             view.wantsLayer = true
@@ -789,15 +786,11 @@ private enum Glass {
     /// Only a glass view's `contentView` is guaranteed to render inside the glass.
     private static func setContent(_ content: NSView, of background: NSView) {
         content.translatesAutoresizingMaskIntoConstraints = false
-        #if compiler(>=6.2)
         if #available(macOS 26, *), let glass = background as? NSGlassEffectView {
             glass.contentView = content
         } else {
             background.addSubview(content)
         }
-        #else
-        background.addSubview(content)
-        #endif
         NSLayoutConstraint.activate([
             content.leadingAnchor.constraint(equalTo: background.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: background.trailingAnchor),

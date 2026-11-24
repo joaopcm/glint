@@ -18,7 +18,7 @@ The work left lives in [GitHub issues](https://github.com/joaopcm/glint/issues),
 
 ## Build
 
-Requires macOS 15+, Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+Runs on macOS 15+. Building needs Xcode 26+ (the macOS 26 SDK) and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```sh
 xcodegen generate
