@@ -124,6 +124,17 @@ class GlintUITestCase: XCTestCase {
         tab.click()
     }
 
+    /// The Upload tab scrolls; XCUITest doesn't scroll a SwiftUI Form to an off-screen button before clicking it (run 45616052120).
+    @MainActor func scrollIntoView(_ element: XCUIElement) {
+        let form = app.scrollViews.firstMatch
+        for deltaY: CGFloat in [-200, 200] {
+            for _ in 0..<10 where !element.isHittable {
+                form.scroll(byDeltaX: 0, deltaY: deltaY)
+            }
+        }
+        XCTAssertTrue(element.isHittable, "\(element.label) stayed off screen after scrolling the Upload tab")
+    }
+
     @MainActor func pressEscape() {
         postKey(kVK_Escape)
     }

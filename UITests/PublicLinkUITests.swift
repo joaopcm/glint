@@ -44,6 +44,7 @@ final class PublicLinkUITests: GlintUITestCase {
 
         let testConnection = app.descendants(matching: .any).matching(identifier: AccessibilityID.testConnection).firstMatch
         XCTAssertTrue(testConnection.waitForExistence(timeout: Self.captureTimeout), "the Upload tab has no Test Connection button")
+        scrollIntoView(testConnection)
         testConnection.click()
 
         let publicLink = app.descendants(matching: .any).matching(identifier: AccessibilityID.publicLinkResult).firstMatch

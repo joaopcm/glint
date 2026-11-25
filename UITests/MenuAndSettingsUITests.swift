@@ -41,6 +41,7 @@ final class MenuAndSettingsUITests: GlintUITestCase {
 
         let testConnection = app.descendants(matching: .any).matching(identifier: AccessibilityID.testConnection).firstMatch
         XCTAssertTrue(testConnection.waitForExistence(timeout: Self.captureTimeout), "the Upload tab has no Test Connection button")
+        scrollIntoView(testConnection)
         testConnection.click()
 
         let result = app.descendants(matching: .any).matching(identifier: AccessibilityID.connectionTestResult).firstMatch

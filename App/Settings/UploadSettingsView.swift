@@ -74,9 +74,12 @@ struct UploadSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 480)
-        .fixedSize(horizontal: false, vertical: true)
+        // Sized to content, the tab outgrew the runner's screen once #96 and #90 met (Test Connection at y=776,
+        // run 45616052120) and would outgrow a 13-inch display once a result shows; a fixed height scrolls instead.
+        .frame(width: 480, height: Self.height)
     }
+
+    static let height: CGFloat = 560
 
     private func fillFromPastedURL() {
         bucket.fill(fromBucketURL: pastedURL)
