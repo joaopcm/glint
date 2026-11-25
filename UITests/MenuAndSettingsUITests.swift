@@ -28,21 +28,16 @@ final class MenuAndSettingsUITests: GlintUITestCase {
     }
 
     @MainActor func testSettingsShowsDefaultShortcuts() {
-        openMenu().descendants(matching: .menuItem)["Settings…"].click()
-        XCTAssertTrue(settingsWindowContent.waitForExistence(timeout: Self.captureTimeout))
+        openSettingsTab("Shortcuts")
         for shortcut in ["⇧⌘2", "⌃⇧⌘2", "⇧⌘1", "⌥⇧⌘2", "⌥⇧⌘5", "⌃⌥⇧⌘5"] {
             let recorder = app.descendants(matching: .any).matching(NSPredicate(format: "value == %@", shortcut)).firstMatch
-            XCTAssertTrue(recorder.exists, "no shortcut recorder shows \(shortcut)")
+            XCTAssertTrue(recorder.waitForExistence(timeout: Self.captureTimeout), "no shortcut recorder shows \(shortcut)")
         }
     }
 
     @MainActor func testUploadTabTestsTheConnectionWithoutTouchingTheNetworkWhenTheEndpointIsBad() {
-        openMenu().descendants(matching: .menuItem)["Settings…"].click()
-        XCTAssertTrue(settingsWindowContent.waitForExistence(timeout: Self.captureTimeout))
         // The Settings toolbar tab is a button titled "Upload" whose label is sometimes empty (ui.xcresult of run 45478719380).
-        let uploadTab = app.buttons.matching(NSPredicate(format: "title == %@ OR label == %@", "Upload", "Upload")).firstMatch
-        XCTAssertTrue(uploadTab.waitForExistence(timeout: Self.captureTimeout), "Settings has no Upload tab")
-        uploadTab.click()
+        openSettingsTab("Upload")
 
         let testConnection = app.descendants(matching: .any).matching(identifier: AccessibilityID.testConnection).firstMatch
         XCTAssertTrue(testConnection.waitForExistence(timeout: Self.captureTimeout), "the Upload tab has no Test Connection button")
@@ -54,8 +49,9 @@ final class MenuAndSettingsUITests: GlintUITestCase {
         XCTAssertTrue(shown.contains("The endpoint URL not-a-url isn't an http:// or https:// URL with a host."), "result reads: \(shown)")
     }
 
+    /// Settings reopens on whichever tab an earlier test left it on, so look for the tab bar, not one tab's content.
     @MainActor private var settingsWindowContent: XCUIElement {
-        app.staticTexts["Save folder"]
+        app.buttons.matching(NSPredicate(format: "title == %@ OR label == %@", "General", "General")).firstMatch
     }
 
     /// SwiftUI also lists these items in the app's own menus, so look them up under the menu bar icon only.

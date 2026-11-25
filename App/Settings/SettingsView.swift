@@ -12,6 +12,8 @@ struct SettingsView: View {
         TabView {
             GeneralSettingsView(settings: settings)
                 .tabItem { Label("General", systemImage: "gearshape") }
+            ShortcutsSettingsView()
+                .tabItem { Label("Shortcuts", systemImage: "keyboard") }
             UploadSettingsView(bucket: bucket)
                 .tabItem { Label("Upload", systemImage: "icloud.and.arrow.up") }
             UploadHistoryView(history: history, bucket: bucket)
@@ -22,15 +24,6 @@ struct SettingsView: View {
 
 private struct GeneralSettingsView: View {
     @Bindable var settings: GlintSettings
-
-    private static let shortcuts: [(title: String, name: KeyboardShortcuts.Name)] = [
-        ("Capture Area", .captureArea),
-        ("Capture Window", .captureWindow),
-        ("Capture Full Screen", .captureFullScreen),
-        ("Capture Text", .captureText),
-        ("Record Area", .recordArea),
-        ("Record Window", .recordWindow),
-    ]
 
     var body: some View {
         Form {
@@ -54,11 +47,6 @@ private struct GeneralSettingsView: View {
                 Text("H.264").tag(VideoCodec.h264)
                 Text("HEVC").tag(VideoCodec.hevc)
             }
-            ForEach(Self.shortcuts, id: \.name) { title, name in
-                ShortcutRecorder(title: title, name: name, allNames: Self.shortcuts.map(\.name)) { recorded in
-                    Self.shortcuts.first { $0.name != name && KeyboardShortcuts.getShortcut(for: $0.name) == recorded }?.title
-                }
-            }
         }
         .formStyle(.grouped)
         .frame(width: 480)
@@ -75,5 +63,39 @@ private struct GeneralSettingsView: View {
         panel.prompt = "Choose"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         settings.saveFolder = url
+    }
+}
+
+private struct ShortcutsSettingsView: View {
+    @State private var shortcuts = ShortcutBindings(names: GlintShortcuts.all.map(\.name))
+
+    var body: some View {
+        Form {
+            ForEach(GlintShortcuts.all, id: \.name) { title, name in
+                ShortcutRecorder(
+                    title: title,
+                    allNames: shortcuts.names,
+                    shortcut: shortcuts.shortcuts[name],
+                    onChange: { shortcuts.set($0, for: name) },
+                    usedBy: { recorded in
+                        GlintShortcuts.all.first { $0.name != name && shortcuts.shortcuts[$0.name] == recorded }?.title
+                    }
+                )
+            }
+            HStack {
+                Spacer()
+                if shortcuts.canUndoRestore {
+                    Button("Undo", action: shortcuts.undoRestore)
+                        .accessibilityLabel("Undo Restore Defaults")
+                }
+                Button("Restore Defaults", action: shortcuts.restoreDefaults)
+                    .disabled(shortcuts.areDefaults)
+                    .accessibilityIdentifier(AccessibilityID.restoreDefaultShortcuts)
+            }
+        }
+        .onAppear(perform: shortcuts.reload)
+        .formStyle(.grouped)
+        .frame(width: 480)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }

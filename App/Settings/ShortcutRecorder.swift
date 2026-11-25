@@ -4,11 +4,11 @@ import SwiftUI
 
 struct ShortcutRecorder: View {
     let title: String
-    let name: KeyboardShortcuts.Name
     let allNames: [KeyboardShortcuts.Name]
+    let shortcut: KeyboardShortcuts.Shortcut?
+    let onChange: (KeyboardShortcuts.Shortcut?) -> Void
     let usedBy: (KeyboardShortcuts.Shortcut) -> String?
 
-    @State private var shortcut: KeyboardShortcuts.Shortcut?
     @State private var isRecording = false
     @State private var problem: String?
 
@@ -26,8 +26,7 @@ struct ShortcutRecorder: View {
                     .frame(width: 150)
                     Button("Clear \(title) shortcut", systemImage: "xmark.circle.fill") {
                         stopRecording()
-                        KeyboardShortcuts.setShortcut(nil, for: name)
-                        shortcut = nil
+                        onChange(nil)
                     }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
@@ -41,7 +40,6 @@ struct ShortcutRecorder: View {
                 }
             }
         }
-        .onAppear { shortcut = KeyboardShortcuts.getShortcut(for: name) }
     }
 
     private func startRecording() {
@@ -63,12 +61,10 @@ struct ShortcutRecorder: View {
             stopRecording()
         case .clear:
             stopRecording()
-            KeyboardShortcuts.setShortcut(nil, for: name)
-            shortcut = nil
+            onChange(nil)
         case .record(let recorded):
             stopRecording()
-            KeyboardShortcuts.setShortcut(recorded, for: name)
-            shortcut = recorded
+            onChange(recorded)
         case .reject(let message):
             problem = message
         }

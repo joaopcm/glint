@@ -9,3 +9,14 @@ extension KeyboardShortcuts.Name {
     static let recordArea = Self("recordArea", default: .init(.five, modifiers: [.option, .command, .shift]))
     static let recordWindow = Self("recordWindow", default: .init(.five, modifiers: [.control, .option, .command, .shift]))
 }
+
+enum GlintShortcuts {
+    static let all: [(title: String, name: KeyboardShortcuts.Name)] = [
+        ("Capture Area", .captureArea),
+        ("Capture Window", .captureWindow),
+        ("Capture Full Screen", .captureFullScreen),
+        ("Capture Text", .captureText),
+        ("Record Area", .recordArea),
+        ("Record Window", .recordWindow),
+    ]
+}
