@@ -55,20 +55,21 @@ struct UploadSettingsView: View {
             Section {
                 HStack {
                     Button("Test Connection") { Task { await bucket.testConnection() } }
-                        .disabled(bucket.connectionTest == .running || bucket.makePublic == .running)
+                        .disabled(bucket.connectionTest.isRunning || bucket.makePublic == .running)
                         .accessibilityIdentifier(AccessibilityID.testConnection)
-                    if bucket.connectionTest == .running {
-                        ProgressView().controlSize(.small)
+                    Spacer()
+                    if let result = bucket.connectionTest.result {
+                        CopyButton(title: "Copy Details", text: result.log)
+                            .disabled(!result.isFinished)
                     }
                 }
-                if case .finished(let result) = bucket.connectionTest {
-                    Text(result.log)
-                        .font(.callout.monospaced())
-                        .foregroundStyle(result.succeeded ? Color.secondary : Color.red)
-                        .textSelection(.enabled)
-                        .accessibilityIdentifier(AccessibilityID.connectionTestResult)
-                    if let publicLink = result.publicLink {
-                        PublicLinkView(bucket: bucket, check: publicLink)
+                if let result = bucket.connectionTest.result {
+                    ForEach(result.steps) { step in
+                        ConnectionStepRow(step: step) {
+                            if step.id == .publicLink, let check = result.publicLink {
+                                PublicLinkFix(bucket: bucket, check: check)
+                            }
+                        }
                     }
                 }
             }
@@ -103,35 +104,150 @@ struct UploadSettingsView: View {
     }
 }
 
-private struct PublicLinkView: View {
+private struct ConnectionStepRow<Fix: View>: View {
+    let step: ConnectionTestStep
+    @ViewBuilder let fix: Fix
+    @State private var isExpanded: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(step: ConnectionTestStep, @ViewBuilder fix: () -> Fix) {
+        self.step = step
+        self.fix = fix()
+        _isExpanded = State(initialValue: step.status.startsExpanded)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: toggle) {
+                HStack(alignment: .top, spacing: 8) {
+                    StepStatusIcon(status: step.status)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(step.id.title)
+                        Text(step.outcome)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .opacity(step.hasDetails ? 1 : 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(step.status.rawValue)
+            .accessibilityIdentifier(AccessibilityID.connectionStep(step.id.rawValue))
+            if isExpanded, step.hasDetails {
+                StepDetails(step: step) { fix }
+                    .padding(.leading, 24)
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -4)))
+            }
+        }
+        .onChange(of: step.status) { _, status in
+            isExpanded = status.startsExpanded
+        }
+    }
+
+    private func toggle() {
+        guard step.hasDetails else { return }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .snappy(duration: 0.2)) {
+            isExpanded.toggle()
+        }
+    }
+}
+
+private extension ConnectionTestStepStatus {
+    var startsExpanded: Bool { self == .failed || self == .warning }
+}
+
+private struct StepStatusIcon: View {
+    let status: ConnectionTestStepStatus
+
+    var body: some View {
+        Group {
+            switch status {
+            case .waiting: Image(systemName: "circle").foregroundStyle(.tertiary)
+            case .running: ProgressView().controlSize(.mini)
+            case .passed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            case .warning: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+            case .skipped: Image(systemName: "minus.circle").foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 16, height: 16)
+        .padding(.top, 1)
+    }
+}
+
+private struct StepDetails<Fix: View>: View {
+    let step: ConnectionTestStep
+    @ViewBuilder let fix: Fix
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 4) {
+                if let request = step.request {
+                    row("Request", request)
+                }
+                if let status = step.httpStatus {
+                    row("Response", "HTTP \(status)")
+                }
+                if let error = errorText {
+                    row(step.errorCode == nil ? "Error" : "S3 error", error)
+                }
+            }
+            if let text = step.fix {
+                Text(text)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            fix
+        }
+        .textSelection(.enabled)
+    }
+
+    private var errorText: String? {
+        switch (step.errorCode, step.errorMessage) {
+        case (let code?, let message?): "\(code): \(message)"
+        case (let code?, nil): code
+        case (nil, let message?): message
+        case (nil, nil): nil
+        }
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        GridRow {
+            Text(label)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .gridColumnAlignment(.trailing)
+            Text(value)
+                .font(.callout.monospaced())
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+private struct PublicLinkFix: View {
     let bucket: BucketAccess
     let check: PublicLinkCheck
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(headline, systemImage: check == .opens ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(check == .opens ? Color.green : Color.orange)
-                .textSelection(.enabled)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier(AccessibilityID.publicLinkResult)
-            if case .blocked = check, let advice = bucket.publicLinkAdvice {
-                fix(advice)
-            } else if case .unexpected = check, let advice = bucket.publicLinkAdvice {
+        if let advice = bucket.publicLinkAdvice, needsFix {
+            VStack(alignment: .leading, spacing: 10) {
                 fix(advice)
             }
         }
     }
 
-    private var headline: String {
+    private var needsFix: Bool {
         switch check {
-        case .opens:
-            "Copied links open in a browser."
-        case .blocked(let status, let code):
-            "Copied links won't open: the bucket isn't publicly readable (HTTP \(status)\(code.map { " \($0)" } ?? ""))."
-        case .unexpected(let status, let code):
-            "Copied links won't open: the link answered HTTP \(status)\(code.map { " \($0)" } ?? "")."
-        case .unreachable(let reason):
-            "Copied links won't open: \(reason)"
+        case .blocked, .unexpected: true
+        case .opens, .unreachable: false
         }
     }
 
@@ -140,7 +256,7 @@ private struct PublicLinkView: View {
         if advice.canMakePublic {
             HStack {
                 Button("Make Links Public") { Task { await bucket.makeLinksPublic() } }
-                    .disabled(bucket.makePublic == .running || bucket.connectionTest == .running)
+                    .disabled(bucket.makePublic == .running || bucket.connectionTest.isRunning)
                     .accessibilityIdentifier(AccessibilityID.makeLinksPublic)
                 if bucket.makePublic == .running {
                     ProgressView().controlSize(.small)
@@ -190,7 +306,6 @@ private struct PublicLinkView: View {
 
 private struct PolicyBlock: View {
     let text: String
-    @State private var copied: String?
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -200,12 +315,22 @@ private struct PolicyBlock: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(8)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-            Button(copied == text ? "Copied" : "Copy") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-                copied = text
-            }
-            .controlSize(.small)
+            CopyButton(title: "Copy", text: text)
+                .controlSize(.small)
+        }
+    }
+}
+
+private struct CopyButton: View {
+    let title: String
+    let text: String
+    @State private var copied: String?
+
+    var body: some View {
+        Button(copied == text ? "Copied" : title) {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            copied = text
         }
     }
 }

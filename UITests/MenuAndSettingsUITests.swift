@@ -43,10 +43,10 @@ final class MenuAndSettingsUITests: GlintUITestCase {
         XCTAssertTrue(testConnection.waitForExistence(timeout: Self.captureTimeout), "the Upload tab has no Test Connection button")
         testConnection.click()
 
-        let result = app.descendants(matching: .any).matching(identifier: AccessibilityID.connectionTestResult).firstMatch
-        XCTAssertTrue(result.waitForExistence(timeout: Self.captureTimeout), "Test Connection showed no result")
-        let shown = "\(result.value ?? "") \(result.label)"
-        XCTAssertTrue(shown.contains("The endpoint URL not-a-url isn't an http:// or https:// URL with a host."), "result reads: \(shown)")
+        let upload = app.descendants(matching: .any).matching(identifier: AccessibilityID.connectionStep("upload")).firstMatch
+        XCTAssertTrue(upload.waitForExistence(timeout: Self.captureTimeout), "Test Connection showed no upload row")
+        let shown = "\(upload.value ?? "") \(upload.label)"
+        XCTAssertTrue(shown.contains("failed") && shown.contains("The endpoint URL not-a-url isn't an http:// or https:// URL with a host."), "upload row reads: \(shown)")
     }
 
     /// Settings reopens on whichever tab an earlier test left it on, so look for the tab bar, not one tab's content.

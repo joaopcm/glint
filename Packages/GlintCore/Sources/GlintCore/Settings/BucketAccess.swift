@@ -8,8 +8,20 @@ public protocol CredentialStore {
 
 public enum ConnectionTestState: Equatable, Sendable {
     case idle
-    case running
+    case running(ConnectionTestResult)
     case finished(ConnectionTestResult)
+
+    public var result: ConnectionTestResult? {
+        switch self {
+        case .idle: nil
+        case .running(let result), .finished(let result): result
+        }
+    }
+
+    public var isRunning: Bool {
+        if case .running = self { return true }
+        return false
+    }
 }
 
 public enum MakePublicState: Equatable, Sendable {
@@ -129,22 +141,22 @@ public final class BucketAccess {
     }
 
     private func runConnectionTest() async {
-        connectionTest = .running
+        connectionTest = .running(.waiting)
         let client: S3Client?
         do {
             client = try self.client()
         } catch {
-            connectionTest = .finished(ConnectionTestResult(succeeded: false, log: error.localizedDescription))
+            connectionTest = .finished(.setupFailed(error.localizedDescription))
             return
         }
         guard let client else {
-            connectionTest = .finished(ConnectionTestResult(
-                succeeded: false,
-                log: "Nothing to test yet. Fill in the endpoint URL, region, bucket and keys."
-            ))
+            connectionTest = .finished(.setupFailed("Nothing to test yet. Fill in the endpoint URL, region, bucket and keys."))
             return
         }
-        connectionTest = .finished(await ConnectionTest.run(client: client))
+        let result = await ConnectionTest.run(client: client) { progress in
+            await MainActor.run { self.connectionTest = .running(progress) }
+        }
+        connectionTest = .finished(result)
     }
 
     private func saveCredentials() {
