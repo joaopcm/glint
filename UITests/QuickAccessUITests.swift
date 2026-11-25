@@ -124,7 +124,10 @@ final class QuickAccessUITests: GlintUITestCase {
         let card = captureOneCard()
         moveAwayFromCards()
         let frame = card.frame
-        screenPoint(CGPoint(x: frame.midX, y: frame.minY + 3)).hover()
+        // XCUITest's hover warps the pointer without the mouseMoved events Glint's tracking area sets the cursor from (run 45517518557).
+        for point in [CGPoint(x: frame.midX, y: frame.midY), CGPoint(x: frame.midX, y: frame.minY + 3)] {
+            CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+        }
         assertFinderFrontmost()
 
         let resize = NSCursor.frameResize(position: .top, directions: .all)
