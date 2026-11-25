@@ -56,6 +56,7 @@ final class QuickAccessUITests: GlintUITestCase {
             center(of: app.buttons[name].firstMatch).hover()
             XCTAssertTrue(waitUntil(label, matches: "value == '\(name)'"), "hovering \"\(name)\" showed \(label.exists ? "\"\(label.value ?? "")\"" : "no label")")
         }
+        keepScreenshot(named: "hovered Pin to Screen with its label")
         assertFinderFrontmost()
         moveAwayFromCards()
         XCTAssertTrue(waitUntil(label, matches: "exists == false"), "the label stayed after the pointer left the card")
