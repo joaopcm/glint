@@ -1,0 +1,31 @@
+name: release-dry-run
+
+on:
+  pull_request:
+    paths:
+      - scripts/release.sh
+      - .github/workflows/release.yml
+      - .github/workflows/release-dry-run.yml
+      - App/Info.plist
+      - App/Glint.entitlements
+      - project.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dry-run:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-xcode
+      - run: scripts/release.sh --dry-run dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Glint-dry-run-dmg
+          path: dist/Glint-*.dmg
+          retention-days: 7
