@@ -2,13 +2,31 @@ import Foundation
 
 public enum ObjectID {
     public static let alphabet = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+    private static let utf8Alphabet = ContiguousArray("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".utf8)
     // 62^16 ≈ 4.8e28 (95 bits). 10,000 guesses/s for a year against a bucket of 1,000,000 captures
     // finds one with probability 3.2e11 × 1e6 / 4.8e28 ≈ 7e-12.
     public static let length = 16
 
     public static func random() -> String {
         var generator = SystemRandomNumberGenerator()
-        return String((0..<length).map { _ in alphabet.randomElement(using: &generator)! })
+        return utf8Alphabet.withUnsafeBufferPointer { table in
+            String(unsafeUninitializedCapacity: length) { out in
+                var written = 0
+                while written < length {
+                    var word = generator.next()
+                    for _ in 0..<8 where written < length {
+                        let byte = UInt8(truncatingIfNeeded: word)
+                        word >>= 8
+                        // 248 = 62 × 4, so rejecting 248...255 keeps byte % 62 uniform across all 62 symbols.
+                        if byte < 248 {
+                            out[written] = table[Int(byte % 62)]
+                            written += 1
+                        }
+                    }
+                }
+                return length
+            }
+        }
     }
 }
 
@@ -78,7 +96,7 @@ extension S3Client {
         guard bytes <= Self.singlePutLimit else { throw .tooLarge(path: file.path, bytes: bytes) }
         let body: Data
         do {
-            body = try Data(contentsOf: file)
+            body = try Data(contentsOf: file, options: .mappedIfSafe)
         } catch {
             throw .unreadable(path: file.path, reason: error.localizedDescription)
         }

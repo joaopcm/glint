@@ -19,7 +19,7 @@ enum CaptureEditor {
         _ document: AnnotationDocument,
         savingTo url: URL,
         on screen: NSScreen,
-        onSaved: @escaping () -> Void,
+        onSaved: @escaping (CGImage) -> Void,
         onClose: @escaping () -> Void
     ) -> AnnotationEditor {
         let editor = AnnotationEditor(
@@ -28,7 +28,7 @@ enum CaptureEditor {
             pixelsPerPoint: screen.backingScaleFactor,
             save: { image in
                 try PNGWriter.write(image, to: url)
-                onSaved()
+                onSaved(image)
             },
             onClose: onClose
         )

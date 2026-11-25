@@ -4,12 +4,14 @@ import GlintCapture
 import GlintCore
 
 extension ScreenCapturer: Capturing {
+    @MainActor
     func hasPermission() async -> Bool {
         CapturePermission.isGranted()
     }
 
+    @MainActor
     func displays() async -> [DisplayInfo] {
-        await MainActor.run { DisplayInfo.onScreens() }
+        DisplayInfo.onScreens()
     }
 }
 
@@ -81,9 +83,13 @@ enum PasteboardError: LocalizedError {
 
 extension NSPasteboard {
     func copyPNGFile(at url: URL) throws {
+        try copyPNGData(Data(contentsOf: url), fileURL: url)
+    }
+
+    func copyPNGData(_ data: Data, fileURL url: URL) throws {
         let item = NSPasteboardItem()
         item.setString(url.absoluteString, forType: .fileURL)
-        item.setData(try Data(contentsOf: url), forType: .png)
+        item.setData(data, forType: .png)
         clearContents()
         guard writeObjects([item]) else { throw PasteboardError.rejected }
     }

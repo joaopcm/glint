@@ -2,7 +2,7 @@ import AppKit
 
 @MainActor
 final class ToastPresenter {
-    private let panel: NSPanel
+    private var panel: NSPanel?
     private let label = NSTextField(labelWithString: "")
     private let visibleFor: Duration
     private let pointerLocation: @MainActor () -> CGPoint
@@ -13,7 +13,52 @@ final class ToastPresenter {
     init(visibleFor: Duration = .seconds(2), pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation }) {
         self.visibleFor = visibleFor
         self.pointerLocation = pointerLocation
-        panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    }
+
+    var visibleMessage: String? {
+        panel?.isVisible == true ? label.stringValue : nil
+    }
+
+    func show(_ message: String) {
+        present(message)
+        hideTask = Task { [weak self, visibleFor] in
+            do {
+                try await Task.sleep(for: visibleFor)
+            } catch {
+                return
+            }
+            self?.panel?.orderOut(nil)
+        }
+    }
+
+    /// No timer: the private window picker prompt holds the capture for as long as the user takes to answer it.
+    func showUntilHidden(_ message: String) {
+        present(message)
+    }
+
+    func hide(_ message: String) {
+        guard visibleMessage == message else { return }
+        panel?.orderOut(nil)
+    }
+
+    private func present(_ message: String) {
+        let panel = ensurePanel()
+        label.stringValue = message
+        let size = panel.contentView?.fittingSize ?? .zero
+        let pointer = pointerLocation()
+        if let screen = NSScreen.screens.first(where: { $0.frame.contains(pointer) }) ?? NSScreen.main {
+            let visible = screen.visibleFrame
+            let origin = CGPoint(x: visible.midX - size.width / 2, y: visible.minY + ThumbnailPresenter.margin)
+            panel.setFrame(CGRect(origin: origin, size: size), display: true)
+        }
+        panel.orderFrontRegardless()
+        hideTask?.cancel()
+        hideTask = nil
+    }
+
+    private func ensurePanel() -> NSPanel {
+        if let panel { return panel }
+        let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .floating
         panel.hidesOnDeactivate = false
         panel.ignoresMouseEvents = true
@@ -42,45 +87,7 @@ final class ToastPresenter {
             label.bottomAnchor.constraint(equalTo: background.bottomAnchor, constant: -10),
         ])
         panel.contentView = background
-    }
-
-    var visibleMessage: String? {
-        panel.isVisible ? label.stringValue : nil
-    }
-
-    func show(_ message: String) {
-        present(message)
-        hideTask = Task { [weak self, visibleFor] in
-            do {
-                try await Task.sleep(for: visibleFor)
-            } catch {
-                return
-            }
-            self?.panel.orderOut(nil)
-        }
-    }
-
-    /// No timer: the private window picker prompt holds the capture for as long as the user takes to answer it.
-    func showUntilHidden(_ message: String) {
-        present(message)
-    }
-
-    func hide(_ message: String) {
-        guard visibleMessage == message else { return }
-        panel.orderOut(nil)
-    }
-
-    private func present(_ message: String) {
-        label.stringValue = message
-        let size = panel.contentView?.fittingSize ?? .zero
-        let pointer = pointerLocation()
-        if let screen = NSScreen.screens.first(where: { $0.frame.contains(pointer) }) ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            let origin = CGPoint(x: visible.midX - size.width / 2, y: visible.minY + ThumbnailPresenter.margin)
-            panel.setFrame(CGRect(origin: origin, size: size), display: true)
-        }
-        panel.orderFrontRegardless()
-        hideTask?.cancel()
-        hideTask = nil
+        self.panel = panel
+        return panel
     }
 }

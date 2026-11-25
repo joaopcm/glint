@@ -2,32 +2,71 @@ import AppKit
 import GlintCore
 
 final class AreaSelectionView: OverlayView {
+    private static let dimColor = NSColor.black.withAlphaComponent(0.3).cgColor
+    private static let badgeColor = NSColor.black.withAlphaComponent(0.75).cgColor
+    private static let sizeFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+
     var selection: CGRect? {
-        didSet { canvas.selection = selection }
+        didSet {
+            guard selection != oldValue else { return }
+            updateSelectionLayers()
+        }
     }
     var onSelectionChange: ((CGRect?) -> Void)?
     var onFinish: ((SelectionResult) -> Void)?
     var onPointerMove: ((CGPoint) -> Void)?
 
     let display: DisplayInfo?
+    private let displays: [DisplayInfo]
     private let backdrop: CGImage?
-    private let canvas: SelectionCanvas
+    private let topDim = CALayer()
+    private let bottomDim = CALayer()
+    private let leftDim = CALayer()
+    private let rightDim = CALayer()
+    private let selectionBorder = CALayer()
+    private let sizeBadge = CALayer()
+    private let sizeLabel = CATextLayer()
+    private var lastPixelSize: (width: Int, height: Int)?
+    private var cachedLabelSize = CGSize.zero
     private var dragOrigin: CGPoint?
     private let loupe = LoupeLayer()
     private let loupeElement = NSAccessibilityElement()
+    private var lastLoupeFrame = CGRect.null
 
     /// `backdrop` is the frozen grab of this screen; nil keeps the overlay see-through.
     init(screenFrame: CGRect, display: DisplayInfo?, displays: [DisplayInfo], backdrop: CGImage? = nil) {
         self.display = display
+        self.displays = displays
         self.backdrop = backdrop
-        canvas = SelectionCanvas(screenFrame: screenFrame, displays: displays)
         super.init(screenFrame: screenFrame)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
-        canvas.frame = bounds
-        canvas.autoresizingMask = [.width, .height]
-        addSubview(canvas)
+
+        for dim in [topDim, bottomDim, leftDim, rightDim] {
+            dim.backgroundColor = Self.dimColor
+            layer?.addSublayer(dim)
+        }
+
+        selectionBorder.borderWidth = 1
+        selectionBorder.borderColor = NSColor.white.cgColor
+        selectionBorder.isHidden = true
+        layer?.addSublayer(selectionBorder)
+
+        sizeBadge.backgroundColor = Self.badgeColor
+        sizeBadge.cornerRadius = 4
+        sizeBadge.cornerCurve = .continuous
+        sizeBadge.isHidden = true
+
+        sizeLabel.font = Self.sizeFont
+        sizeLabel.fontSize = 12
+        sizeLabel.foregroundColor = NSColor.white.cgColor
+        sizeLabel.contentsScale = display?.scale ?? 2
+        sizeBadge.addSublayer(sizeLabel)
+        layer?.addSublayer(sizeBadge)
+
         layer?.addSublayer(loupe)
+        updateSelectionLayers()
+
         loupeElement.setAccessibilityRole(.image)
         loupeElement.setAccessibilityLabel("Magnifier")
         loupeElement.setAccessibilityIdentifier(AccessibilityID.loupe)
@@ -52,7 +91,10 @@ final class AreaSelectionView: OverlayView {
         }
         let frame = LoupeGeometry.frame(size: LoupeLayer.size, pointer: pointer, in: screenFrame, offset: LoupeLayer.pointerGap)
         loupe.show(pixel: LoupeGeometry.pixel(at: pointer, on: display), at: local(frame).origin)
-        loupeElement.setAccessibilityFrame(frame)
+        if frame != lastLoupeFrame {
+            lastLoupeFrame = frame
+            loupeElement.setAccessibilityFrame(frame)
+        }
     }
 
     override func accessibilityChildren() -> [Any]? {
@@ -95,67 +137,87 @@ final class AreaSelectionView: OverlayView {
     private static func rect(from start: CGPoint, to end: CGPoint) -> CGRect {
         CGRect(x: min(start.x, end.x), y: min(start.y, end.y), width: abs(end.x - start.x), height: abs(end.y - start.y))
     }
-}
 
-/// Draws the dimming, the selection outline and its size on top of the (possibly frozen) backdrop.
-private final class SelectionCanvas: NSView {
-    var selection: CGRect? {
-        didSet { needsDisplay = true }
-    }
+    private func updateSelectionLayers() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
 
-    private let screenFrame: CGRect
-    private let displays: [DisplayInfo]
-
-    init(screenFrame: CGRect, displays: [DisplayInfo]) {
-        self.screenFrame = screenFrame
-        self.displays = displays
-        super.init(frame: CGRect(origin: .zero, size: screenFrame.size))
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let dim = NSBezierPath(rect: bounds)
-        dim.windingRule = .evenOdd
-        if let selection {
-            dim.appendRect(local(selection))
+        let viewBounds = bounds
+        guard let selection else {
+            topDim.frame = viewBounds
+            topDim.isHidden = false
+            bottomDim.isHidden = true
+            leftDim.isHidden = true
+            rightDim.isHidden = true
+            selectionBorder.isHidden = true
+            sizeBadge.isHidden = true
+            return
         }
-        NSColor.black.withAlphaComponent(0.3).setFill()
-        dim.fill()
-        guard let selection else { return }
-        NSColor.white.setStroke()
-        NSBezierPath(rect: local(selection).insetBy(dx: -0.5, dy: -0.5)).stroke()
-        drawPixelSize(of: selection)
+
+        let localSelection = local(selection)
+        let clipped = localSelection.intersection(viewBounds)
+        if clipped.isNull || clipped.isEmpty {
+            topDim.frame = viewBounds
+            topDim.isHidden = false
+            bottomDim.isHidden = true
+            leftDim.isHidden = true
+            rightDim.isHidden = true
+        } else {
+            setStrip(topDim, CGRect(x: 0, y: clipped.maxY, width: viewBounds.width, height: viewBounds.maxY - clipped.maxY))
+            setStrip(bottomDim, CGRect(x: 0, y: 0, width: viewBounds.width, height: clipped.minY))
+            setStrip(leftDim, CGRect(x: 0, y: clipped.minY, width: clipped.minX, height: clipped.height))
+            setStrip(rightDim, CGRect(x: clipped.maxX, y: clipped.minY, width: viewBounds.maxX - clipped.maxX, height: clipped.height))
+        }
+
+        let borderFrame = localSelection.insetBy(dx: -1, dy: -1)
+        if borderFrame.intersects(viewBounds) {
+            selectionBorder.frame = borderFrame
+            selectionBorder.isHidden = false
+        } else {
+            selectionBorder.isHidden = true
+        }
+
+        updateSizeBadge(for: selection, in: viewBounds)
     }
 
-    private func drawPixelSize(of selection: CGRect) {
+    private func setStrip(_ layer: CALayer, _ rect: CGRect) {
+        if rect.width > 0, rect.height > 0 {
+            layer.frame = rect
+            layer.isHidden = false
+        } else {
+            layer.isHidden = true
+        }
+    }
+
+    private func updateSizeBadge(for selection: CGRect, in viewBounds: CGRect) {
         guard let display = DisplayGeometry.display(forSelection: selection, in: displays),
               let sourceRect = DisplayGeometry.sourceRect(for: selection, on: display)
-        else { return }
+        else {
+            sizeBadge.isHidden = true
+            return
+        }
         let size = DisplayGeometry.pixelSize(of: sourceRect, scale: display.scale)
-        let label = NSAttributedString(string: "\(size.width) × \(size.height)", attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
-            .foregroundColor: NSColor.white,
-        ])
+        if lastPixelSize?.width != size.width || lastPixelSize?.height != size.height {
+            lastPixelSize = size
+            let text = "\(size.width) × \(size.height)"
+            let measured = (text as NSString).size(withAttributes: [.font: Self.sizeFont])
+            cachedLabelSize = CGSize(width: ceil(measured.width), height: ceil(measured.height))
+            sizeLabel.string = text
+        }
         let padding = CGSize(width: 6, height: 3)
-        let labelSize = label.size()
-        let boxSize = CGSize(width: labelSize.width + padding.width * 2, height: labelSize.height + padding.height * 2)
+        let boxSize = CGSize(width: cachedLabelSize.width + padding.width * 2, height: cachedLabelSize.height + padding.height * 2)
         let gap: CGFloat = 6
         let below = selection.minY - gap - boxSize.height
         let fitsBelow = display.frame.minY <= below
         let origin = CGPoint(x: selection.minX, y: fitsBelow ? below : selection.minY + gap)
         let box = local(CGRect(origin: origin, size: boxSize))
-        NSColor.black.withAlphaComponent(0.75).setFill()
-        NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4).fill()
-        label.draw(at: CGPoint(x: box.minX + padding.width, y: box.minY + padding.height))
-    }
-
-    private func local(_ globalRect: CGRect) -> CGRect {
-        globalRect.offsetBy(dx: -screenFrame.minX, dy: -screenFrame.minY)
+        if box.intersects(viewBounds) {
+            sizeBadge.frame = box
+            sizeLabel.frame = CGRect(origin: CGPoint(x: padding.width, y: padding.height), size: cachedLabelSize)
+            sizeBadge.isHidden = false
+        } else {
+            sizeBadge.isHidden = true
+        }
     }
 }

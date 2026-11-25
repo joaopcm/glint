@@ -13,6 +13,7 @@ final class LoupeLayer: CALayer {
     private let crosshair = CAShapeLayer()
     private let label = CATextLayer()
     private var imagePixelSize = CGSize.zero
+    private var lastPixel: LoupePixel?
 
     override init() {
         super.init()
@@ -61,6 +62,7 @@ final class LoupeLayer: CALayer {
         crosshair.contentsScale = scale
         grid.contents = image
         imagePixelSize = CGSize(width: image.width, height: image.height)
+        lastPixel = nil
     }
 
     var hasImage: Bool { grid.contents != nil }
@@ -69,24 +71,32 @@ final class LoupeLayer: CALayer {
         guard hasImage else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let half = Self.gridPixels / 2
-        let side = CGFloat(Self.gridPixels)
-        let width = side / imagePixelSize.width
-        let height = side / imagePixelSize.height
-        // contentsRect is unit space with a bottom-left origin; the pixel index counts from the top.
-        grid.contentsRect = CGRect(
-            x: CGFloat(pixel.x - half) / imagePixelSize.width,
-            y: 1 - CGFloat(pixel.y - half) / imagePixelSize.height - height,
-            width: width,
-            height: height
-        )
-        label.string = "\(pixel.x), \(pixel.y)"
-        position = origin
-        isHidden = false
+        if pixel != lastPixel {
+            lastPixel = pixel
+            let half = Self.gridPixels / 2
+            let side = CGFloat(Self.gridPixels)
+            let width = side / imagePixelSize.width
+            let height = side / imagePixelSize.height
+            // contentsRect is unit space with a bottom-left origin; the pixel index counts from the top.
+            grid.contentsRect = CGRect(
+                x: CGFloat(pixel.x - half) / imagePixelSize.width,
+                y: 1 - CGFloat(pixel.y - half) / imagePixelSize.height - height,
+                width: width,
+                height: height
+            )
+            label.string = "\(pixel.x), \(pixel.y)"
+        }
+        if position != origin {
+            position = origin
+        }
+        if isHidden {
+            isHidden = false
+        }
         CATransaction.commit()
     }
 
     func hide() {
+        guard !isHidden else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         isHidden = true

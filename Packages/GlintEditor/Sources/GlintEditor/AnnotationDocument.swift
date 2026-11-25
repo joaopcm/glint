@@ -8,9 +8,11 @@ public final class AnnotationDocument {
     public private(set) var crop: CGRect?
     public let undoManager = UndoManager()
     public var onChange: (() -> Void)?
+    let renderCache: AnnotationRenderCache
 
     public init(base: CGImage) {
         self.base = base
+        renderCache = AnnotationRenderCache(base: base)
         // Grouping by run loop turn merges every change made in one turn into one undo step (undoStepsOneChangeAtATime).
         undoManager.groupsByEvent = false
     }
@@ -55,9 +57,7 @@ public final class AnnotationDocument {
     }
 
     public func flattened() -> CGImage? {
-        let flat = AnnotationRenderer.flatten(base, annotations)
-        guard let crop else { return flat }
-        return flat?.cropping(to: crop)
+        AnnotationRenderer.flatten(base, annotations, crop: crop, cache: renderCache)
     }
 
     private func update(_ id: UUID, actionName: String, _ change: (Annotation) -> Annotation) {

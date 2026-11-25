@@ -130,6 +130,7 @@ private final class RecordingEvents: NSObject, SCRecordingOutputDelegate, SCStre
         var outcomeWaiters: [CheckedContinuation<RecordingOutcome, Never>] = []
     }
 
+    private let hasSeenFirstFrame = Atomic<Bool>(false)
     private let state = Mutex(State())
     let queue = DispatchQueue(label: "com.joaopcm.glint.recording-frames")
 
@@ -155,13 +156,17 @@ private final class RecordingEvents: NSObject, SCRecordingOutputDelegate, SCStre
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard Self.isCompleteFrame(sampleBuffer) else { return }
-        let waiters = state.withLock { state in
-            guard !state.hasFirstFrame else { return [CheckedContinuation<Void, Never>]() }
+        guard !hasSeenFirstFrame.load(ordering: .relaxed), Self.isCompleteFrame(sampleBuffer) else { return }
+        let (becameReady, waiters) = state.withLock { state -> (Bool, [CheckedContinuation<Void, Never>]) in
+            guard !state.hasFirstFrame else { return (false, []) }
             state.hasFirstFrame = true
             defer { state.startWaiters = [] }
-            return state.startWaiters
+            return (true, state.startWaiters)
         }
+        guard becameReady else { return }
+        hasSeenFirstFrame.store(true, ordering: .relaxed)
+        // Only the first complete frame is needed to guard instant stops; detaching stops per-frame sample delivery.
+        try? stream.removeStreamOutput(self, type: .screen)
         waiters.forEach { $0.resume() }
     }
 

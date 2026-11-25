@@ -121,3 +121,18 @@ import Testing
     await settingsChangeApplied()
     #expect(presenter.frames.first == before)
 }
+
+@Test func downsamplerShrinksLargeImagesAndReturnsSmallerOnesUntouched() throws {
+    let small = try #require(CGContext(
+        data: nil, width: 400, height: 300, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )?.makeImage())
+    #expect(ThumbnailDownsampler.downsample(small, maxPixelSize: 960) === small)
+
+    let large = try #require(CGContext(
+        data: nil, width: 2000, height: 1000, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )?.makeImage())
+    let scaled = ThumbnailDownsampler.downsample(large, maxPixelSize: 960)
+    #expect(scaled.width == 960 && scaled.height == 480)
+}

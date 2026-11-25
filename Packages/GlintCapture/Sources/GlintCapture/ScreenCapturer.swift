@@ -3,7 +3,7 @@ import Foundation
 import GlintCore
 import ScreenCaptureKit
 
-public actor ScreenCapturer {
+public struct ScreenCapturer: Sendable {
     public init() {}
 
     public func captureArea(_ selection: CGRect, displays: [DisplayInfo]) async throws -> CGImage {
@@ -42,19 +42,25 @@ public actor ScreenCapturer {
     public func shareableWindows() async throws -> [CapturableWindow] {
         try Self.requirePermission()
         let ownBundleID = Bundle.main.bundleIdentifier
-        let windows = try await Self.shareableContent().windows
-            .filter { window in
-                window.isOnScreen
-                    && window.windowLayer == 0
-                    && window.owningApplication?.bundleIdentifier != ownBundleID
-                    && !window.frame.isEmpty
-            }
-            .map { CapturableWindow(id: $0.windowID, frame: $0.frame) }
-        return Self.sortedFrontToBack(windows, zOrder: Self.onScreenWindowIDsFrontToBack())
+        async let zOrder = Self.onScreenWindowIDsFrontToBack()
+        let content = try await Self.shareableContent()
+        let windows = content.windows.compactMap { window -> CapturableWindow? in
+            guard window.isOnScreen,
+                  window.windowLayer == 0,
+                  window.owningApplication?.bundleIdentifier != ownBundleID,
+                  !window.frame.isEmpty
+            else { return nil }
+            return CapturableWindow(id: window.windowID, frame: window.frame)
+        }
+        return Self.sortedFrontToBack(windows, zOrder: await zOrder)
     }
 
     static func sortedFrontToBack(_ windows: [CapturableWindow], zOrder: [UInt32]) -> [CapturableWindow] {
-        let rank = Dictionary(zOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        guard windows.count > 1 else { return windows }
+        var rank = [UInt32: Int](minimumCapacity: zOrder.count)
+        for (index, id) in zOrder.enumerated() where rank[id] == nil {
+            rank[id] = index
+        }
         return windows.sorted { rank[$0.id, default: .max] < rank[$1.id, default: .max] }
     }
 
