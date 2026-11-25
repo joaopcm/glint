@@ -10,6 +10,11 @@ enum AccessibilityID {
     static let deleteUpload = "lunetta.deleteUpload"
     static let uploadProgress = "lunetta.uploadProgress"
     static let stopRecording = "lunetta.stopRecording"
+    static let recordingCountdown = "lunetta.recordingCountdown"
+    static let recordingTime = "lunetta.recordingTime"
+    static let pauseRecording = "lunetta.pauseRecording"
+    static let stopRecordingControl = "lunetta.stopRecordingControl"
+    static let discardRecording = "lunetta.discardRecording"
     static let cardActionLabel = "lunetta.cardActionLabel"
     static let restoreDefaultShortcuts = "lunetta.restoreDefaultShortcuts"
 

@@ -16,8 +16,29 @@ public enum RecordingGeometry {
         return (trimmed, width, height)
     }
 
-    /// The border sits just outside the recorded region, so it never covers what is being recorded.
-    public static func borderFrame(around region: CGRect, lineWidth: CGFloat) -> CGRect {
-        region.insetBy(dx: -lineWidth, dy: -lineWidth)
+    /// Where the recording controls sit, in AppKit coordinates (y up): centered under the recorded region, above it
+    /// when there is no room below, and along its bottom edge when it fills the screen. Lunetta's own windows stay out
+    /// of every recording, so the last case covers nothing in the file, only on screen.
+    public static func controlBarFrame(size: CGSize, region: CGRect, visible: CGRect, gap: CGFloat) -> CGRect {
+        let below = region.minY - gap - size.height
+        let above = region.maxY + gap
+        let y: CGFloat = if below >= visible.minY {
+            below
+        } else if above + size.height <= visible.maxY {
+            above
+        } else {
+            max(region.minY, visible.minY) + gap
+        }
+        let centeredX = region.midX - size.width / 2
+        let x = min(max(centeredX, visible.minX + gap), visible.maxX - gap - size.width)
+        return CGRect(x: x, y: y, width: size.width, height: size.height)
+    }
+
+    /// The countdown sits in the middle of the region, pulled back on screen when the region runs off it.
+    public static func countdownCenter(size: CGSize, region: CGRect, visible: CGRect) -> CGPoint {
+        let clamped = region.intersection(visible).isNull ? visible : region.intersection(visible)
+        let x = min(max(clamped.midX, visible.minX + size.width / 2), visible.maxX - size.width / 2)
+        let y = min(max(clamped.midY, visible.minY + size.height / 2), visible.maxY - size.height / 2)
+        return CGPoint(x: x, y: y)
     }
 }

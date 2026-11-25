@@ -1000,16 +1000,17 @@ enum Glass {
         return capsule
     }
 
-    /// A capsule, or a circle around a single button. The glass gets an explicit height: the stack's top and bottom
-    /// insets don't size it, which left the close button 32x28 pt under a 16 pt radius (#91).
-    static func toolbar(_ buttons: [NSButton]) -> NSView {
-        for button in buttons {
+    /// A capsule, or a circle around a single button. Buttons get the square hit target; other items keep their own size.
+    /// The glass gets an explicit height: the stack's top and bottom insets don't size it, which left the close button
+    /// 32x28 pt under a 16 pt radius (#91).
+    static func toolbar(_ items: [NSView]) -> NSView {
+        for case let button as NSButton in items {
             button.widthAnchor.constraint(equalToConstant: buttonSide).isActive = true
             button.heightAnchor.constraint(equalToConstant: buttonSide).isActive = true
         }
-        let stack = NSStackView(views: buttons)
+        let stack = NSStackView(views: items)
         stack.spacing = 2
-        let sideInset = buttons.count > 1 ? 6 : toolbarInset
+        let sideInset = items.count > 1 ? 6 : toolbarInset
         stack.edgeInsets = NSEdgeInsets(top: toolbarInset, left: sideInset, bottom: toolbarInset, right: sideInset)
         let height = buttonSide + 2 * toolbarInset
         let background = background(cornerRadius: height / 2)
@@ -1066,7 +1067,7 @@ private extension NSScreen {
 }
 
 /// The tracking area is `.activeAlways`: Lunetta is never the active app while a card is up.
-private final class CardButton: NSButton {
+final class CardButton: NSButton {
     var onHoverChange: ((CardButton, _ hovered: Bool) -> Void)?
     private var isHovered = false {
         didSet { needsDisplay = true }

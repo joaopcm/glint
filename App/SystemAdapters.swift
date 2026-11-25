@@ -19,6 +19,10 @@ extension ScreenCapturer: Recording {
     func startRecording(_ target: RecordingTarget, to url: URL, options: RecordingOptions) async throws -> any ActiveRecording {
         try await record(target, to: url, options: options)
     }
+
+    func join(_ parts: [URL], into url: URL) async throws {
+        try await RecordingJoiner.join(parts, into: url)
+    }
 }
 
 @MainActor

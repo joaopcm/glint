@@ -94,9 +94,10 @@ private actor FakeRecording: ActiveRecording {
     private let stopGate = Gate()
     private(set) var stopCount = 0
 
-    init(url: URL, outcome: CaptureError?) {
+    init(url: URL, outcome: CaptureError?, endsOnItsOwn: Bool) {
         self.url = url
         self.outcome = outcome
+        if endsOnItsOwn { Task { [stopGate] in await stopGate.open() } }
     }
 
     func stop() async {
@@ -106,28 +107,62 @@ private actor FakeRecording: ActiveRecording {
 
     func finished() async throws {
         await stopGate.wait()
-        FileManager.default.createFile(atPath: url.path, contents: Data("mp4".utf8))
+        FileManager.default.createFile(atPath: url.path, contents: Data("part \(url.lastPathComponent);".utf8))
         if let outcome { throw outcome }
     }
 }
 
 private actor FakeRecorder: Recording {
     let startFailure: CaptureError?
+    let failingStart: Int?
     let outcome: CaptureError?
+    let endsOnItsOwn: Bool
+    let joinFailure: CaptureError?
     private(set) var starts: [(target: RecordingTarget, url: URL, options: RecordingOptions)] = []
     private(set) var recordings: [FakeRecording] = []
+    private(set) var joins: [(parts: [URL], url: URL)] = []
 
-    init(startFailure: CaptureError? = nil, outcome: CaptureError? = nil) {
+    /// `failingStart` is the 1-based start that throws `startFailure`; nil makes every start throw it.
+    init(
+        startFailure: CaptureError? = nil,
+        failingStart: Int? = nil,
+        outcome: CaptureError? = nil,
+        endsOnItsOwn: Bool = false,
+        joinFailure: CaptureError? = nil
+    ) {
         self.startFailure = startFailure
+        self.failingStart = failingStart
         self.outcome = outcome
+        self.endsOnItsOwn = endsOnItsOwn
+        self.joinFailure = joinFailure
     }
 
     func startRecording(_ target: RecordingTarget, to url: URL, options: RecordingOptions) async throws -> any ActiveRecording {
-        if let startFailure { throw startFailure }
+        if let startFailure, failingStart == nil || failingStart == starts.count + 1 { throw startFailure }
         starts.append((target, url, options))
-        let recording = FakeRecording(url: url, outcome: outcome)
+        let recording = FakeRecording(url: url, outcome: outcome, endsOnItsOwn: endsOnItsOwn)
         recordings.append(recording)
         return recording
+    }
+
+    func join(_ parts: [URL], into url: URL) async throws {
+        joins.append((parts, url))
+        if let joinFailure { throw joinFailure }
+        let joined = try parts.reduce(into: Data()) { $0.append(try Data(contentsOf: $1)) }
+        try joined.write(to: url)
+    }
+}
+
+@MainActor
+private final class FakeCountdown {
+    var proceeds = true
+    var during: (@MainActor () async -> Void)?
+    private(set) var shown: [RecordingStatus] = []
+
+    func run(_ status: RecordingStatus) async -> Bool {
+        shown.append(status)
+        await during?()
+        return proceeds && !Task.isCancelled
     }
 }
 
@@ -207,6 +242,7 @@ private struct Harness {
     let selector: FakeSelector
     let settings: LunettaSettings
     let microphone: FakeMicrophone
+    let countdown = FakeCountdown()
     let coordinator: CaptureCoordinator
 
     init(
@@ -222,10 +258,11 @@ private struct Harness {
         codec: VideoCodec = .h264,
         systemAudio: Bool = false,
         recordMicrophone: Bool = false,
+        countsDown: Bool = false,
         copyToClipboard: (@MainActor (URL) throws -> Void)? = nil,
         writePNG: (@Sendable (CGImage, URL) async throws -> Data)? = nil,
         onSaved: @escaping @MainActor (URL) -> Void = { _ in },
-        onRecordingChange: @escaping @MainActor (CGRect?) -> Void = { _ in }
+        onRecordingEvent: @escaping @MainActor (RecordingEvent) -> Void = { _ in }
     ) throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "LunettaTests-\(UUID().uuidString)")
         folder = createFolder ? root : root.appending(path: "missing")
@@ -239,6 +276,7 @@ private struct Harness {
         settings.recordingCodec = codec
         settings.recordSystemAudio = systemAudio
         settings.recordMicrophone = recordMicrophone
+        settings.recordingCountdown = countsDown
         self.settings = settings
         self.microphone = microphone
         selector = FakeSelector(selection)
@@ -255,7 +293,8 @@ private struct Harness {
             copyToClipboard: { url, _ in try copyToClipboard?(url) },
             writePNG: writePNG ?? CaptureCoordinator.writePNG,
             onSaved: { url, _ in onSaved(url) },
-            onRecordingChange: onRecordingChange
+            onRecordingEvent: onRecordingEvent,
+            countDown: { [countdown] in await countdown.run($0) }
         )
     }
 
@@ -553,16 +592,47 @@ private struct PasteboardLocked: LocalizedError {
 }
 
 private let recordedArea = CGRect(x: 100, y: 200, width: 300, height: 150)
+private let recordingStart = Date(timeIntervalSince1970: 1_795_000_000)
 
-@MainActor @Test func recordingAnAreaStartsOnItsDisplayShowsTheBorderAndStopHandsOverTheMP4() async throws {
+private func startedClock() -> RecordingClock {
+    var clock = RecordingClock()
+    clock.start(at: recordingStart)
+    return clock
+}
+
+private func pausedClock() -> RecordingClock {
+    var clock = startedClock()
+    clock.pause(at: recordingStart)
+    return clock
+}
+
+private func name(_ event: RecordingEvent) -> String {
+    switch event {
+    case .started: "started"
+    case .paused: "paused"
+    case .resumed: "resumed"
+    case .ended(let end): "ended(\(end))"
+    }
+}
+
+/// Watchers run as their own tasks; give them turns until `condition` holds.
+@MainActor private func eventually(_ condition: @MainActor () async -> Bool) async -> Bool {
+    for _ in 0..<200 {
+        if await condition() { return true }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return false
+}
+
+@MainActor @Test func recordingAnAreaStartsOnItsDisplayDimsAroundItAndStopHandsOverTheMP4() async throws {
     let recorder = FakeRecorder()
-    var regions: [CGRect?] = []
+    var events: [RecordingEvent] = []
     var handed: [URL] = []
     let harness = try Harness(
         recorder: recorder,
         selection: .area(recordedArea),
         onSaved: { handed.append($0) },
-        onRecordingChange: { regions.append($0) }
+        onRecordingEvent: { events.append($0) }
     )
     await harness.coordinator.toggleRecording(.area)
     let start = try #require(await recorder.starts.first)
@@ -570,12 +640,13 @@ private let recordedArea = CGRect(x: 100, y: 200, width: 300, height: 150)
     #expect(start.options == RecordingOptions(codec: .h264, systemAudio: false, microphone: false))
     #expect(start.url.deletingLastPathComponent().standardizedFileURL == harness.folder.standardizedFileURL)
     #expect(start.url.lastPathComponent.hasPrefix("Lunetta ") && start.url.pathExtension == "mp4")
-    #expect(regions == [recordedArea])
+    #expect(events == [.started(RecordingStatus(region: recordedArea, dimsOutside: true, clock: startedClock()))])
     #expect(handed.isEmpty)
 
     await harness.coordinator.stopRecording()
-    #expect(regions == [recordedArea, nil])
+    #expect(events.map(name) == ["started", "ended(saved)"])
     #expect(handed == [start.url])
+    #expect(await recorder.joins.isEmpty)
     #expect(harness.alerts.presented.isEmpty)
 }
 
@@ -600,70 +671,259 @@ private let recordedArea = CGRect(x: 100, y: 200, width: 300, height: 150)
     await harness.coordinator.stopRecording()
 }
 
-@MainActor @Test func recordingAWindowBordersItsFrameInAppKitCoordinates() async throws {
+@MainActor @Test func recordingAWindowFramesItInAppKitCoordinatesWithoutDimming() async throws {
     let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
     let recorder = FakeRecorder()
-    var regions: [CGRect?] = []
+    var events: [RecordingEvent] = []
     let harness = try Harness(
         capturer: FakeCapturer(windows: [window]),
         recorder: recorder,
         selection: .window(42),
-        onRecordingChange: { regions.append($0) }
+        onRecordingEvent: { events.append($0) }
     )
     await harness.coordinator.toggleRecording(.window)
     #expect(await recorder.starts.first?.target == .window(42))
-    #expect(regions == [CGRect(x: 50, y: 982 - 400, width: 400, height: 300)])
+    let frame = CGRect(x: 50, y: 982 - 400, width: 400, height: 300)
+    #expect(events == [.started(RecordingStatus(region: frame, dimsOutside: false, clock: startedClock()))])
     await harness.coordinator.stopRecording()
 }
 
 @MainActor @Test func cancellingTheRecordingSelectionStartsNothing() async throws {
     let recorder = FakeRecorder()
-    var regions: [CGRect?] = []
-    let harness = try Harness(recorder: recorder, selection: .cancelled, onRecordingChange: { regions.append($0) })
+    var events: [RecordingEvent] = []
+    let harness = try Harness(recorder: recorder, selection: .cancelled, countsDown: true, onRecordingEvent: { events.append($0) })
     await harness.coordinator.toggleRecording(.area)
     #expect(await recorder.starts.isEmpty)
-    #expect(regions.isEmpty)
+    #expect(events.isEmpty)
+    #expect(harness.countdown.shown.isEmpty)
     #expect(harness.alerts.presented.isEmpty)
 }
 
 @MainActor @Test func recordingWithoutPermissionAlertsBeforeAnyOverlay() async throws {
     let recorder = FakeRecorder()
-    let harness = try Harness(capturer: FakeCapturer(permissionGranted: false), recorder: recorder, selection: .area(recordedArea))
+    var events: [RecordingEvent] = []
+    let harness = try Harness(
+        capturer: FakeCapturer(permissionGranted: false),
+        recorder: recorder,
+        selection: .area(recordedArea),
+        onRecordingEvent: { events.append($0) }
+    )
     await harness.coordinator.toggleRecording(.area)
     #expect(harness.selector.selectionCount == 0)
     #expect(await recorder.starts.isEmpty)
+    #expect(events.isEmpty)
     let alert = try #require(harness.alerts.presented.first)
     #expect(alert.buttons.contains(.openSystemSettings))
 }
 
-@MainActor @Test func aRecordingThatFailsToStartSaysWhyAndShowsNoIndicator() async throws {
+@MainActor @Test func aRecordingThatFailsToStartSaysWhyAndTakesDownTheCountdownDim() async throws {
     let failure = CaptureError.recordingFailed(path: "/tmp/x.mp4", reason: "Start stream failed")
-    var regions: [CGRect?] = []
-    let harness = try Harness(recorder: FakeRecorder(startFailure: failure), selection: .area(recordedArea), onRecordingChange: { regions.append($0) })
+    var events: [RecordingEvent] = []
+    let harness = try Harness(
+        recorder: FakeRecorder(startFailure: failure),
+        selection: .area(recordedArea),
+        countsDown: true,
+        onRecordingEvent: { events.append($0) }
+    )
     await harness.coordinator.toggleRecording(.area)
     let alert = try #require(harness.alerts.presented.first)
     #expect(alert.title == "Lunetta couldn't start the recording")
     #expect(alert.message == failure.localizedDescription)
-    #expect(regions.isEmpty)
+    #expect(events == [.ended(.failed)])
 }
 
 @MainActor @Test func aRecordingThatStopsOnItsOwnKeepsTheFileAndSaysWhy() async throws {
     let failure = CaptureError.recordingStoppedEarly(path: "/tmp/x.mp4", reason: "Failed to find any displays or windows to capture.")
     var handed: [URL] = []
-    var regions: [CGRect?] = []
+    var events: [RecordingEvent] = []
     let harness = try Harness(
         recorder: FakeRecorder(outcome: failure),
         selection: .area(recordedArea),
         onSaved: { handed.append($0) },
-        onRecordingChange: { regions.append($0) }
+        onRecordingEvent: { events.append($0) }
     )
     await harness.coordinator.toggleRecording(.area)
     await harness.coordinator.stopRecording()
     #expect(handed.count == 1)
-    #expect(regions.last == .some(nil))
+    #expect(events.last == .ended(.saved))
     let alert = try #require(harness.alerts.presented.first)
     #expect(alert.title == "Lunetta's recording stopped early")
     #expect(alert.message.contains("Failed to find any displays or windows to capture."))
+}
+
+@MainActor @Test func aRecordingWhoseStreamEndsUnaskedEndsOnItsOwnAndKeepsTheFile() async throws {
+    var handed: [URL] = []
+    var events: [RecordingEvent] = []
+    let harness = try Harness(
+        recorder: FakeRecorder(endsOnItsOwn: true),
+        selection: .area(recordedArea),
+        onSaved: { handed.append($0) },
+        onRecordingEvent: { events.append($0) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    #expect(await eventually { handed.count == 1 })
+    #expect(events.map(name) == ["started", "ended(saved)"])
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func theCountdownRunsOverTheSelectionBeforeTheFirstFrame() async throws {
+    let recorder = FakeRecorder()
+    var startsDuringCountdown: Int?
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), countsDown: true)
+    harness.countdown.during = { startsDuringCountdown = await recorder.starts.count }
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.countdown.shown == [RecordingStatus(region: recordedArea, dimsOutside: true)])
+    #expect(startsDuringCountdown == 0)
+    #expect(await recorder.starts.count == 1)
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func turningTheCountdownOffStartsRightAway() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), countsDown: false)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.countdown.shown.isEmpty)
+    #expect(await recorder.starts.count == 1)
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func cancellingTheCountdownRecordsNothing() async throws {
+    let recorder = FakeRecorder()
+    var events: [RecordingEvent] = []
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), countsDown: true, onRecordingEvent: { events.append($0) })
+    harness.countdown.proceeds = false
+    await harness.coordinator.toggleRecording(.area)
+    #expect(await recorder.starts.isEmpty)
+    #expect(events.isEmpty)
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func theRecordHotkeyDuringTheCountdownCancelsIt() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), countsDown: true)
+    harness.countdown.during = { await harness.coordinator.toggleRecording(.window) }
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.selector.selectionCount == 1)
+    #expect(await recorder.starts.isEmpty)
+}
+
+@MainActor @Test func pauseAndResumeRecordPartsAndStopJoinsThemIntoTheRecording() async throws {
+    let recorder = FakeRecorder()
+    var events: [RecordingEvent] = []
+    var handed: [URL] = []
+    let harness = try Harness(
+        recorder: recorder,
+        selection: .area(recordedArea),
+        onSaved: { handed.append($0) },
+        onRecordingEvent: { events.append($0) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.togglePause()
+    #expect(events.last == .paused(RecordingStatus(region: recordedArea, dimsOutside: true, clock: pausedClock())))
+    #expect(await recorder.recordings.first?.stopCount == 1)
+    await harness.coordinator.togglePause()
+    #expect(events.map(name) == ["started", "paused", "resumed"])
+    let starts = await recorder.starts
+    #expect(starts.count == 2)
+    #expect(starts[1].target == starts[0].target && starts[1].options == starts[0].options)
+    #expect(starts[1].url.deletingLastPathComponent().standardizedFileURL != harness.folder.standardizedFileURL)
+
+    await harness.coordinator.stopRecording()
+    let url = starts[0].url
+    #expect(handed == [url])
+    let join = try #require(await recorder.joins.first)
+    #expect(join.url == url && join.parts.count == 2 && join.parts[1] == starts[1].url)
+    #expect(try String(decoding: Data(contentsOf: url), as: UTF8.self) == "part \(url.lastPathComponent);part part-1.mp4;")
+    #expect(try harness.savedFiles() == [url.lastPathComponent])
+    #expect(!FileManager.default.fileExists(atPath: starts[1].url.deletingLastPathComponent().path))
+}
+
+@MainActor @Test func stoppingWhilePausedSavesWhatWasRecordedWithoutAJoin() async throws {
+    let recorder = FakeRecorder()
+    var handed: [URL] = []
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), onSaved: { handed.append($0) })
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.togglePause()
+    await harness.coordinator.stopRecording()
+    let firstPart = await recorder.starts[0].url
+    #expect(handed == [firstPart])
+    #expect(await recorder.joins.isEmpty)
+    #expect(await recorder.starts.count == 1)
+}
+
+@MainActor @Test func discardStopsTheRecordingAndDeletesEveryPart() async throws {
+    let recorder = FakeRecorder()
+    var events: [RecordingEvent] = []
+    var handed: [URL] = []
+    let harness = try Harness(
+        recorder: recorder,
+        selection: .area(recordedArea),
+        onSaved: { handed.append($0) },
+        onRecordingEvent: { events.append($0) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.togglePause()
+    await harness.coordinator.togglePause()
+    await harness.coordinator.discardRecording()
+    #expect(events.map(name) == ["started", "paused", "resumed", "ended(discarded)"])
+    #expect(handed.isEmpty)
+    #expect(try harness.savedFiles().isEmpty)
+    let starts = await recorder.starts
+    #expect(!FileManager.default.fileExists(atPath: starts[1].url.deletingLastPathComponent().path))
+    for recording in await recorder.recordings {
+        #expect(await recording.stopCount == 1)
+    }
+    #expect(harness.alerts.presented.isEmpty)
+
+    await harness.coordinator.toggleRecording(.area)
+    #expect(await recorder.starts.count == 3)
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func aResumeThatFailsSavesWhatCameBeforeAndSaysWhy() async throws {
+    let failure = CaptureError.recordingFailed(path: "/tmp/part-1.mp4", reason: "Start stream failed")
+    var events: [RecordingEvent] = []
+    var handed: [URL] = []
+    let recorder = FakeRecorder(startFailure: failure, failingStart: 2)
+    let harness = try Harness(
+        recorder: recorder,
+        selection: .area(recordedArea),
+        onSaved: { handed.append($0) },
+        onRecordingEvent: { events.append($0) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.togglePause()
+    await harness.coordinator.togglePause()
+    #expect(events.map(name) == ["started", "paused", "ended(saved)"])
+    let firstPart = await recorder.starts[0].url
+    #expect(handed == [firstPart])
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.title == "Lunetta couldn't finish the recording")
+    #expect(alert.message == failure.localizedDescription)
+}
+
+@MainActor @Test func aJoinThatFailsKeepsTheFirstPartAndSaysWhy() async throws {
+    let failure = CaptureError.recordingFailed(path: "/tmp/x.mp4", reason: "Cannot Open")
+    var handed: [URL] = []
+    let recorder = FakeRecorder(joinFailure: failure)
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), onSaved: { handed.append($0) })
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.togglePause()
+    await harness.coordinator.togglePause()
+    await harness.coordinator.stopRecording()
+    let url = await recorder.starts[0].url
+    #expect(handed == [url])
+    #expect(try String(decoding: Data(contentsOf: url), as: UTF8.self) == "part \(url.lastPathComponent);")
+    #expect(harness.alerts.presented.first?.message == failure.localizedDescription)
+}
+
+@MainActor @Test func pauseAndDiscardDoNothingWithoutARecording() async throws {
+    var events: [RecordingEvent] = []
+    let harness = try Harness(selection: .cancelled, onRecordingEvent: { events.append($0) })
+    await harness.coordinator.togglePause()
+    await harness.coordinator.discardRecording()
+    await harness.coordinator.stopRecording()
+    #expect(events.isEmpty)
 }
 
 @MainActor @Test func recordingWhileAnOverlayIsUpStartsNothing() async throws {

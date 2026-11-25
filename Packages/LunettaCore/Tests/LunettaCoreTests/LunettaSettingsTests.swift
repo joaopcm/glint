@@ -120,6 +120,18 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(changeIsSeen(\.recordingCodec, becomes: .hevc))
     #expect(changeIsSeen(\.recordSystemAudio, becomes: true))
     #expect(changeIsSeen(\.recordMicrophone, becomes: true))
+    #expect(changeIsSeen(\.recordingCountdown, becomes: false))
+    #expect(changeIsSeen(\.recordingSounds, becomes: false))
+}
+
+@MainActor @Test func countdownAndSoundsDefaultOnAndAreRemembered() {
+    let store = MemoryStore()
+    let first = LunettaSettings(store: store, defaultSaveFolder: desktop)
+    #expect(first.recordingCountdown && first.recordingSounds)
+    first.recordingCountdown = false
+    first.recordingSounds = false
+    let next = LunettaSettings(store: store, defaultSaveFolder: desktop)
+    #expect(!next.recordingCountdown && !next.recordingSounds)
 }
 
 @MainActor @Test func audioTogglesDefaultOffAndAreRemembered() {
