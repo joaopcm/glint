@@ -69,6 +69,20 @@ private struct GeneralSettingsView: View {
             Toggle("Hide thumbnail after a few seconds", isOn: $settings.overlayAutoDismiss)
             Toggle("Freeze screen while selecting", isOn: $settings.freezeScreenWhileSelecting)
             Toggle("Show magnifier while selecting", isOn: $settings.showMagnifierWhileSelecting)
+            Toggle("Wallpaper behind window captures", isOn: $settings.windowCaptureWallpaper)
+            LabeledContent("Wallpaper padding") {
+                HStack {
+                    Slider(value: $settings.windowWallpaperPadding, in: GlintSettings.windowWallpaperPaddingRange, step: 8) {
+                        Text("Wallpaper padding")
+                    }
+                    .labelsHidden()
+                    Text("\(Int(settings.windowWallpaperPadding)) pt")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 48, alignment: .trailing)
+                }
+            }
+            .disabled(!settings.windowCaptureWallpaper)
             Picker("Recording format", selection: $settings.recordingCodec) {
                 Text("H.264").tag(VideoCodec.h264)
                 Text("HEVC").tag(VideoCodec.hevc)

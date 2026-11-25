@@ -9,6 +9,7 @@ public enum CaptureError: Error, LocalizedError, Equatable {
     case textRecognitionFailed(String)
     case recordingFailed(path: String, reason: String)
     case recordingStoppedEarly(path: String, reason: String)
+    case wallpaperUnavailable(String)
 
     public var errorDescription: String? {
         switch self {
@@ -28,6 +29,8 @@ public enum CaptureError: Error, LocalizedError, Equatable {
             "Could not record to \(path): \(reason)"
         case .recordingStoppedEarly(let path, let reason):
             "The recording stopped on its own: \(reason) What was recorded until then is saved to \(path)."
+        case .wallpaperUnavailable(let reason):
+            "Could not put the window on your wallpaper: \(reason). Turn off \"Wallpaper behind window captures\" in Glint Settings > General to capture the window on its own."
         }
     }
 }

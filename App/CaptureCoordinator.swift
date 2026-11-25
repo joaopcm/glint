@@ -21,7 +21,7 @@ protocol Capturing: Sendable {
     func displays() async -> [DisplayInfo]
     func captureArea(_ selection: CGRect, displays: [DisplayInfo]) async throws -> CGImage
     func captureDisplay(_ display: DisplayInfo) async throws -> CGImage
-    func captureWindow(id: UInt32) async throws -> CGImage
+    func captureWindow(id: UInt32, wallpaperPadding: Double?) async throws -> CGImage
     func shareableWindows() async throws -> [CapturableWindow]
 }
 
@@ -319,7 +319,7 @@ final class CaptureCoordinator {
                 windows.cancel()
                 return nil
             }
-            return try await capturer.captureWindow(id: id)
+            return try await capturer.captureWindow(id: id, wallpaperPadding: settings.wallpaperPaddingForWindowCaptures)
         case .fullScreen:
             let displays = await capturer.displays()
             guard let display = DisplayGeometry.display(nearest: pointerLocation(), in: displays) else {

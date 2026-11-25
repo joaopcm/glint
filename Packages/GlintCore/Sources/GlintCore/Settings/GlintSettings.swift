@@ -28,6 +28,8 @@ public final class GlintSettings {
         static let thumbnailWidth = "thumbnailWidth"
         static let freezeScreenWhileSelecting = "freezeScreenWhileSelecting"
         static let showMagnifierWhileSelecting = "showMagnifierWhileSelecting"
+        static let windowCaptureWallpaper = "windowCaptureWallpaper"
+        static let windowWallpaperPadding = "windowWallpaperPadding"
         static let recordingCodec = "recordingCodec"
         static let recordSystemAudio = "recordSystemAudio"
         static let recordMicrophone = "recordMicrophone"
@@ -121,6 +123,39 @@ public final class GlintSettings {
             return store.bool(forKey: Key.showMagnifierWhileSelecting) ?? false
         }
         set { withMutation(keyPath: \.showMagnifierWhileSelecting) { store.set(newValue, forKey: Key.showMagnifierWhileSelecting) } }
+    }
+
+    /// Off by default: the window and its shadow on transparency paste cleanly onto any background.
+    public var windowCaptureWallpaper: Bool {
+        get {
+            access(keyPath: \.windowCaptureWallpaper)
+            return store.bool(forKey: Key.windowCaptureWallpaper) ?? false
+        }
+        set { withMutation(keyPath: \.windowCaptureWallpaper) { store.set(newValue, forKey: Key.windowCaptureWallpaper) } }
+    }
+
+    public static let defaultWindowWallpaperPadding: Double = 64
+    /// 256: a 1000 × 600 pt window with 256 pt on each side is 1512 × 1112 pt, taller than a 13" MacBook Air's
+    /// 1512 × 982 pt screen, so past this the wallpaper stretches for everyday windows.
+    public static let windowWallpaperPaddingRange: ClosedRange<Double> = 0...256
+
+    /// Wallpaper shown around a window capture on each side, in points, clamped to `windowWallpaperPaddingRange`.
+    public var windowWallpaperPadding: Double {
+        get {
+            access(keyPath: \.windowWallpaperPadding)
+            return Self.clampPadding(store.double(forKey: Key.windowWallpaperPadding) ?? Self.defaultWindowWallpaperPadding)
+        }
+        set { withMutation(keyPath: \.windowWallpaperPadding) { store.set(Self.clampPadding(newValue), forKey: Key.windowWallpaperPadding) } }
+    }
+
+    /// `nil` when window captures leave the wallpaper out.
+    public var wallpaperPaddingForWindowCaptures: Double? {
+        windowCaptureWallpaper ? windowWallpaperPadding : nil
+    }
+
+    public static func clampPadding(_ padding: Double) -> Double {
+        guard padding.isFinite else { return defaultWindowWallpaperPadding }
+        return min(max(padding, windowWallpaperPaddingRange.lowerBound), windowWallpaperPaddingRange.upperBound)
     }
 
     /// H.264 by default: it plays everywhere, HEVC does not.
