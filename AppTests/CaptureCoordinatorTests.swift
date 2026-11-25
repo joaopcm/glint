@@ -310,7 +310,7 @@ private struct Harness {
 }
 
 @MainActor @Test func windowListFailureThrowsItsReasonFromThePicker() async {
-    let controller = SelectionOverlayController(snapshot: { _ in throw CaptureError.emptySelection })
+    let controller = SelectionOverlayController(showsMagnifier: { false }, snapshot: { _ in throw CaptureError.emptySelection })
     let windows = Task<[CapturableWindow], any Error> { throw CaptureError.permissionDenied }
     await #expect(throws: CaptureError.permissionDenied) { try await controller.selectWindow(windows) }
 }

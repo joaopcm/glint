@@ -27,6 +27,7 @@ public final class GlintSettings {
         static let overlayAutoDismiss = "overlayAutoDismiss"
         static let thumbnailWidth = "thumbnailWidth"
         static let freezeScreenWhileSelecting = "freezeScreenWhileSelecting"
+        static let showMagnifierWhileSelecting = "showMagnifierWhileSelecting"
         static let recordingCodec = "recordingCodec"
         static let recordSystemAudio = "recordSystemAudio"
         static let recordMicrophone = "recordMicrophone"
@@ -111,6 +112,15 @@ public final class GlintSettings {
             return store.bool(forKey: Key.freezeScreenWhileSelecting) ?? false
         }
         set { withMutation(keyPath: \.freezeScreenWhileSelecting) { store.set(newValue, forKey: Key.freezeScreenWhileSelecting) } }
+    }
+
+    /// Off by default: the crosshair alone stays out of the way, and no display grab runs to feed the loupe.
+    public var showMagnifierWhileSelecting: Bool {
+        get {
+            access(keyPath: \.showMagnifierWhileSelecting)
+            return store.bool(forKey: Key.showMagnifierWhileSelecting) ?? false
+        }
+        set { withMutation(keyPath: \.showMagnifierWhileSelecting) { store.set(newValue, forKey: Key.showMagnifierWhileSelecting) } }
     }
 
     /// H.264 by default: it plays everywhere, HEVC does not.

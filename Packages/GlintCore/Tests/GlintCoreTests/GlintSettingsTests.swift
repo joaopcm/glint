@@ -96,6 +96,7 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(changeIsSeen(\.overlayAutoDismiss, becomes: true))
     #expect(changeIsSeen(\.thumbnailWidth, becomes: 300))
     #expect(changeIsSeen(\.freezeScreenWhileSelecting, becomes: true))
+    #expect(changeIsSeen(\.showMagnifierWhileSelecting, becomes: true))
     #expect(changeIsSeen(\.recordingCodec, becomes: .hevc))
     #expect(changeIsSeen(\.recordSystemAudio, becomes: true))
     #expect(changeIsSeen(\.recordMicrophone, becomes: true))
@@ -139,4 +140,11 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(GlintSettings(store: store, defaultSaveFolder: desktop).freezeScreenWhileSelecting == false)
     GlintSettings(store: store, defaultSaveFolder: desktop).freezeScreenWhileSelecting = true
     #expect(GlintSettings(store: store, defaultSaveFolder: desktop).freezeScreenWhileSelecting == true)
+}
+
+@MainActor @Test func magnifierDefaultsOffAndRoundTrips() {
+    let store = MemoryStore()
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).showMagnifierWhileSelecting == false)
+    GlintSettings(store: store, defaultSaveFolder: desktop).showMagnifierWhileSelecting = true
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).showMagnifierWhileSelecting == true)
 }

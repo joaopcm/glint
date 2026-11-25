@@ -29,15 +29,16 @@ final class AreaSelectionView: OverlayView {
     private var lastPixelSize: (width: Int, height: Int)?
     private var cachedLabelSize = CGSize.zero
     private var dragOrigin: CGPoint?
-    private let loupe = LoupeLayer()
+    private let loupe: LoupeLayer?
     private let loupeElement = NSAccessibilityElement()
     private var lastLoupeFrame = CGRect.null
 
     /// `backdrop` is the frozen grab of this screen; nil keeps the overlay see-through.
-    init(screenFrame: CGRect, display: DisplayInfo?, displays: [DisplayInfo], backdrop: CGImage? = nil) {
+    init(screenFrame: CGRect, display: DisplayInfo?, displays: [DisplayInfo], showsLoupe: Bool, backdrop: CGImage? = nil) {
         self.display = display
         self.displays = displays
         self.backdrop = backdrop
+        loupe = showsLoupe ? LoupeLayer() : nil
         super.init(screenFrame: screenFrame)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
@@ -64,7 +65,9 @@ final class AreaSelectionView: OverlayView {
         sizeBadge.addSublayer(sizeLabel)
         layer?.addSublayer(sizeBadge)
 
-        layer?.addSublayer(loupe)
+        if let loupe {
+            layer?.addSublayer(loupe)
+        }
         updateSelectionLayers()
 
         loupeElement.setAccessibilityRole(.image)
@@ -77,14 +80,16 @@ final class AreaSelectionView: OverlayView {
     }
 
     /// Without a frozen backdrop, the controller grabs the screen after the overlay shows and hands it here.
-    var needsSnapshot: Bool { !loupe.hasImage }
+    var needsSnapshot: Bool { loupe?.hasImage == false }
 
     func setSnapshot(_ image: CGImage) {
+        guard let loupe else { return }
         loupe.setImage(image, scale: display?.scale ?? 1)
         updateLoupe(at: NSEvent.mouseLocation)
     }
 
     func updateLoupe(at pointer: CGPoint) {
+        guard let loupe else { return }
         guard let display, loupe.hasImage, screenFrame.contains(pointer) else {
             loupe.hide()
             return
@@ -98,7 +103,7 @@ final class AreaSelectionView: OverlayView {
     }
 
     override func accessibilityChildren() -> [Any]? {
-        loupe.isHidden ? [] : [loupeElement]
+        loupe?.isHidden == false ? [loupeElement] : []
     }
 
     override var wantsUpdateLayer: Bool { true }

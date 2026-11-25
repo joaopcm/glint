@@ -67,7 +67,10 @@ final class AppState {
             capturer: capturer,
             recorder: capturer,
             microphone: SystemMicrophoneAccess(),
-            selector: SelectionOverlayController(snapshot: { try await capturer.captureDisplay($0) }),
+            selector: SelectionOverlayController(
+                showsMagnifier: { [settings] in settings.showMagnifierWhileSelecting },
+                snapshot: { try await capturer.captureDisplay($0) }
+            ),
             alerts: NSAlertPresenter(),
             settings: settings,
             onSaved: { [weak self] url, precomputedThumbnail in
