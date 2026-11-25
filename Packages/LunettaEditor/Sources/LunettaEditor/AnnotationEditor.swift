@@ -298,8 +298,8 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         }, completionHandler: { [weak self] in
             MainActor.assumeIsolated {
                 // Hidden, not just clear, so VoiceOver doesn't read a stale hint; a hover during the fade wins.
-                guard let self, captionHost.alphaValue == 0 else { return }
-                captionHost.isHidden = true
+                guard let self, self.captionHost.alphaValue == 0 else { return }
+                self.captionHost.isHidden = true
             }
         })
     }
