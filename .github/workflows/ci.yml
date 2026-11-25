@@ -52,7 +52,7 @@ jobs:
           ./swiftly init --quiet-shell-followup --assume-yes --skip-install
           . "$HOME/.local/share/swiftly/env.sh"
           swiftly install --use --assume-yes "$SWIFT_VERSION"
-      - run: ls "$HOME/.local/share/swiftly/toolchains" && echo "$HOME/.local/share/swiftly/toolchains/$SWIFT_VERSION/usr/bin" >> "$GITHUB_PATH"
+      - run: echo "$HOME/.local/share/swiftly/toolchains/$SWIFT_VERSION/usr/bin" >> "$GITHUB_PATH"
       - run: swift --version
       # The image runs a setup server, stops it and starts the real one, so retry until mc gets through to the real one.
       # 60 s is a tripwire: a fresh container took 1.4 s locally (OrbStack, M-series Mac).
@@ -85,9 +85,7 @@ jobs:
       - uses: ./.github/actions/setup-xcode
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            build/CompilationCache.noindex
-            build/SourcePackages
+          path: build/CompilationCache.noindex
           key: xcode-app-${{ hashFiles('.github/actions/setup-xcode/action.yml', 'project.yml') }}-${{ github.sha }}
           restore-keys: xcode-app-${{ hashFiles('.github/actions/setup-xcode/action.yml', 'project.yml') }}-
       - run: xcodegen generate
@@ -165,17 +163,16 @@ jobs:
     env:
       DERIVED_DATA: build
       COMPILATION_CACHE_ENABLE_CACHING: YES
+      # Shard a ran 300 s of UI tests and shard b 289 s in run 45654796825. New classes land in b.
       SHARD_A_CLASSES: QuickAccessUITests MenuAndSettingsUITests PublicLinkUITests FreezeScreenUITests
-    # 3x the first green run of all 27 UI tests on macos-26 (45497261627: 7 min 8 s).
-    timeout-minutes: 22
+    # The test step's cap plus the 30 s of setup before it and the upload after it, rounded up.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-xcode
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            build/CompilationCache.noindex
-            build/SourcePackages
+          path: build/CompilationCache.noindex
           key: xcode-ui-${{ matrix.shard }}-${{ hashFiles('.github/actions/setup-xcode/action.yml', 'project.yml') }}-${{ github.sha }}
           restore-keys: xcode-ui-${{ matrix.shard }}-${{ hashFiles('.github/actions/setup-xcode/action.yml', 'project.yml') }}-
       - run: xcodegen generate
@@ -198,15 +195,16 @@ jobs:
           mkdir -p "$(dirname "$APPROVALS")"
           defaults write "$APPROVALS" "$GLINT_EXECUTABLE" -date "4000-01-01 00:00:00 +0000"
           defaults read "$APPROVALS" "$GLINT_EXECUTABLE"
-      # A failing run took 8 min 1 s here (45493012014) and the slowest test 29.5 s (45499134237). The per-test cap lets
-      # xcodebuild kill a hung test and still finalize ui.xcresult; the step cap leaves the upload time inside the job's.
+      # The slowest test took 48.9 s (45642473032) and the slowest shard 7 min 0 s with a cold cache (45654796825), so the
+      # step cap is 2x that. The per-test cap lets xcodebuild kill a hung test and still finalize ui.xcresult; the step
+      # cap leaves the upload time inside the job's.
       - run: |
           selection=()
           for class in $SHARD_A_CLASSES; do selection+=("-${{ matrix.select }}:GlintUITests/$class"); done
           xcodebuild -scheme GlintUI -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA" -resultBundlePath ui.xcresult \
             COMPILATION_CACHE_ENABLE_CACHING="$COMPILATION_CACHE_ENABLE_CACHING" "${selection[@]}" \
             -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 test
-        timeout-minutes: 19
+        timeout-minutes: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
