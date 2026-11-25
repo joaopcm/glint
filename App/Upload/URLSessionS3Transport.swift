@@ -4,8 +4,17 @@ import GlintCore
 struct URLSessionS3Transport: S3Transport {
     private let session: URLSession
 
-    init(session: URLSession = URLSession(configuration: .ephemeral)) {
+    init(session: URLSession = URLSession(configuration: Self.sessionConfiguration())) {
         self.session = session
+    }
+
+    // With a URL cache, a GET of an object makes URLSession add If-None-Match and If-Modified-Since to the next
+    // DELETE of the same URL, and S3 answers that DELETE with 501 NotImplemented (Test Connection on AWS, #96).
+    static func sessionConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return configuration
     }
 
     func send(_ request: S3HTTPRequest) async throws(S3TransportError) -> S3HTTPResponse {
