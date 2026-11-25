@@ -17,14 +17,7 @@ final class ShortcutRecorderUITests: GlintUITestCase {
     /// moving from the click to the chord; sindresorhus/KeyboardShortcuts#241 tears the recorder down after the click.
     @MainActor func testRecorderReplacesAShortcutWithHyperAndAKeypadKeyThatThenCaptures() {
         let hyperKeypad1: CGEventFlags = [.maskControl, .maskAlternate, .maskShift, .maskCommand, .maskNumericPad]
-        let statusItem = app.statusItems.firstMatch
-        XCTAssertTrue(statusItem.waitForExistence(timeout: Self.captureTimeout), "Glint's menu bar icon is missing")
-        statusItem.click()
-        statusItem.descendants(matching: .menuItem)["Settings…"].click()
-        // Settings reopens on the last tab, and an earlier test leaves it on Upload (run 45524565702).
-        let generalTab = app.buttons.matching(NSPredicate(format: "title == %@ OR label == %@", "General", "General")).firstMatch
-        XCTAssertTrue(generalTab.waitForExistence(timeout: Self.captureTimeout), "Settings has no General tab")
-        generalTab.click()
+        openSettingsTab("Shortcuts")
         let captureArea = recorder(showing: "⇧⌘2")
         XCTAssertTrue(captureArea.waitForExistence(timeout: Self.captureTimeout), "no shortcut recorder shows the Capture Area default ⇧⌘2")
         captureArea.click()

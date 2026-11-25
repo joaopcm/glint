@@ -113,6 +113,17 @@ class GlintUITestCase: XCTestCase {
         postKey(hotkey.shortcut.key, flags: hotkey.shortcut.flags)
     }
 
+    /// Settings reopens on the last tab, and an earlier test leaves it on Upload (run 45524565702).
+    @MainActor func openSettingsTab(_ title: String) {
+        let statusItem = app.statusItems.firstMatch
+        XCTAssertTrue(statusItem.waitForExistence(timeout: Self.captureTimeout), "Glint's menu bar icon is missing")
+        statusItem.click()
+        statusItem.descendants(matching: .menuItem)["Settings…"].click()
+        let tab = app.buttons.matching(NSPredicate(format: "title == %@ OR label == %@", title, title)).firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: Self.captureTimeout), "Settings has no \(title) tab")
+        tab.click()
+    }
+
     @MainActor func pressEscape() {
         postKey(kVK_Escape)
     }

@@ -28,11 +28,10 @@ final class MenuAndSettingsUITests: GlintUITestCase {
     }
 
     @MainActor func testSettingsShowsDefaultShortcuts() {
-        openMenu().descendants(matching: .menuItem)["Settings…"].click()
-        XCTAssertTrue(settingsWindowContent.waitForExistence(timeout: Self.captureTimeout))
+        openSettingsTab("Shortcuts")
         for shortcut in ["⇧⌘2", "⌃⇧⌘2", "⇧⌘1", "⌥⇧⌘2", "⌥⇧⌘5", "⌃⌥⇧⌘5"] {
             let recorder = app.descendants(matching: .any).matching(NSPredicate(format: "value == %@", shortcut)).firstMatch
-            XCTAssertTrue(recorder.exists, "no shortcut recorder shows \(shortcut)")
+            XCTAssertTrue(recorder.waitForExistence(timeout: Self.captureTimeout), "no shortcut recorder shows \(shortcut)")
         }
     }
 
