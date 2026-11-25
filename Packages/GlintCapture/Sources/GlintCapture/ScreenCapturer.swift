@@ -25,18 +25,64 @@ public struct ScreenCapturer: Sendable {
         return try await Self.image(filter: filter, configuration: Self.configuration(width: size.width, height: size.height))
     }
 
-    public func captureWindow(id: UInt32) async throws -> CGImage {
+    /// `wallpaperPadding` (points per side) puts the window on the wallpaper that was behind it; `nil` keeps it on transparency.
+    public func captureWindow(id: UInt32, wallpaperPadding: Double?) async throws -> CGImage {
         try Self.requirePermission()
-        guard let window = try await Self.shareableContent().windows.first(where: { $0.windowID == id }) else {
+        let content = try await Self.shareableContent(includingDesktopWindows: wallpaperPadding != nil)
+        guard let window = content.windows.first(where: { $0.windowID == id }) else {
             throw CaptureError.windowNotFound(id)
         }
         let filter = SCContentFilter(desktopIndependentWindow: window)
-        let size = DisplayGeometry.pixelSize(of: filter.contentRect, scale: CGFloat(filter.pointPixelScale))
+        let scale = CGFloat(filter.pointPixelScale)
+        let size = DisplayGeometry.pixelSize(of: filter.contentRect, scale: scale)
         let configuration = Self.configuration(width: size.width, height: size.height)
         configuration.ignoreShadowsSingleWindow = false
         configuration.shouldBeOpaque = false
         configuration.backgroundColor = CGColor.clear
-        return try await Self.image(filter: filter, configuration: configuration)
+        let image = try await Self.image(filter: filter, configuration: configuration)
+        guard let wallpaperPadding else { return image }
+        return try await Self.placeOnWallpaper(image, scale: scale, window: window, content: content, padding: wallpaperPadding)
+    }
+
+    private static func placeOnWallpaper(
+        _ windowImage: CGImage,
+        scale: CGFloat,
+        window: SCWindow,
+        content: SCShareableContent,
+        padding: Double
+    ) async throws -> CGImage {
+        guard let display = content.displays.max(by: { overlap($0.frame, window.frame) < overlap($1.frame, window.frame) }) else {
+            throw CaptureError.wallpaperUnavailable("no display is connected")
+        }
+        let wallpaperWindows = content.windows.filter { isWallpaperLayer($0.windowLayer) }
+        guard !wallpaperWindows.isEmpty else {
+            throw CaptureError.wallpaperUnavailable("macOS listed no desktop wallpaper window")
+        }
+        let filter = SCContentFilter(display: display, including: wallpaperWindows)
+        let wallpaperScale = CGFloat(filter.pointPixelScale)
+        let size = DisplayGeometry.pixelSize(of: display.frame, scale: wallpaperScale)
+        let wallpaper = try await image(filter: filter, configuration: configuration(width: size.width, height: size.height))
+        let backdrop = WallpaperBackdrop.layout(
+            windowImageSize: CGSize(width: windowImage.width, height: windowImage.height),
+            scale: scale,
+            windowFrame: window.frame,
+            displayFrame: display.frame,
+            padding: CGFloat(padding)
+        )
+        guard let composed = WallpaperComposer.compose(window: windowImage, on: wallpaper, wallpaperScale: wallpaperScale, backdrop: backdrop) else {
+            throw CaptureError.wallpaperUnavailable("drawing the window onto it failed")
+        }
+        return composed
+    }
+
+    /// The wallpaper sits below the desktop icon level; Finder's icons and every app window sit at or above it.
+    static func isWallpaperLayer(_ layer: Int) -> Bool {
+        layer < Int(CGWindowLevelForKey(.desktopIconWindow))
+    }
+
+    private static func overlap(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        let shared = a.intersection(b)
+        return shared.isNull ? 0 : shared.width * shared.height
     }
 
     public func shareableWindows() async throws -> [CapturableWindow] {
@@ -96,9 +142,9 @@ public struct ScreenCapturer: Sendable {
         return configuration
     }
 
-    static func shareableContent() async throws -> sending SCShareableContent {
+    static func shareableContent(includingDesktopWindows: Bool = false) async throws -> sending SCShareableContent {
         do {
-            return try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+            return try await SCShareableContent.excludingDesktopWindows(!includingDesktopWindows, onScreenWindowsOnly: true)
         } catch SCStreamError.userDeclined {
             throw CaptureError.permissionDenied
         }

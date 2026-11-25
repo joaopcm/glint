@@ -32,6 +32,7 @@ private actor FakeCapturer: Capturing {
     let windows: [CapturableWindow]
     private(set) var capturedDisplayIDs: [UInt32] = []
     private(set) var capturedWindowIDs: [UInt32] = []
+    private(set) var windowWallpaperPaddings: [Double?] = []
     private(set) var windowListServed = false
     private(set) var areaCaptureCount = 0
 
@@ -64,8 +65,9 @@ private actor FakeCapturer: Capturing {
         return try image(width: size.width, height: size.height)
     }
 
-    func captureWindow(id: UInt32) async throws -> CGImage {
+    func captureWindow(id: UInt32, wallpaperPadding: Double?) async throws -> CGImage {
         capturedWindowIDs.append(id)
+        windowWallpaperPaddings.append(wallpaperPadding)
         return try image()
     }
 
@@ -292,6 +294,32 @@ private struct Harness {
     #expect(await capturer.capturedWindowIDs == [42])
     #expect(try harness.savedFiles().count == 1)
     #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func windowCaptureLeavesTheWallpaperOutByDefault() async throws {
+    let capturer = FakeCapturer()
+    let harness = try Harness(capturer: capturer, selection: .window(42))
+    await harness.coordinator.run(.window)
+    #expect(await capturer.windowWallpaperPaddings == [nil])
+}
+
+@MainActor @Test func windowCaptureAsksForTheWallpaperWithTheChosenPadding() async throws {
+    let capturer = FakeCapturer()
+    let harness = try Harness(capturer: capturer, selection: .window(42))
+    harness.settings.windowCaptureWallpaper = true
+    harness.settings.windowWallpaperPadding = 96
+    await harness.coordinator.run(.window)
+    #expect(await capturer.windowWallpaperPaddings == [96])
+    #expect(try harness.savedFiles().count == 1)
+}
+
+@MainActor @Test func wallpaperFailureTellsTheUserHowToTurnItOff() async throws {
+    let harness = try Harness(capturer: FakeCapturer(failure: .wallpaperUnavailable("macOS listed no desktop wallpaper window")), selection: .window(7))
+    harness.settings.windowCaptureWallpaper = true
+    await harness.coordinator.run(.window)
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.message.contains("Wallpaper behind window captures"))
+    #expect(try harness.savedFiles().isEmpty)
 }
 
 // A regression that awaits the list before showing the picker would hang on the gate; 1 minute is the smallest limit Swift Testing takes.

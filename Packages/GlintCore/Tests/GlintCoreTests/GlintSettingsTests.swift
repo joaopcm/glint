@@ -72,6 +72,24 @@ private let desktop = URL(filePath: "/Users/me/Desktop")
     #expect(GlintSettings.clampWidth(.nan) == 240)
 }
 
+@MainActor @Test func windowWallpaperDefaultsOffAndPaddingRoundTripsAndClamps() {
+    let store = MemoryStore()
+    let settings = GlintSettings(store: store, defaultSaveFolder: desktop)
+    #expect(settings.windowCaptureWallpaper == false)
+    #expect(settings.windowWallpaperPadding == 64)
+    #expect(settings.wallpaperPaddingForWindowCaptures == nil)
+    settings.windowCaptureWallpaper = true
+    settings.windowWallpaperPadding = 120
+    let reloaded = GlintSettings(store: store, defaultSaveFolder: desktop)
+    #expect(reloaded.windowCaptureWallpaper == true)
+    #expect(reloaded.wallpaperPaddingForWindowCaptures == 120)
+    settings.windowWallpaperPadding = 5000
+    #expect(settings.windowWallpaperPadding == 256)
+    store.set(-10.0, forKey: "windowWallpaperPadding")
+    #expect(settings.windowWallpaperPadding == 0)
+    #expect(GlintSettings.clampPadding(.nan) == 64)
+}
+
 private final class ChangeFlag: @unchecked Sendable {
     var raised = false
 }
@@ -96,6 +114,8 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(changeIsSeen(\.overlayAutoDismiss, becomes: true))
     #expect(changeIsSeen(\.thumbnailWidth, becomes: 300))
     #expect(changeIsSeen(\.freezeScreenWhileSelecting, becomes: true))
+    #expect(changeIsSeen(\.windowCaptureWallpaper, becomes: true))
+    #expect(changeIsSeen(\.windowWallpaperPadding, becomes: 120))
     #expect(changeIsSeen(\.recordingCodec, becomes: .hevc))
     #expect(changeIsSeen(\.recordSystemAudio, becomes: true))
     #expect(changeIsSeen(\.recordMicrophone, becomes: true))
