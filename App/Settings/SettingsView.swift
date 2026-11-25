@@ -68,6 +68,7 @@ private struct GeneralSettingsView: View {
             }
             Toggle("Hide thumbnail after a few seconds", isOn: $settings.overlayAutoDismiss)
             Toggle("Freeze screen while selecting", isOn: $settings.freezeScreenWhileSelecting)
+            Toggle("Show magnifier while selecting", isOn: $settings.showMagnifierWhileSelecting)
             Picker("Recording format", selection: $settings.recordingCodec) {
                 Text("H.264").tag(VideoCodec.h264)
                 Text("HEVC").tag(VideoCodec.hevc)

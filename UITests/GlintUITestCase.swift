@@ -38,6 +38,7 @@ class GlintUITestCase: XCTestCase {
     /// Subclasses add `-key value` pairs to start Glint with other settings.
     var extraLaunchArguments: [String] { [] }
     var overlayCorner: String { "bottomRight" }
+    var showsMagnifier: Bool { false }
     var pickerPromptExplained: Bool { true }
     var extraLaunchEnvironment: [String: String] { [:] }
     var pinnedHotkeys: [Hotkey] { Hotkey.allCases }
@@ -82,6 +83,7 @@ class GlintUITestCase: XCTestCase {
             "-overlayAutoDismiss", "NO",
             "-overlayCorner", overlayCorner,
             "-thumbnailWidth", "240",
+            "-showMagnifierWhileSelecting", showsMagnifier ? "YES" : "NO",
         ] + (pickerPromptExplained ? ["-pickerPromptExplained", "YES"] : []) + defaultShortcutArguments + extraLaunchArguments
         app.launchEnvironment = extraLaunchEnvironment
         app.launch()
