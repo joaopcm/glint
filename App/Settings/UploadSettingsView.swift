@@ -177,14 +177,15 @@ private struct WindowContentHeightReader: NSViewRepresentable {
 private struct ConnectionStepRow<Fix: View>: View {
     let step: ConnectionTestStep
     @ViewBuilder let fix: Fix
-    @State private var isExpanded: Bool
+    @State private var toggledOpen: Bool?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(step: ConnectionTestStep, @ViewBuilder fix: () -> Fix) {
         self.step = step
         self.fix = fix()
-        _isExpanded = State(initialValue: step.status.startsExpanded)
     }
+
+    private var isExpanded: Bool { toggledOpen ?? step.status.startsExpanded }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -217,15 +218,15 @@ private struct ConnectionStepRow<Fix: View>: View {
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -4)))
             }
         }
-        .onChange(of: step.status) { _, status in
-            isExpanded = status.startsExpanded
+        .onChange(of: step.status) {
+            toggledOpen = nil
         }
     }
 
     private func toggle() {
         guard step.hasDetails else { return }
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .snappy(duration: 0.2)) {
-            isExpanded.toggle()
+            toggledOpen = !isExpanded
         }
     }
 }
@@ -258,17 +259,15 @@ private struct StepDetails<Fix: View>: View {
     @ViewBuilder let fix: Fix
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 4) {
-                if let request = step.request {
-                    row("Request", request)
-                }
-                if let status = step.httpStatus {
-                    row("Response", "HTTP \(status)")
-                }
-                if let error = errorText {
-                    row(step.errorCode == nil ? "Error" : "S3 error", error)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            if let request = step.request {
+                field("Request", request)
+            }
+            if let status = step.httpStatus {
+                field("Response", "HTTP \(status)")
+            }
+            if let error = errorText {
+                field(step.errorCode == nil ? "Error" : "S3 error", error)
             }
             if let text = step.fix {
                 Text(text)
@@ -289,14 +288,13 @@ private struct StepDetails<Fix: View>: View {
         }
     }
 
-    private func row(_ label: String, _ value: String) -> some View {
-        GridRow {
+    private func field(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.callout)
+                .font(.caption)
                 .foregroundStyle(.secondary)
-                .gridColumnAlignment(.trailing)
             Text(value)
-                .font(.callout.monospaced())
+                .font(.caption.monospaced())
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -367,6 +365,7 @@ private struct PublicLinkFix: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                 Text(steps.count > 1 ? "\(index + 1). \(step)" : step)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .font(.callout)
