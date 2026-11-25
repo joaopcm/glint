@@ -5,77 +5,94 @@ import SwiftUI
 struct UploadSettingsView: View {
     @Bindable var bucket: BucketAccess
     @State private var pastedURL = ""
+    @State private var maxContentHeight: CGFloat?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         @Bindable var settings = bucket.settings
-        Form {
-            Section {
-                HStack {
-                    TextField("Bucket URL", text: $pastedURL, prompt: Text("Paste https://my-bucket.s3.us-east-2.amazonaws.com"))
-                        .onSubmit(fillFromPastedURL)
-                    Button("Fill In", action: fillFromPastedURL)
-                        .disabled(pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        ScrollViewReader { scroller in
+            Form {
+                Section {
+                    HStack {
+                        TextField("Bucket URL", text: $pastedURL, prompt: Text("Paste https://my-bucket.s3.us-east-2.amazonaws.com"))
+                            .onSubmit(fillFromPastedURL)
+                        Button("Fill In", action: fillFromPastedURL)
+                            .disabled(pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    if let error = bucket.bucketURLError {
+                        Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                    }
+                    LabeledContent("Provider") {
+                        Menu(bucket.provider?.name ?? "Other") {
+                            ForEach(StorageProvider.allCases, id: \.self) { provider in
+                                Button(provider.name) { bucket.apply(provider) }
+                            }
+                        }
+                        .fixedSize()
+                        .help("Fill in the endpoint, region and path style this provider uses. Bucket and key prefix stay as they are.")
+                    }
+                    TextField("Endpoint URL", text: $settings.bucketEndpoint, prompt: Text("https://s3.us-east-1.amazonaws.com"))
+                    TextField("Region", text: $settings.bucketRegion, prompt: Text("us-east-1"))
+                    TextField("Bucket", text: $settings.bucketName)
+                    Toggle("Path-style URLs", isOn: $settings.bucketPathStyle)
+                        .help("Put the bucket in the path (endpoint/bucket/key) instead of the host. MinIO needs this.")
+                    TextField("Key prefix", text: $settings.bucketKeyPrefix, prompt: Text("shots"))
+                    TextField("Public base URL", text: $settings.bucketPublicBaseURL, prompt: Text("https://shots.example.com"))
                 }
-                if let error = bucket.bucketURLError {
-                    Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                Section {
+                    TextField("Access key ID", text: $bucket.accessKeyID)
+                    SecureField("Secret access key", text: $bucket.secretAccessKey)
+                    if let error = bucket.credentialError {
+                        Text(error).foregroundStyle(.red).textSelection(.enabled)
+                    }
+                    if bucket.provider == .aws {
+                        uploadPolicy(settings)
+                    }
+                } footer: {
+                    Text("The keys are stored in your Keychain.")
                 }
-                LabeledContent("Provider") {
-                    Menu(bucket.provider?.name ?? "Other") {
-                        ForEach(StorageProvider.allCases, id: \.self) { provider in
-                            Button(provider.name) { bucket.apply(provider) }
+                Section {
+                    Toggle("Upload after capture", isOn: $settings.uploadAfterCapture)
+                        .help("Upload every new capture and copy its link, as if you clicked Upload on its thumbnail.")
+                }
+                Section {
+                    HStack {
+                        Button("Test Connection") { Task { await bucket.testConnection() } }
+                            .disabled(bucket.connectionTest.isRunning || bucket.makePublic == .running)
+                            .accessibilityIdentifier(AccessibilityID.testConnection)
+                        Spacer()
+                        if let result = bucket.connectionTest.result {
+                            CopyButton(title: "Copy Details", text: result.log)
+                                .disabled(!result.isFinished)
                         }
                     }
-                    .fixedSize()
-                    .help("Fill in the endpoint, region and path style this provider uses. Bucket and key prefix stay as they are.")
-                }
-                TextField("Endpoint URL", text: $settings.bucketEndpoint, prompt: Text("https://s3.us-east-1.amazonaws.com"))
-                TextField("Region", text: $settings.bucketRegion, prompt: Text("us-east-1"))
-                TextField("Bucket", text: $settings.bucketName)
-                Toggle("Path-style URLs", isOn: $settings.bucketPathStyle)
-                    .help("Put the bucket in the path (endpoint/bucket/key) instead of the host. MinIO needs this.")
-                TextField("Key prefix", text: $settings.bucketKeyPrefix, prompt: Text("shots"))
-                TextField("Public base URL", text: $settings.bucketPublicBaseURL, prompt: Text("https://shots.example.com"))
-            }
-            Section {
-                TextField("Access key ID", text: $bucket.accessKeyID)
-                SecureField("Secret access key", text: $bucket.secretAccessKey)
-                if let error = bucket.credentialError {
-                    Text(error).foregroundStyle(.red).textSelection(.enabled)
-                }
-                if bucket.provider == .aws {
-                    uploadPolicy(settings)
-                }
-            } footer: {
-                Text("The keys are stored in your Keychain.")
-            }
-            Section {
-                Toggle("Upload after capture", isOn: $settings.uploadAfterCapture)
-                    .help("Upload every new capture and copy its link, as if you clicked Upload on its thumbnail.")
-            }
-            Section {
-                HStack {
-                    Button("Test Connection") { Task { await bucket.testConnection() } }
-                        .disabled(bucket.connectionTest == .running || bucket.makePublic == .running)
-                        .accessibilityIdentifier(AccessibilityID.testConnection)
-                    if bucket.connectionTest == .running {
-                        ProgressView().controlSize(.small)
+                    if let result = bucket.connectionTest.result {
+                        ForEach(result.steps) { step in
+                            ConnectionStepRow(step: step) {
+                                if step.id == .publicLink, let check = result.publicLink {
+                                    PublicLinkFix(bucket: bucket, check: check)
+                                }
+                            }
+                            .id(step.id)
+                        }
                     }
                 }
-                if case .finished(let result) = bucket.connectionTest {
-                    Text(result.log)
-                        .font(.callout.monospaced())
-                        .foregroundStyle(result.succeeded ? Color.secondary : Color.red)
-                        .textSelection(.enabled)
-                        .accessibilityIdentifier(AccessibilityID.connectionTestResult)
-                    if let publicLink = result.publicLink {
-                        PublicLinkView(bucket: bucket, check: publicLink)
-                    }
+            }
+            .formStyle(.grouped)
+            .frame(width: 480)
+            .modifier(CapHeight(maxHeight: maxContentHeight))
+            .background(WindowContentHeightReader(maxContentHeight: $maxContentHeight))
+            .onChange(of: bucket.connectionTest.isRunning) { _, isRunning in
+                guard let result = bucket.connectionTest.result else { return }
+                let target = isRunning
+                    ? result.steps.last
+                    : result.steps.first { $0.status == .failed } ?? result.steps.first { $0.status == .warning }
+                guard let target else { return }
+                withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) {
+                    scroller.scrollTo(target.id, anchor: .bottom)
                 }
             }
         }
-        .formStyle(.grouped)
-        .frame(width: 480)
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func fillFromPastedURL() {
@@ -103,35 +120,202 @@ struct UploadSettingsView: View {
     }
 }
 
-private struct PublicLinkView: View {
+// Sized to its content, the tab grew past the bottom of the 1024x768 CI screen once the checklist showed (connection rows
+// at y 738-786, run 45635710585), and would on a small laptop display too. Past the screen's visible height it scrolls.
+private struct CapHeight: ViewModifier {
+    let maxHeight: CGFloat?
+
+    func body(content: Content) -> some View {
+        CappedHeightLayout(maxHeight: maxHeight) { content }
+    }
+}
+
+private struct CappedHeightLayout: Layout {
+    let maxHeight: CGFloat?
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let ideal = subviews.first?.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) ?? .zero
+        return CGSize(width: ideal.width, height: min(ideal.height, maxHeight ?? .infinity))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
+    }
+}
+
+private struct WindowContentHeightReader: NSViewRepresentable {
+    @Binding var maxContentHeight: CGFloat?
+
+    func makeNSView(context: Context) -> NSView { WindowObservingView(onWindow: report) }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private func report(_ window: NSWindow) {
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        let chrome = window.frame.height - window.contentLayoutRect.height
+        let height = screen.visibleFrame.height - chrome
+        if maxContentHeight != height { maxContentHeight = height }
+    }
+
+    final class WindowObservingView: NSView {
+        let onWindow: (NSWindow) -> Void
+
+        init(onWindow: @escaping (NSWindow) -> Void) {
+            self.onWindow = onWindow
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            DispatchQueue.main.async { [onWindow] in onWindow(window) }
+        }
+    }
+}
+
+private struct ConnectionStepRow<Fix: View>: View {
+    let step: ConnectionTestStep
+    @ViewBuilder let fix: Fix
+    @State private var toggledOpen: Bool?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(step: ConnectionTestStep, @ViewBuilder fix: () -> Fix) {
+        self.step = step
+        self.fix = fix()
+    }
+
+    private var isExpanded: Bool { toggledOpen ?? step.status.startsExpanded }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: toggle) {
+                HStack(alignment: .top, spacing: 8) {
+                    StepStatusIcon(status: step.status)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(step.id.title)
+                        Text(step.outcome)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .opacity(step.hasDetails ? 1 : 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(step.status.rawValue)
+            .accessibilityIdentifier(AccessibilityID.connectionStep(step.id.rawValue))
+            if isExpanded, step.hasDetails {
+                StepDetails(step: step) { fix }
+                    .padding(.leading, 24)
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -4)))
+            }
+        }
+        .onChange(of: step.status) {
+            toggledOpen = nil
+        }
+    }
+
+    private func toggle() {
+        guard step.hasDetails else { return }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .snappy(duration: 0.2)) {
+            toggledOpen = !isExpanded
+        }
+    }
+}
+
+private extension ConnectionTestStepStatus {
+    var startsExpanded: Bool { self == .failed || self == .warning }
+}
+
+private struct StepStatusIcon: View {
+    let status: ConnectionTestStepStatus
+
+    var body: some View {
+        Group {
+            switch status {
+            case .waiting: Image(systemName: "circle").foregroundStyle(.tertiary)
+            case .running: ProgressView().controlSize(.mini)
+            case .passed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            case .warning: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+            case .skipped: Image(systemName: "minus.circle").foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 16, height: 16)
+        .padding(.top, 1)
+    }
+}
+
+private struct StepDetails<Fix: View>: View {
+    let step: ConnectionTestStep
+    @ViewBuilder let fix: Fix
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let request = step.request {
+                field("Request", request)
+            }
+            if let status = step.httpStatus {
+                field("Response", "HTTP \(status)")
+            }
+            if let error = errorText {
+                field(step.errorCode == nil ? "Error" : "S3 error", error)
+            }
+            if let text = step.fix {
+                Text(text)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            fix
+        }
+        .textSelection(.enabled)
+    }
+
+    private var errorText: String? {
+        switch (step.errorCode, step.errorMessage) {
+        case (let code?, let message?): "\(code): \(message)"
+        case (let code?, nil): code
+        case (nil, let message?): message
+        case (nil, nil): nil
+        }
+    }
+
+    private func field(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption.monospaced())
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+private struct PublicLinkFix: View {
     let bucket: BucketAccess
     let check: PublicLinkCheck
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(headline, systemImage: check == .opens ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(check == .opens ? Color.green : Color.orange)
-                .textSelection(.enabled)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier(AccessibilityID.publicLinkResult)
-            if case .blocked = check, let advice = bucket.publicLinkAdvice {
-                fix(advice)
-            } else if case .unexpected = check, let advice = bucket.publicLinkAdvice {
+        if let advice = bucket.publicLinkAdvice, needsFix {
+            VStack(alignment: .leading, spacing: 10) {
                 fix(advice)
             }
         }
     }
 
-    private var headline: String {
+    private var needsFix: Bool {
         switch check {
-        case .opens:
-            "Copied links open in a browser."
-        case .blocked(let status, let code):
-            "Copied links won't open: the bucket isn't publicly readable (HTTP \(status)\(code.map { " \($0)" } ?? ""))."
-        case .unexpected(let status, let code):
-            "Copied links won't open: the link answered HTTP \(status)\(code.map { " \($0)" } ?? "")."
-        case .unreachable(let reason):
-            "Copied links won't open: \(reason)"
+        case .blocked, .unexpected: true
+        case .opens, .unreachable: false
         }
     }
 
@@ -140,7 +324,7 @@ private struct PublicLinkView: View {
         if advice.canMakePublic {
             HStack {
                 Button("Make Links Public") { Task { await bucket.makeLinksPublic() } }
-                    .disabled(bucket.makePublic == .running || bucket.connectionTest == .running)
+                    .disabled(bucket.makePublic == .running || bucket.connectionTest.isRunning)
                     .accessibilityIdentifier(AccessibilityID.makeLinksPublic)
                 if bucket.makePublic == .running {
                     ProgressView().controlSize(.small)
@@ -181,6 +365,7 @@ private struct PublicLinkView: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                 Text(steps.count > 1 ? "\(index + 1). \(step)" : step)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .font(.callout)
@@ -190,7 +375,6 @@ private struct PublicLinkView: View {
 
 private struct PolicyBlock: View {
     let text: String
-    @State private var copied: String?
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -200,12 +384,22 @@ private struct PolicyBlock: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(8)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-            Button(copied == text ? "Copied" : "Copy") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-                copied = text
-            }
-            .controlSize(.small)
+            CopyButton(title: "Copy", text: text)
+                .controlSize(.small)
+        }
+    }
+}
+
+private struct CopyButton: View {
+    let title: String
+    let text: String
+    @State private var copied: String?
+
+    var body: some View {
+        Button(copied == text ? "Copied" : title) {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            copied = text
         }
     }
 }

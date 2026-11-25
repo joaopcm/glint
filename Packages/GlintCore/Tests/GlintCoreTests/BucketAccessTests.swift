@@ -111,6 +111,7 @@ struct StoreFailure: Error, LocalizedError {
     #expect(result.succeeded)
     #expect(result.log.hasPrefix("PUT http://localhost:9000/shots/glint/glint-connection-test-"))
     #expect(transport.requests.map(\.method) == ["PUT", "GET", "DELETE"])
+    #expect(result.steps.map(\.status) == [.passed, .passed, .passed])
 }
 
 @MainActor @Test func testConnectionWithNothingConfiguredSaysSoWithoutTouchingTheNetwork() async {
@@ -118,10 +119,7 @@ struct StoreFailure: Error, LocalizedError {
     let settings = GlintSettings(store: MemoryStore(), defaultSaveFolder: URL(filePath: "/tmp"))
     let access = BucketAccess(settings: settings, credentialStore: MemoryCredentialStore(), transport: transport)
     await access.testConnection()
-    #expect(access.connectionTest == .finished(ConnectionTestResult(
-        succeeded: false,
-        log: "Nothing to test yet. Fill in the endpoint URL, region, bucket and keys."
-    )))
+    #expect(access.connectionTest == .finished(.setupFailed("Nothing to test yet. Fill in the endpoint URL, region, bucket and keys.")))
     #expect(transport.requests.isEmpty)
 }
 
@@ -130,10 +128,7 @@ struct StoreFailure: Error, LocalizedError {
     settings.bucketEndpoint = "s3.example.com"
     let access = BucketAccess(settings: settings, credentialStore: MemoryCredentialStore(testCredentials), transport: FakeTransport([]))
     await access.testConnection()
-    #expect(access.connectionTest == .finished(ConnectionTestResult(
-        succeeded: false,
-        log: BucketSetupError.endpointInvalid("s3.example.com").localizedDescription
-    )))
+    #expect(access.connectionTest == .finished(.setupFailed(BucketSetupError.endpointInvalid("s3.example.com").localizedDescription)))
 }
 
 @MainActor @Test func pastingABucketURLFillsTheForm() {

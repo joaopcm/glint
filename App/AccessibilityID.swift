@@ -3,8 +3,6 @@ enum AccessibilityID {
     static let toast = "glint.toast"
     static let loupe = "glint.loupe"
     static let testConnection = "glint.testConnection"
-    static let connectionTestResult = "glint.connectionTestResult"
-    static let publicLinkResult = "glint.publicLinkResult"
     static let makeLinksPublic = "glint.makeLinksPublic"
     static let editorCanvas = "glint.editorCanvas"
     static let uploadHistoryLink = "glint.uploadHistoryLink"
@@ -14,4 +12,6 @@ enum AccessibilityID {
     static let stopRecording = "glint.stopRecording"
     static let cardActionLabel = "glint.cardActionLabel"
     static let restoreDefaultShortcuts = "glint.restoreDefaultShortcuts"
+
+    static func connectionStep(_ step: String) -> String { "glint.connectionStep.\(step)" }
 }

@@ -2,7 +2,8 @@ import Foundation
 import Network
 
 /// Stands in for a private S3 bucket: answers every signed request on 127.0.0.1 with 200, an unsigned one with
-/// 403 AccessDenied the way S3 does, and records both.
+/// 403 AccessDenied the way S3 does, and records both. `deniedMethods` get 403 AccessDenied even when signed, like keys
+/// whose IAM policy leaves that action out.
 /// `holdResponses()` keeps the answers back until `releaseResponses()`, like a slow bucket.
 final class StubS3Server: @unchecked Sendable {
     struct Request {
@@ -25,7 +26,8 @@ final class StubS3Server: @unchecked Sendable {
     private var received: [Request] = []
     private var listenError: NWError?
     private var holding = false
-    private var held: [(connection: NWConnection, signed: Bool)] = []
+    private var held: [(connection: NWConnection, allowed: Bool)] = []
+    private let deniedMethods: Set<String>
 
     var port: UInt16 { listener.port?.rawValue ?? 0 }
 
@@ -33,7 +35,8 @@ final class StubS3Server: @unchecked Sendable {
         lock.withLock { received }
     }
 
-    init() throws {
+    init(deniedMethods: Set<String> = []) throws {
+        self.deniedMethods = deniedMethods
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
         listener = try NWListener(using: parameters)
@@ -74,12 +77,12 @@ final class StubS3Server: @unchecked Sendable {
             defer { held = [] }
             return held
         }
-        queue.async { waiting.forEach { Self.answer($0.connection, signed: $0.signed) } }
+        queue.async { waiting.forEach { Self.answer($0.connection, allowed: $0.allowed) } }
     }
 
-    private static func answer(_ connection: NWConnection, signed: Bool) {
+    private static func answer(_ connection: NWConnection, allowed: Bool) {
         let denied = "<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>"
-        let response = Data((signed
+        let response = Data((allowed
             ? "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
             : "HTTP/1.1 403 Forbidden\r\nContent-Type: application/xml\r\nContent-Length: \(denied.utf8.count)\r\nConnection: close\r\n\r\n\(denied)").utf8)
         connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
@@ -96,13 +99,13 @@ final class StubS3Server: @unchecked Sendable {
             var buffer = buffer
             if let data { buffer.append(data) }
             if let request = StubS3Server.parse(buffer) {
-                let signed = request.headers["authorization"] != nil
+                let allowed = request.headers["authorization"] != nil && !deniedMethods.contains(request.method)
                 let hold = lock.withLock {
                     self.received.append(request)
-                    if self.holding { self.held.append((connection, signed)) }
+                    if self.holding { self.held.append((connection, allowed)) }
                     return self.holding
                 }
-                if !hold { Self.answer(connection, signed: signed) }
+                if !hold { Self.answer(connection, allowed: allowed) }
             } else if isComplete || error != nil {
                 connection.cancel()
             } else {
