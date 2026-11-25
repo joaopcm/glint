@@ -1,7 +1,7 @@
 import AppKit
-import GlintCore
+import LunettaCore
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 private let display = DisplayInfo(id: 1, frame: CGRect(x: 0, y: 0, width: 200, height: 200), scale: 1)
 

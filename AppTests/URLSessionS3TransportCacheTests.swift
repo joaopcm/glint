@@ -1,8 +1,8 @@
 import Foundation
-import GlintCore
+import LunettaCore
 import Network
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 private final class LoopbackHTTPServer: @unchecked Sendable {
     private let listener: NWListener
@@ -41,7 +41,7 @@ private final class LoopbackHTTPServer: @unchecked Sendable {
             let head = String(decoding: buffer[..<end.lowerBound], as: UTF8.self)
             lock.withLock { heads.append(head) }
             let response = head.hasPrefix("GET")
-                ? "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nETag: \"abc\"\r\nLast-Modified: Wed, 25 Nov 2026 12:00:00 GMT\r\nContent-Length: 6\r\nConnection: close\r\n\r\nglint\n"
+                ? "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nETag: \"abc\"\r\nLast-Modified: Wed, 25 Nov 2026 12:00:00 GMT\r\nContent-Length: 8\r\nConnection: close\r\n\r\nlunetta\n"
                 : "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"
             connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
         }
@@ -52,7 +52,7 @@ private final class LoopbackHTTPServer: @unchecked Sendable {
     @Test func deleteAfterAGetOfTheSameURLCarriesNoConditionalHeaders() async throws {
         let server = try LoopbackHTTPServer()
         defer { server.stop() }
-        let url = try #require(URL(string: "http://127.0.0.1:\(server.port)/glint-connection-test.txt"))
+        let url = try #require(URL(string: "http://127.0.0.1:\(server.port)/lunetta-connection-test.txt"))
         let transport = URLSessionS3Transport()
 
         _ = try await transport.send(S3HTTPRequest(method: "GET", url: url, headers: [:], body: Data()))

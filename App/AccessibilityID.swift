@@ -1,17 +1,17 @@
 enum AccessibilityID {
-    static let selectionOverlay = "glint.selectionOverlay"
-    static let toast = "glint.toast"
-    static let loupe = "glint.loupe"
-    static let testConnection = "glint.testConnection"
-    static let makeLinksPublic = "glint.makeLinksPublic"
-    static let editorCanvas = "glint.editorCanvas"
-    static let uploadHistoryLink = "glint.uploadHistoryLink"
-    static let uploadHistoryError = "glint.uploadHistoryError"
-    static let deleteUpload = "glint.deleteUpload"
-    static let uploadProgress = "glint.uploadProgress"
-    static let stopRecording = "glint.stopRecording"
-    static let cardActionLabel = "glint.cardActionLabel"
-    static let restoreDefaultShortcuts = "glint.restoreDefaultShortcuts"
+    static let selectionOverlay = "lunetta.selectionOverlay"
+    static let toast = "lunetta.toast"
+    static let loupe = "lunetta.loupe"
+    static let testConnection = "lunetta.testConnection"
+    static let makeLinksPublic = "lunetta.makeLinksPublic"
+    static let editorCanvas = "lunetta.editorCanvas"
+    static let uploadHistoryLink = "lunetta.uploadHistoryLink"
+    static let uploadHistoryError = "lunetta.uploadHistoryError"
+    static let deleteUpload = "lunetta.deleteUpload"
+    static let uploadProgress = "lunetta.uploadProgress"
+    static let stopRecording = "lunetta.stopRecording"
+    static let cardActionLabel = "lunetta.cardActionLabel"
+    static let restoreDefaultShortcuts = "lunetta.restoreDefaultShortcuts"
 
-    static func connectionStep(_ step: String) -> String { "glint.connectionStep.\(step)" }
+    static func connectionStep(_ step: String) -> String { "lunetta.connectionStep.\(step)" }
 }

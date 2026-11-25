@@ -2,14 +2,14 @@ import AppKit
 import Carbon.HIToolbox
 import XCTest
 
-final class ShortcutRecorderUITests: GlintUITestCase {
-    /// Capture Area is cleared in Glint's own defaults instead of pinned with `-KeyboardShortcuts_captureArea`: the argument
+final class ShortcutRecorderUITests: LunettaUITestCase {
+    /// Capture Area is cleared in Lunetta's own defaults instead of pinned with `-KeyboardShortcuts_captureArea`: the argument
     /// domain would hide what the recorder saves, and the field would keep showing ⇧⌘2 (run 45520447954).
     override var pinnedHotkeys: [Hotkey] { Hotkey.allCases.filter { $0 != .area } }
 
     override func setUpWithError() throws {
-        CFPreferencesSetAppValue("KeyboardShortcuts_captureArea" as CFString, nil, Self.glintBundleID as CFString)
-        CFPreferencesAppSynchronize(Self.glintBundleID as CFString)
+        CFPreferencesSetAppValue("KeyboardShortcuts_captureArea" as CFString, nil, Self.lunettaBundleID as CFString)
+        CFPreferencesAppSynchronize(Self.lunettaBundleID as CFString)
         try super.setUpWithError()
     }
 

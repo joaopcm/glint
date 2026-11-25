@@ -1,10 +1,10 @@
 import AppKit
-import GlintCore
+import LunettaCore
 import KeyboardShortcuts
 import SwiftUI
 
 struct SettingsView: View {
-    let settings: GlintSettings
+    let settings: LunettaSettings
     let bucket: BucketAccess
     let history: UploadHistory
     @State private var maxContentHeight: CGFloat?
@@ -29,7 +29,7 @@ struct SettingsView: View {
 }
 
 private struct GeneralSettingsView: View {
-    @Bindable var settings: GlintSettings
+    @Bindable var settings: LunettaSettings
     @State private var openAtLogin = OpenAtLogin()
 
     var body: some View {
@@ -72,7 +72,7 @@ private struct GeneralSettingsView: View {
             Toggle("Wallpaper behind window captures", isOn: $settings.windowCaptureWallpaper)
             LabeledContent("Wallpaper padding") {
                 HStack {
-                    Slider(value: $settings.windowWallpaperPadding, in: GlintSettings.windowWallpaperPaddingRange, step: 8) {
+                    Slider(value: $settings.windowWallpaperPadding, in: LunettaSettings.windowWallpaperPaddingRange, step: 8) {
                         Text("Wallpaper padding")
                     }
                     .labelsHidden()
@@ -108,18 +108,18 @@ private struct GeneralSettingsView: View {
 }
 
 private struct ShortcutsSettingsView: View {
-    @State private var shortcuts = ShortcutBindings(names: GlintShortcuts.all.map(\.name))
+    @State private var shortcuts = ShortcutBindings(names: LunettaShortcuts.all.map(\.name))
 
     var body: some View {
         Form {
-            ForEach(GlintShortcuts.all, id: \.name) { title, name in
+            ForEach(LunettaShortcuts.all, id: \.name) { title, name in
                 ShortcutRecorder(
                     title: title,
                     allNames: shortcuts.names,
                     shortcut: shortcuts.shortcuts[name],
                     onChange: { shortcuts.set($0, for: name) },
                     usedBy: { recorded in
-                        GlintShortcuts.all.first { $0.name != name && shortcuts.shortcuts[$0.name] == recorded }?.title
+                        LunettaShortcuts.all.first { $0.name != name && shortcuts.shortcuts[$0.name] == recorded }?.title
                     }
                 )
             }

@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-final class FreezeScreenUITests: GlintUITestCase {
+final class FreezeScreenUITests: LunettaUITestCase {
     override var extraLaunchArguments: [String] { ["-freezeScreenWhileSelecting", "YES"] }
 
     /// A window that closes while the overlay is up stands in for a menu or tooltip that vanishes when focus moves.

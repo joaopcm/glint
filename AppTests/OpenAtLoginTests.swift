@@ -1,7 +1,7 @@
 import Foundation
 import ServiceManagement
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 @MainActor final class FakeLoginItem: LoginItem {
     var status: SMAppService.Status
@@ -76,7 +76,7 @@ import Testing
         openAtLogin.set(true)
 
         #expect(!openAtLogin.isOn)
-        #expect(openAtLogin.failure == "macOS didn't add Glint to your login items: Operation not permitted")
+        #expect(openAtLogin.failure == "macOS didn't add Lunetta to your login items: Operation not permitted")
     }
 
     @Test func refreshPicksUpAChangeMadeInSystemSettings() {

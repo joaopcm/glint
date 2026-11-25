@@ -1,5 +1,5 @@
 import Foundation
-import GlintCore
+import LunettaCore
 import Security
 
 enum KeychainError: Error, LocalizedError {
@@ -17,7 +17,7 @@ enum KeychainError: Error, LocalizedError {
 }
 
 struct KeychainCredentialStore: CredentialStore {
-    static let bucketService = "com.joaopcm.glint.bucket"
+    static let bucketService = "com.joaopcm.lunetta.bucket"
 
     let service: String
 
@@ -50,7 +50,7 @@ struct KeychainCredentialStore: CredentialStore {
         var status = SecItemUpdate(itemQuery as CFDictionary, fields as CFDictionary)
         if status == errSecItemNotFound {
             var item = itemQuery.merging(fields) { $1 }
-            item[kSecAttrLabel as String] = "Glint bucket keys"
+            item[kSecAttrLabel as String] = "Lunetta bucket keys"
             status = SecItemAdd(item as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw KeychainError.status(status) }

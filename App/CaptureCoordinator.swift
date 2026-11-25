@@ -1,6 +1,6 @@
 import AppKit
-import GlintCapture
-import GlintCore
+import LunettaCapture
+import LunettaCore
 
 enum CaptureMode {
     case area, window, fullScreen
@@ -87,9 +87,9 @@ enum CoordinatorError: LocalizedError {
         case .clipboardFailed(let url, let reason):
             "The screenshot was saved to \(url.path), but copying it to the clipboard failed: \(reason)"
         case .microphoneDenied:
-            "Glint isn't allowed to use the microphone. Turn on Glint in System Settings > Privacy & Security > Microphone, then turn on Record Microphone again."
+            "Lunetta isn't allowed to use the microphone. Turn on Lunetta in System Settings > Privacy & Security > Microphone, then turn on Record Microphone again."
         case .microphoneDeniedForRecording:
-            "Record Microphone is on, but Glint isn't allowed to use the microphone. Turn on Glint in System Settings > Privacy & Security > Microphone, or turn off Record Microphone in the Glint menu."
+            "Record Microphone is on, but Lunetta isn't allowed to use the microphone. Turn on Lunetta in System Settings > Privacy & Security > Microphone, or turn off Record Microphone in the Lunetta menu."
         }
     }
 }
@@ -101,7 +101,7 @@ final class CaptureCoordinator {
     private let microphone: any MicrophoneAccess
     private let selector: any Selecting
     private let alerts: any AlertPresenting
-    private let settings: GlintSettings
+    private let settings: LunettaSettings
     private let now: () -> Date
     private let fileExists: (URL) -> Bool
     private let pointerLocation: @MainActor () -> CGPoint
@@ -120,7 +120,7 @@ final class CaptureCoordinator {
         microphone: any MicrophoneAccess,
         selector: any Selecting,
         alerts: any AlertPresenting,
-        settings: GlintSettings,
+        settings: LunettaSettings,
         now: @escaping () -> Date = Date.init,
         fileExists: @escaping (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
@@ -198,7 +198,7 @@ final class CaptureCoordinator {
             onRecordingChange(region)
             recordingEnd = Task { await self.awaitRecordingEnd(active, at: url) }
         } catch {
-            present(error, failure: "Glint couldn't start the recording")
+            present(error, failure: "Lunetta couldn't start the recording")
         }
     }
 
@@ -214,7 +214,7 @@ final class CaptureCoordinator {
         case .denied: false
         }
         settings.recordMicrophone = allowed
-        if !allowed { present(CoordinatorError.microphoneDenied, failure: "Glint can't record the microphone") }
+        if !allowed { present(CoordinatorError.microphoneDenied, failure: "Lunetta can't record the microphone") }
     }
 
     func stopRecording() async {
@@ -236,7 +236,7 @@ final class CaptureCoordinator {
         if fileExists(url) { onSaved(url, nil) }
         guard let failure else { return }
         let stoppedEarly = if case .recordingStoppedEarly = failure as? CaptureError { true } else { false }
-        present(failure, failure: stoppedEarly ? "Glint's recording stopped early" : "Glint couldn't finish the recording")
+        present(failure, failure: stoppedEarly ? "Lunetta's recording stopped early" : "Lunetta couldn't finish the recording")
     }
 
     private func selectRecordingTarget(_ mode: RecordingMode) async throws -> (RecordingTarget, region: CGRect)? {
@@ -279,7 +279,7 @@ final class CaptureCoordinator {
     private func deliver(_ image: CGImage) async throws {
         let url = nextFileURL(ext: "png")
         let maxScale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
-        let maxThumbnailPixels = GlintSettings.thumbnailWidthRange.upperBound * maxScale
+        let maxThumbnailPixels = LunettaSettings.thumbnailWidthRange.upperBound * maxScale
         let writePNG = writePNG
         let (pngData, thumbnail) = try await Task.detached(priority: .userInitiated) {
             let data = try await writePNG(image, url)
@@ -354,7 +354,7 @@ final class CaptureCoordinator {
         return image
     }
 
-    private func present(_ error: any Error, failure: String = "Glint couldn't take the screenshot") {
+    private func present(_ error: any Error, failure: String = "Lunetta couldn't take the screenshot") {
         let needsPermission = (error as? CaptureError) == .permissionDenied
         let needsMicrophone = switch error as? CoordinatorError {
         case .microphoneDenied, .microphoneDeniedForRecording: true
@@ -362,15 +362,15 @@ final class CaptureCoordinator {
         }
         let savedButNotCopied = if case .clipboardFailed = error as? CoordinatorError { true } else { false }
         let alert = CaptureAlert(
-            title: savedButNotCopied ? "Glint saved the screenshot but couldn't copy it" : failure,
+            title: savedButNotCopied ? "Lunetta saved the screenshot but couldn't copy it" : failure,
             message: error.localizedDescription,
             buttons: needsPermission ? [.openSystemSettings, .ok] : needsMicrophone ? [.openMicrophoneSettings, .ok] : [.ok]
         )
         let choice = alerts.present(alert)
         if choice == .openMicrophoneSettings { microphone.openSettings() }
         guard choice == .openSystemSettings else { return }
-        // CGPreflightScreenCaptureAccess never registers Glint with TCC; without this request
-        // Glint is missing from the Screen Recording list and the user has to add it by hand.
+        // CGPreflightScreenCaptureAccess never registers Lunetta with TCC; without this request
+        // Lunetta is missing from the Screen Recording list and the user has to add it by hand.
         _ = CapturePermission.request()
         CapturePermission.openSettings()
     }

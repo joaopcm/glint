@@ -1,13 +1,13 @@
 import XCTest
 
-final class PickerPromptUITests: GlintUITestCase {
+final class PickerPromptUITests: LunettaUITestCase {
     override var pickerPromptExplained: Bool { false }
 
-    /// Cleared in Glint's own defaults instead of passing `-pickerPromptExplained NO`: the argument domain would hide the
-    /// `YES` Glint writes after the first capture, and the second capture would explain again (run 45510454936).
+    /// Cleared in Lunetta's own defaults instead of passing `-pickerPromptExplained NO`: the argument domain would hide the
+    /// `YES` Lunetta writes after the first capture, and the second capture would explain again (run 45510454936).
     override func setUpWithError() throws {
-        CFPreferencesSetAppValue("pickerPromptExplained" as CFString, nil, Self.glintBundleID as CFString)
-        CFPreferencesAppSynchronize(Self.glintBundleID as CFString)
+        CFPreferencesSetAppValue("pickerPromptExplained" as CFString, nil, Self.lunettaBundleID as CFString)
+        CFPreferencesAppSynchronize(Self.lunettaBundleID as CFString)
         try super.setUpWithError()
     }
 
@@ -29,7 +29,7 @@ final class PickerPromptUITests: GlintUITestCase {
             screenshot.lifetime = .keepAlways
             add(screenshot)
         } else {
-            XCTAssertFalse(toast.exists, "macOS \(major) isn't measured to show the prompt, yet Glint explained it")
+            XCTAssertFalse(toast.exists, "macOS \(major) isn't measured to show the prompt, yet Lunetta explained it")
         }
         point(onOverlayAt: CGVector(dx: 100, dy: 100)).press(forDuration: 0.1, thenDragTo: point(onOverlayAt: CGVector(dx: 200, dy: 200)))
         waitForPNGs(count: 1, after: .area)

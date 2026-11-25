@@ -1,5 +1,5 @@
 import AppKit
-import GlintCapture
+import LunettaCapture
 
 enum TextCaptureOutcome: Equatable {
     case copied(lineCount: Int)
@@ -48,7 +48,7 @@ final class TextCapture {
             onOutcome(outcome)
             return outcome
         } catch {
-            _ = alerts.present(CaptureAlert(title: "Glint couldn't copy the text", message: error.localizedDescription, buttons: [.ok]))
+            _ = alerts.present(CaptureAlert(title: "Lunetta couldn't copy the text", message: error.localizedDescription, buttons: [.ok]))
             return nil
         }
     }

@@ -1,13 +1,13 @@
 import AppKit
 import AVFoundation
-import GlintCore
-import GlintEditor
+import LunettaCore
+import LunettaEditor
 import ImageIO
 import os
 import QuartzCore
 import UniformTypeIdentifiers
 
-/// Quick-access overlay. Never appears in captures: ScreenCapturer excludes Glint's own windows.
+/// Quick-access overlay. Never appears in captures: ScreenCapturer excludes Lunetta's own windows.
 @MainActor
 final class ThumbnailPresenter {
     static func size(width: CGFloat) -> CGSize {
@@ -37,7 +37,7 @@ final class ThumbnailPresenter {
         frame.offsetBy(dx: edge == .right ? screen.maxX - frame.minX : screen.minX - frame.maxX, dy: 0)
     }
 
-    private let settings: GlintSettings
+    private let settings: LunettaSettings
     private var items: [ThumbnailItem] = [] // newest first
     private var pinned: [NSPanel] = []
     private var editors: [URL: AnnotationEditor] = [:]
@@ -59,7 +59,7 @@ final class ThumbnailPresenter {
 
     // ponytail: fixed 6 s when auto-hide is on; make the delay a setting if someone asks.
     init(
-        settings: GlintSettings,
+        settings: LunettaSettings,
         upload: @escaping @MainActor (URL) async throws -> UploadedCapture,
         onUploaded: @escaping @MainActor (UploadedCapture) -> Void,
         autoDismissDelay: Duration = .seconds(6),
@@ -114,7 +114,7 @@ final class ThumbnailPresenter {
             do {
                 show(url, thumbnail: try await ThumbnailItem.videoThumbnail(of: url, on: screen), on: screen)
             } catch {
-                Logger(subsystem: "com.joaopcm.glint", category: "thumbnail")
+                Logger(subsystem: "com.joaopcm.lunetta", category: "thumbnail")
                     .error("no thumbnail for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
@@ -269,7 +269,7 @@ final class ThumbnailPresenter {
             proposed = width * (1 + magnification)
             ended = done
         }
-        liveWidth = CGFloat(GlintSettings.clampWidth(Double(proposed)))
+        liveWidth = CGFloat(LunettaSettings.clampWidth(Double(proposed)))
         layout()
         guard ended else { return }
         settings.thumbnailWidth = Double(width)
@@ -321,7 +321,7 @@ final class ThumbnailPresenter {
                 }
                 remove(item)
             } catch {
-                showError("Glint couldn't copy the screenshot", error)
+                showError("Lunetta couldn't copy the screenshot", error)
             }
         case .upload:
             upload(item, closingCard: true)
@@ -394,7 +394,7 @@ final class ThumbnailPresenter {
                 onUploaded(uploaded)
             } catch {
                 item.isUploading = false
-                showError("Glint couldn't upload the screenshot", error)
+                showError("Lunetta couldn't upload the screenshot", error)
             }
             refreshHover()
         }
@@ -420,14 +420,14 @@ final class ThumbnailPresenter {
             }
             remove(item)
         } catch {
-            showError("Glint couldn't save the screenshot", error)
+            showError("Lunetta couldn't save the screenshot", error)
         }
     }
 
     private func open(_ item: ThumbnailItem) {
         NSWorkspace.shared.open(item.url, configuration: NSWorkspace.OpenConfiguration()) { [weak self] _, error in
             guard let error else { return }
-            Task { @MainActor in self?.showError("Glint couldn't open the recording", error) }
+            Task { @MainActor in self?.showError("Lunetta couldn't open the recording", error) }
         }
     }
 
@@ -449,7 +449,7 @@ final class ThumbnailPresenter {
                 }
             )
         } catch {
-            showError("Glint couldn't open the screenshot for annotation", error)
+            showError("Lunetta couldn't open the screenshot for annotation", error)
         }
     }
 
@@ -500,7 +500,7 @@ final class ThumbnailPresenter {
             isRunningModal = false
             refreshHover()
         }
-        return runWithGlintActive(body)
+        return runWithLunettaActive(body)
     }
 }
 
@@ -535,13 +535,13 @@ private final class ThumbnailItem {
         self.screen = screen
         view = ThumbnailView(url: url, thumbnail: thumbnail, isVideo: Self.isVideo(url))
         panel = NSPanel(
-            contentRect: CGRect(origin: .zero, size: ThumbnailPresenter.size(width: GlintSettings.defaultThumbnailWidth)), // layout() sets the real frame
+            contentRect: CGRect(origin: .zero, size: ThumbnailPresenter.size(width: LunettaSettings.defaultThumbnailWidth)), // layout() sets the real frame
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         panel.level = .floating
-        // NSPanel hides when its app deactivates by default; Save As / Settings activate Glint.
+        // NSPanel hides when its app deactivates by default; Save As / Settings activate Lunetta.
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hasShadow = true
@@ -572,7 +572,7 @@ private final class ThumbnailItem {
     }
 
     static func maxPixelSize(on screen: NSScreen) -> CGFloat {
-        GlintSettings.thumbnailWidthRange.upperBound * screen.backingScaleFactor
+        LunettaSettings.thumbnailWidthRange.upperBound * screen.backingScaleFactor
     }
 }
 
@@ -666,7 +666,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
         self.url = url
         self.isVideo = isVideo
         self.thumbnail = NSImage(cgImage: thumbnail, size: .zero)
-        super.init(frame: CGRect(origin: .zero, size: ThumbnailPresenter.size(width: GlintSettings.defaultThumbnailWidth)))
+        super.init(frame: CGRect(origin: .zero, size: ThumbnailPresenter.size(width: LunettaSettings.defaultThumbnailWidth)))
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
         setAccessibilityLabel("\(isVideo ? "Recording" : "Screenshot") \(url.lastPathComponent)")
@@ -706,7 +706,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
             button("pencil.tip.crop.circle", "Annotate", .annotate),
             button("pin", "Pin to Screen", .pin),
         ])
-        // AppKit shows no tooltip for an inactive app's window, and Glint is never active while a card is up (#91).
+        // AppKit shows no tooltip for an inactive app's window, and Lunetta is never active while a card is up (#91).
         for actionButton in actionButtons {
             actionButton.onHoverChange = { [weak self] button, hovered in self?.showActionLabel(for: button, hovered: hovered) }
         }
@@ -869,7 +869,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
     private var showsResizeCursor = false
 
     /// Only touches the cursor when entering or leaving a resize edge, so the frontmost app keeps its own
-    /// cursor (I-beam, etc.) everywhere else. Needs `BackgroundCursor.enable()`: Glint is never the active app.
+    /// cursor (I-beam, etc.) everywhere else. Needs `BackgroundCursor.enable()`: Lunetta is never the active app.
     private func showResizeCursor(_ position: NSCursor.FrameResizePosition?) {
         if let position {
             NSCursor.frameResize(position: position, directions: .all).set()
@@ -1035,7 +1035,7 @@ enum Glass {
     }
 }
 
-/// Lets Glint set the cursor while another app is active. Glint is a menu bar app whose panels never
+/// Lets Lunetta set the cursor while another app is active. Lunetta is a menu bar app whose panels never
 /// activate it, and macOS otherwise ignores cursor changes from inactive apps, so the resize cursor
 /// would never show. There is no public API for this.
 // ponytail: private WindowServer property (widely used by menu bar utilities), looked up at runtime so a
@@ -1065,7 +1065,7 @@ private extension NSScreen {
     }
 }
 
-/// The tracking area is `.activeAlways`: Glint is never the active app while a card is up.
+/// The tracking area is `.activeAlways`: Lunetta is never the active app while a card is up.
 private final class CardButton: NSButton {
     var onHoverChange: ((CardButton, _ hovered: Bool) -> Void)?
     private var isHovered = false {

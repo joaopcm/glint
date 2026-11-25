@@ -2,7 +2,7 @@ import AppKit
 import AVFoundation
 import XCTest
 
-final class RecordingUITests: GlintUITestCase {
+final class RecordingUITests: LunettaUITestCase {
     @MainActor func testRecordAreaThenStopFromTheMenuBarWritesAPlayableMP4OfTheSelectedSize() async throws {
         let scale = pointerScreen.backingScaleFactor
         let movie = try recordArea(movingThePointerThrough: true)
@@ -21,7 +21,7 @@ final class RecordingUITests: GlintUITestCase {
     }
 }
 
-final class SystemAudioRecordingUITests: GlintUITestCase {
+final class SystemAudioRecordingUITests: LunettaUITestCase {
     override var extraLaunchArguments: [String] { ["-recordSystemAudio", "YES"] }
 
     @MainActor func testRecordingWithSystemAudioOnHasAnAudioTrack() async throws {
@@ -31,7 +31,7 @@ final class SystemAudioRecordingUITests: GlintUITestCase {
     }
 }
 
-extension GlintUITestCase {
+extension LunettaUITestCase {
     /// Long enough for several frames: SCStream only sends a frame when the region changes, and the pointer moves through it.
     static let recordingLength: TimeInterval = 2
 

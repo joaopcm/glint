@@ -1,8 +1,8 @@
 import AppKit
-import GlintCore
+import LunettaCore
 
 /// While a recording runs: a border just outside the recorded region and a stop button in the menu bar.
-/// Both are Glint windows, which ScreenCapturer leaves out of every recording.
+/// Both are Lunetta windows, which ScreenCapturer leaves out of every recording.
 @MainActor
 final class RecordingIndicator {
     static let borderWidth: CGFloat = 2

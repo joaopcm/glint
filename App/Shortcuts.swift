@@ -10,7 +10,7 @@ extension KeyboardShortcuts.Name {
     static let recordWindow = Self("recordWindow", default: .init(.five, modifiers: [.control, .option, .command, .shift]))
 }
 
-enum GlintShortcuts {
+enum LunettaShortcuts {
     static let all: [(title: String, name: KeyboardShortcuts.Name)] = [
         ("Capture Area", .captureArea),
         ("Capture Window", .captureWindow),

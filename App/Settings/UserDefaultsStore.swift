@@ -1,5 +1,5 @@
 import Foundation
-import GlintCore
+import LunettaCore
 
 final class UserDefaultsStore: KeyValueStore {
     private let defaults: UserDefaults

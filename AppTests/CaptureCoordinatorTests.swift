@@ -1,9 +1,9 @@
 import CoreGraphics
 import Foundation
-import GlintCapture
-import GlintCore
+import LunettaCapture
+import LunettaCore
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 private let mainDisplay = DisplayInfo(id: 1, frame: CGRect(x: 0, y: 0, width: 1512, height: 982), scale: 2)
 private let leftDisplay = DisplayInfo(id: 2, frame: CGRect(x: -1920, y: -200, width: 1920, height: 1080), scale: 1)
@@ -205,7 +205,7 @@ private struct Harness {
     let folder: URL
     let alerts = FakeAlerts()
     let selector: FakeSelector
-    let settings: GlintSettings
+    let settings: LunettaSettings
     let microphone: FakeMicrophone
     let coordinator: CaptureCoordinator
 
@@ -227,12 +227,12 @@ private struct Harness {
         onSaved: @escaping @MainActor (URL) -> Void = { _ in },
         onRecordingChange: @escaping @MainActor (CGRect?) -> Void = { _ in }
     ) throws {
-        let root = FileManager.default.temporaryDirectory.appending(path: "GlintTests-\(UUID().uuidString)")
+        let root = FileManager.default.temporaryDirectory.appending(path: "LunettaTests-\(UUID().uuidString)")
         folder = createFolder ? root : root.appending(path: "missing")
         if createFolder {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
-        let settings = GlintSettings(store: MemoryStore(), defaultSaveFolder: folder)
+        let settings = LunettaSettings(store: MemoryStore(), defaultSaveFolder: folder)
         settings.copyToClipboardAfterCapture = clipboardOn ?? (copyToClipboard != nil)
         settings.uploadAfterCapture = uploadOn
         settings.freezeScreenWhileSelecting = freezeOn
@@ -278,7 +278,7 @@ private struct Harness {
     let files = try harness.savedFiles()
     #expect(files.count == 1)
     let name = try #require(files.first)
-    #expect(name.hasPrefix("Glint ") && name.contains(" at ") && name.hasSuffix(".png"))
+    #expect(name.hasPrefix("Lunetta ") && name.contains(" at ") && name.hasSuffix(".png"))
     #expect(harness.alerts.presented.isEmpty)
 }
 
@@ -458,7 +458,7 @@ private struct PasteboardLocked: LocalizedError {
     #expect(files.count == 1)
     let savedPath = harness.folder.appending(path: try #require(files.first)).path
     let alert = try #require(harness.alerts.presented.first)
-    #expect(alert.title != "Glint couldn't take the screenshot")
+    #expect(alert.title != "Lunetta couldn't take the screenshot")
     #expect(alert.message.contains(savedPath))
     #expect(alert.message.contains("the pasteboard is locked"))
     #expect(alert.buttons == [.ok])
@@ -569,7 +569,7 @@ private let recordedArea = CGRect(x: 100, y: 200, width: 300, height: 150)
     #expect(start.target == .area(recordedArea, on: mainDisplay))
     #expect(start.options == RecordingOptions(codec: .h264, systemAudio: false, microphone: false))
     #expect(start.url.deletingLastPathComponent().standardizedFileURL == harness.folder.standardizedFileURL)
-    #expect(start.url.lastPathComponent.hasPrefix("Glint ") && start.url.pathExtension == "mp4")
+    #expect(start.url.lastPathComponent.hasPrefix("Lunetta ") && start.url.pathExtension == "mp4")
     #expect(regions == [recordedArea])
     #expect(handed.isEmpty)
 
@@ -642,7 +642,7 @@ private let recordedArea = CGRect(x: 100, y: 200, width: 300, height: 150)
     let harness = try Harness(recorder: FakeRecorder(startFailure: failure), selection: .area(recordedArea), onRecordingChange: { regions.append($0) })
     await harness.coordinator.toggleRecording(.area)
     let alert = try #require(harness.alerts.presented.first)
-    #expect(alert.title == "Glint couldn't start the recording")
+    #expect(alert.title == "Lunetta couldn't start the recording")
     #expect(alert.message == failure.localizedDescription)
     #expect(regions.isEmpty)
 }
@@ -662,7 +662,7 @@ private let recordedArea = CGRect(x: 100, y: 200, width: 300, height: 150)
     #expect(handed.count == 1)
     #expect(regions.last == .some(nil))
     let alert = try #require(harness.alerts.presented.first)
-    #expect(alert.title == "Glint's recording stopped early")
+    #expect(alert.title == "Lunetta's recording stopped early")
     #expect(alert.message.contains("Failed to find any displays or windows to capture."))
 }
 
@@ -721,7 +721,7 @@ func aRefusedMicrophoneLeavesTheToggleOffAndSaysWhatToDo(status: MicrophoneStatu
     #expect(!harness.settings.recordMicrophone)
     #expect(harness.microphone.requestCount == (status == .notDetermined ? 1 : 0))
     let alert = try #require(harness.alerts.presented.first)
-    #expect(alert.title == "Glint can't record the microphone")
+    #expect(alert.title == "Lunetta can't record the microphone")
     #expect(alert.message == CoordinatorError.microphoneDenied.localizedDescription)
     #expect(alert.buttons == [.openMicrophoneSettings, .ok])
 }

@@ -2,7 +2,7 @@ import AppKit
 import XCTest
 
 /// Runs once per corner through the subclass below: the card has to leave through its own side of the screen (#92).
-class CardExitUITests: GlintUITestCase {
+class CardExitUITests: LunettaUITestCase {
     var expectedEdge: String { "right" }
 
     @MainActor func testCloseSlidesTheCardOutThroughItsOwnEdge() throws {
@@ -17,7 +17,7 @@ class CardExitUITests: GlintUITestCase {
         let closePoint = center(of: close)
 
         // XCUITest's click returns after the 200 ms exit is over (run 45611987356), so the window server is sampled from another thread.
-        let pid = try XCTUnwrap(NSRunningApplication.runningApplications(withBundleIdentifier: Self.glintBundleID).first?.processIdentifier)
+        let pid = try XCTUnwrap(NSRunningApplication.runningApplications(withBundleIdentifier: Self.lunettaBundleID).first?.processIdentifier)
         let sampler = WindowSampler(pid: pid, size: start.size)
         sampler.start()
         closePoint.click()

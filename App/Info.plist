@@ -11,19 +11,19 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Glint</string>
+	<string>Lunetta</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>GlintCommit</key>
-	<string>$(GLINT_COMMIT)</string>
+	<key>LunettaCommit</key>
+	<string>$(LUNETTA_COMMIT)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Glint records your microphone into screen recordings when Record Microphone is on.</string>
+	<string>Lunetta records your microphone into screen recordings when Record Microphone is on.</string>
 	<key>LSUIElement</key>
 	<true/>
 </dict>

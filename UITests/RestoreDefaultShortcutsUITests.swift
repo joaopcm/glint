@@ -1,8 +1,8 @@
 import AppKit
 import XCTest
 
-final class RestoreDefaultShortcutsUITests: GlintUITestCase {
-    /// Capture Area is left to Glint's own defaults instead of pinned, like `ShortcutRecorderUITests`: a pinned argument
+final class RestoreDefaultShortcutsUITests: LunettaUITestCase {
+    /// Capture Area is left to Lunetta's own defaults instead of pinned, like `ShortcutRecorderUITests`: a pinned argument
     /// would hide what Restore Defaults saves (run 45520447954).
     override var pinnedHotkeys: [Hotkey] { Hotkey.allCases.filter { $0 != .area } }
 

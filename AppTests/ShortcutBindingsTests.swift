@@ -1,6 +1,6 @@
 import KeyboardShortcuts
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 @MainActor final class FakeShortcutStore: ShortcutStore {
     var saved: [KeyboardShortcuts.Name: KeyboardShortcuts.Shortcut] = [:]
@@ -15,10 +15,10 @@ import Testing
 }
 
 @MainActor struct ShortcutBindingsTests {
-    let names = GlintShortcuts.all.map(\.name)
+    let names = LunettaShortcuts.all.map(\.name)
     let hyperKeypad1 = KeyboardShortcuts.Shortcut(.keypad1, modifiers: [.control, .option, .shift, .command])
 
-    @Test func everyGlintShortcutHasTheDocumentedDefault() {
+    @Test func everyLunettaShortcutHasTheDocumentedDefault() {
         let defaults = names.map { $0.defaultShortcut.map(ShortcutKeyPress.label) }
         #expect(defaults == ["⇧⌘2", "⌃⇧⌘2", "⇧⌘1", "⌥⇧⌘2", "⌥⇧⌘5", "⌃⌥⇧⌘5"])
     }

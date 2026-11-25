@@ -16,7 +16,7 @@ struct MainAppLoginItem: LoginItem {
 }
 
 @MainActor @Observable final class OpenAtLogin {
-    static let approvalNote = "macOS needs you to allow Glint in Login Items before it opens at login."
+    static let approvalNote = "macOS needs you to allow Lunetta in Login Items before it opens at login."
 
     private let item: any LoginItem
     private(set) var status: SMAppService.Status
@@ -40,8 +40,8 @@ struct MainAppLoginItem: LoginItem {
             }
         } catch {
             failure = on
-                ? "macOS didn't add Glint to your login items: \(error.localizedDescription)"
-                : "macOS didn't remove Glint from your login items: \(error.localizedDescription)"
+                ? "macOS didn't add Lunetta to your login items: \(error.localizedDescription)"
+                : "macOS didn't remove Lunetta from your login items: \(error.localizedDescription)"
         }
         refresh()
     }

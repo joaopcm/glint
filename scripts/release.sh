@@ -48,7 +48,7 @@ out_dir="$1"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
-entitlements="$repo_root/App/Glint.entitlements"
+entitlements="$repo_root/App/Lunetta.entitlements"
 
 version="$(plutil -extract CFBundleShortVersionString raw App/Info.plist)"
 if [[ -n "${RELEASE_TAG:-}" && "$RELEASE_TAG" != "v$version" ]]; then
@@ -57,7 +57,7 @@ if [[ -n "${RELEASE_TAG:-}" && "$RELEASE_TAG" != "v$version" ]]; then
 fi
 
 work_dir="$(mktemp -d)"
-keychain="$work_dir/glint-release.keychain-db"
+keychain="$work_dir/lunetta-release.keychain-db"
 original_keychains=()
 cleanup() {
   if [[ -f "$keychain" ]]; then
@@ -69,14 +69,14 @@ cleanup() {
 trap cleanup EXIT
 
 xcodegen generate
-xcodebuild -scheme Glint -configuration Release -destination 'platform=macOS' \
+xcodebuild -scheme Lunetta -configuration Release -destination 'platform=macOS' \
   -derivedDataPath "$work_dir/dd" -quiet \
-  CURRENT_PROJECT_VERSION="${BUILD_NUMBER:-0}" GLINT_COMMIT="$(git rev-parse --short HEAD)" build
+  CURRENT_PROJECT_VERSION="${BUILD_NUMBER:-0}" LUNETTA_COMMIT="$(git rev-parse --short HEAD)" build
 
 mkdir -p "$out_dir"
-app="$out_dir/Glint.app"
+app="$out_dir/Lunetta.app"
 rm -rf "$app"
-ditto "$work_dir/dd/Build/Products/Release/Glint.app" "$app"
+ditto "$work_dir/dd/Build/Products/Release/Lunetta.app" "$app"
 
 if [[ "$dry_run" == true ]]; then
   identity="-"
@@ -147,17 +147,17 @@ notarize() {
 }
 
 if [[ "$dry_run" == false ]]; then
-  ditto -c -k --keepParent "$app" "$work_dir/Glint.zip"
-  notarize "$work_dir/Glint.zip"
+  ditto -c -k --keepParent "$app" "$work_dir/Lunetta.zip"
+  notarize "$work_dir/Lunetta.zip"
   xcrun stapler staple "$app"
 fi
 
-dmg="$out_dir/Glint-$version.dmg"
+dmg="$out_dir/Lunetta-$version.dmg"
 rm -f "$dmg"
 mkdir "$work_dir/dmg"
-ditto "$app" "$work_dir/dmg/Glint.app"
+ditto "$app" "$work_dir/dmg/Lunetta.app"
 ln -s /Applications "$work_dir/dmg/Applications"
-hdiutil create -volname "Glint $version" -srcfolder "$work_dir/dmg" -fs HFS+ -format UDZO -ov "$dmg" >/dev/null
+hdiutil create -volname "Lunetta $version" -srcfolder "$work_dir/dmg" -fs HFS+ -format UDZO -ov "$dmg" >/dev/null
 
 if [[ "$dry_run" == false ]]; then
   sign "$dmg"
@@ -169,7 +169,7 @@ hdiutil verify "$dmg" >/dev/null
 mount_point="$work_dir/mnt"
 mkdir "$mount_point"
 hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount_point" >/dev/null
-codesign --verify --deep --strict "$mount_point/Glint.app" || { hdiutil detach "$mount_point" >/dev/null; echo "error: Glint.app inside $dmg fails codesign --verify" >&2; exit 1; }
+codesign --verify --deep --strict "$mount_point/Lunetta.app" || { hdiutil detach "$mount_point" >/dev/null; echo "error: Lunetta.app inside $dmg fails codesign --verify" >&2; exit 1; }
 hdiutil detach "$mount_point" >/dev/null
 
 if [[ "$dry_run" == false ]]; then

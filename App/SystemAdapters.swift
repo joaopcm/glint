@@ -1,7 +1,7 @@
 import AppKit
 import AVFoundation
-import GlintCapture
-import GlintCore
+import LunettaCapture
+import LunettaCore
 
 extension ScreenCapturer: Capturing {
     @MainActor
@@ -52,14 +52,14 @@ struct NSAlertPresenter: AlertPresenting {
         for button in alert.buttons {
             panel.addButton(withTitle: button.rawValue)
         }
-        let index = runWithGlintActive { panel.runModal() }.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        let index = runWithLunettaActive { panel.runModal() }.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
         return alert.buttons.indices.contains(index) ? alert.buttons[index] : .ok
     }
 }
 
-/// Modal UI needs Glint active; hand focus back to the app the user was in afterwards.
+/// Modal UI needs Lunetta active; hand focus back to the app the user was in afterwards.
 @MainActor
-func runWithGlintActive<T>(_ body: () -> T) -> T {
+func runWithLunettaActive<T>(_ body: () -> T) -> T {
     let previousApp = NSWorkspace.shared.frontmostApplication
     NSApp.activate()
     defer {
