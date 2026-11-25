@@ -215,6 +215,7 @@ private struct Harness {
         pointer: CGPoint = .zero,
         createFolder: Bool = true,
         clipboardOn: Bool? = nil,
+        uploadOn: Bool = false,
         freezeOn: Bool = false,
         codec: VideoCodec = .h264,
         systemAudio: Bool = false,
@@ -231,6 +232,7 @@ private struct Harness {
         }
         let settings = GlintSettings(store: MemoryStore(), defaultSaveFolder: folder)
         settings.copyToClipboardAfterCapture = clipboardOn ?? (copyToClipboard != nil)
+        settings.uploadAfterCapture = uploadOn
         settings.freezeScreenWhileSelecting = freezeOn
         settings.recordingCodec = codec
         settings.recordSystemAudio = systemAudio
@@ -394,6 +396,19 @@ func permissionDeniedAlertsBeforeAnyOverlay(mode: CaptureMode) async throws {
     let harness = try Harness(
         selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)),
         clipboardOn: false,
+        copyToClipboard: { copied.append($0) }
+    )
+    await harness.coordinator.run(.area)
+    #expect(try harness.savedFiles().count == 1)
+    #expect(copied.isEmpty)
+}
+
+@MainActor @Test func uploadAfterCaptureLeavesTheClipboardForTheLink() async throws {
+    var copied: [URL] = []
+    let harness = try Harness(
+        selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)),
+        clipboardOn: true,
+        uploadOn: true,
         copyToClipboard: { copied.append($0) }
     )
     await harness.coordinator.run(.area)

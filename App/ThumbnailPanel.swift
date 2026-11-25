@@ -139,7 +139,7 @@ final class ThumbnailPresenter {
         cancelAutoDismiss() // still stacking: restart the countdown (layout() schedules it again)
         layout()
         if settings.uploadAfterCapture {
-            upload(item)
+            upload(item, closingCard: false)
         }
     }
 
@@ -324,7 +324,7 @@ final class ThumbnailPresenter {
                 showError("Glint couldn't copy the screenshot", error)
             }
         case .upload:
-            upload(item)
+            upload(item, closingCard: true)
         case .saveAs:
             saveAs(item)
         case .annotate:
@@ -381,7 +381,7 @@ final class ThumbnailPresenter {
         }
     }
 
-    private func upload(_ item: ThumbnailItem) {
+    private func upload(_ item: ThumbnailItem, closingCard: Bool) {
         guard !item.isUploading else { return }
         item.isUploading = true
         refreshHover()
@@ -389,7 +389,7 @@ final class ThumbnailPresenter {
             do {
                 let uploaded = try await uploadFile(item.url)
                 item.isUploading = false
-                remove(item)
+                if closingCard { remove(item) }
                 layout()
                 onUploaded(uploaded)
             } catch {

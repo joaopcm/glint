@@ -13,7 +13,7 @@ import Testing
     var reported: [UploadedCapture] = []
 }
 
-@MainActor @Test func uploadAfterCaptureUploadsTheNewCaptureReportsItsLinkAndClosesTheCard() async throws {
+@MainActor @Test func uploadAfterCaptureUploadsTheNewCaptureReportsItsLinkAndKeepsTheCard() async throws {
     let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     settings.uploadAfterCapture = true
     let log = UploadLog()
@@ -38,7 +38,7 @@ import Testing
 
     #expect(log.files == [png])
     #expect(log.reported == [uploaded])
-    #expect(presenter.count == 0)
+    #expect(presenter.count == 1)
 }
 
 @MainActor @Test func uploadAfterCaptureOffLeavesTheCaptureOnThisMac() async throws {
@@ -90,5 +90,7 @@ import Testing
     bucketAnswers.continuation.yield()
     var links = reported.stream.makeAsyncIterator()
     #expect(await links.next() == uploaded)
-    #expect(presenter.count == 0)
+    #expect(presenter.count == 1)
+    try await Task.sleep(for: .milliseconds(400))
+    #expect(presenter.count == 0) // the finished upload hands the card back to auto-hide
 }
