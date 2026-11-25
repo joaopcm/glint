@@ -64,6 +64,30 @@ You unzip twice: GitHub wraps every artifact in its own zip, and inside it is `G
 xattr -d com.apple.quarantine /Applications/Glint.app
 ```
 
+## Install a local build
+
+```sh
+scripts/install-local.sh
+```
+
+Builds Release from your checkout, installs it to `~/Applications/Glint.app`, and relaunches Glint if it was running. It signs with a code-signing identity named `Glint Local Dev` (override with `GLINT_SIGN_IDENTITY`), so Screen Recording and Microphone permissions survive rebuilds. `GLINT_SIGN_IDENTITY=-` signs ad-hoc instead, and the permissions reset on every install.
+
+Create the identity once. It's self-signed, trusted only for code signing on your Mac, and the keys never touch the repo:
+
+```sh
+d="$(mktemp -d)"
+/usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=Glint Local Dev" \
+  -addext "keyUsage=critical,digitalSignature" -addext "extendedKeyUsage=critical,codeSigning" \
+  -keyout "$d/key.pem" -out "$d/cert.pem"
+/usr/bin/openssl pkcs12 -export -inkey "$d/key.pem" -in "$d/cert.pem" -name "Glint Local Dev" \
+  -passout pass:glint -out "$d/id.p12"
+security import "$d/id.p12" -k ~/Library/Keychains/login.keychain-db -P glint -T /usr/bin/codesign
+security add-trusted-cert -r trustRoot -p codeSign -k ~/Library/Keychains/login.keychain-db "$d/cert.pem"
+rm -rf "$d"
+```
+
+`security find-identity -v -p codesigning` should now list `"Glint Local Dev"`.
+
 ## License
 
 MIT
