@@ -5,78 +5,94 @@ import SwiftUI
 struct UploadSettingsView: View {
     @Bindable var bucket: BucketAccess
     @State private var pastedURL = ""
+    @State private var maxContentHeight: CGFloat?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         @Bindable var settings = bucket.settings
-        Form {
-            Section {
-                HStack {
-                    TextField("Bucket URL", text: $pastedURL, prompt: Text("Paste https://my-bucket.s3.us-east-2.amazonaws.com"))
-                        .onSubmit(fillFromPastedURL)
-                    Button("Fill In", action: fillFromPastedURL)
-                        .disabled(pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                if let error = bucket.bucketURLError {
-                    Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled)
-                }
-                LabeledContent("Provider") {
-                    Menu(bucket.provider?.name ?? "Other") {
-                        ForEach(StorageProvider.allCases, id: \.self) { provider in
-                            Button(provider.name) { bucket.apply(provider) }
-                        }
+        ScrollViewReader { scroller in
+            Form {
+                Section {
+                    HStack {
+                        TextField("Bucket URL", text: $pastedURL, prompt: Text("Paste https://my-bucket.s3.us-east-2.amazonaws.com"))
+                            .onSubmit(fillFromPastedURL)
+                        Button("Fill In", action: fillFromPastedURL)
+                            .disabled(pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    .fixedSize()
-                    .help("Fill in the endpoint, region and path style this provider uses. Bucket and key prefix stay as they are.")
-                }
-                TextField("Endpoint URL", text: $settings.bucketEndpoint, prompt: Text("https://s3.us-east-1.amazonaws.com"))
-                TextField("Region", text: $settings.bucketRegion, prompt: Text("us-east-1"))
-                TextField("Bucket", text: $settings.bucketName)
-                Toggle("Path-style URLs", isOn: $settings.bucketPathStyle)
-                    .help("Put the bucket in the path (endpoint/bucket/key) instead of the host. MinIO needs this.")
-                TextField("Key prefix", text: $settings.bucketKeyPrefix, prompt: Text("shots"))
-                TextField("Public base URL", text: $settings.bucketPublicBaseURL, prompt: Text("https://shots.example.com"))
-            }
-            Section {
-                TextField("Access key ID", text: $bucket.accessKeyID)
-                SecureField("Secret access key", text: $bucket.secretAccessKey)
-                if let error = bucket.credentialError {
-                    Text(error).foregroundStyle(.red).textSelection(.enabled)
-                }
-                if bucket.provider == .aws {
-                    uploadPolicy(settings)
-                }
-            } footer: {
-                Text("The keys are stored in your Keychain.")
-            }
-            Section {
-                Toggle("Upload after capture", isOn: $settings.uploadAfterCapture)
-                    .help("Upload every new capture and copy its link, as if you clicked Upload on its thumbnail.")
-            }
-            Section {
-                HStack {
-                    Button("Test Connection") { Task { await bucket.testConnection() } }
-                        .disabled(bucket.connectionTest.isRunning || bucket.makePublic == .running)
-                        .accessibilityIdentifier(AccessibilityID.testConnection)
-                    Spacer()
-                    if let result = bucket.connectionTest.result {
-                        CopyButton(title: "Copy Details", text: result.log)
-                            .disabled(!result.isFinished)
+                    if let error = bucket.bucketURLError {
+                        Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled)
                     }
-                }
-                if let result = bucket.connectionTest.result {
-                    ForEach(result.steps) { step in
-                        ConnectionStepRow(step: step) {
-                            if step.id == .publicLink, let check = result.publicLink {
-                                PublicLinkFix(bucket: bucket, check: check)
+                    LabeledContent("Provider") {
+                        Menu(bucket.provider?.name ?? "Other") {
+                            ForEach(StorageProvider.allCases, id: \.self) { provider in
+                                Button(provider.name) { bucket.apply(provider) }
                             }
                         }
+                        .fixedSize()
+                        .help("Fill in the endpoint, region and path style this provider uses. Bucket and key prefix stay as they are.")
                     }
+                    TextField("Endpoint URL", text: $settings.bucketEndpoint, prompt: Text("https://s3.us-east-1.amazonaws.com"))
+                    TextField("Region", text: $settings.bucketRegion, prompt: Text("us-east-1"))
+                    TextField("Bucket", text: $settings.bucketName)
+                    Toggle("Path-style URLs", isOn: $settings.bucketPathStyle)
+                        .help("Put the bucket in the path (endpoint/bucket/key) instead of the host. MinIO needs this.")
+                    TextField("Key prefix", text: $settings.bucketKeyPrefix, prompt: Text("shots"))
+                    TextField("Public base URL", text: $settings.bucketPublicBaseURL, prompt: Text("https://shots.example.com"))
+                }
+                Section {
+                    TextField("Access key ID", text: $bucket.accessKeyID)
+                    SecureField("Secret access key", text: $bucket.secretAccessKey)
+                    if let error = bucket.credentialError {
+                        Text(error).foregroundStyle(.red).textSelection(.enabled)
+                    }
+                    if bucket.provider == .aws {
+                        uploadPolicy(settings)
+                    }
+                } footer: {
+                    Text("The keys are stored in your Keychain.")
+                }
+                Section {
+                    Toggle("Upload after capture", isOn: $settings.uploadAfterCapture)
+                        .help("Upload every new capture and copy its link, as if you clicked Upload on its thumbnail.")
+                }
+                Section {
+                    HStack {
+                        Button("Test Connection") { Task { await bucket.testConnection() } }
+                            .disabled(bucket.connectionTest.isRunning || bucket.makePublic == .running)
+                            .accessibilityIdentifier(AccessibilityID.testConnection)
+                        Spacer()
+                        if let result = bucket.connectionTest.result {
+                            CopyButton(title: "Copy Details", text: result.log)
+                                .disabled(!result.isFinished)
+                        }
+                    }
+                    if let result = bucket.connectionTest.result {
+                        ForEach(result.steps) { step in
+                            ConnectionStepRow(step: step) {
+                                if step.id == .publicLink, let check = result.publicLink {
+                                    PublicLinkFix(bucket: bucket, check: check)
+                                }
+                            }
+                            .id(step.id)
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .frame(width: 480)
+            .modifier(CapHeight(maxHeight: maxContentHeight))
+            .background(WindowContentHeightReader(maxContentHeight: $maxContentHeight))
+            .onChange(of: bucket.connectionTest.isRunning) { _, isRunning in
+                guard let result = bucket.connectionTest.result else { return }
+                let target = isRunning
+                    ? result.steps.last
+                    : result.steps.first { $0.status == .failed } ?? result.steps.first { $0.status == .warning }
+                guard let target else { return }
+                withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) {
+                    scroller.scrollTo(target.id, anchor: .bottom)
                 }
             }
         }
-        .formStyle(.grouped)
-        .frame(width: 480)
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func fillFromPastedURL() {
@@ -100,6 +116,60 @@ struct UploadSettingsView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
+        }
+    }
+}
+
+// Sized to its content, the tab grew past the bottom of the 1024x768 CI screen once the checklist showed (connection rows
+// at y 738-786, run 45635710585), and would on a small laptop display too. Past the screen's visible height it scrolls.
+private struct CapHeight: ViewModifier {
+    let maxHeight: CGFloat?
+
+    func body(content: Content) -> some View {
+        CappedHeightLayout(maxHeight: maxHeight) { content }
+    }
+}
+
+private struct CappedHeightLayout: Layout {
+    let maxHeight: CGFloat?
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let ideal = subviews.first?.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) ?? .zero
+        return CGSize(width: ideal.width, height: min(ideal.height, maxHeight ?? .infinity))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
+    }
+}
+
+private struct WindowContentHeightReader: NSViewRepresentable {
+    @Binding var maxContentHeight: CGFloat?
+
+    func makeNSView(context: Context) -> NSView { WindowObservingView(onWindow: report) }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private func report(_ window: NSWindow) {
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        let chrome = window.frame.height - window.contentLayoutRect.height
+        let height = screen.visibleFrame.height - chrome
+        if maxContentHeight != height { maxContentHeight = height }
+    }
+
+    final class WindowObservingView: NSView {
+        let onWindow: (NSWindow) -> Void
+
+        init(onWindow: @escaping (NSWindow) -> Void) {
+            self.onWindow = onWindow
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            DispatchQueue.main.async { [onWindow] in onWindow(window) }
         }
     }
 }

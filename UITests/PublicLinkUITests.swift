@@ -72,13 +72,8 @@ final class PublicLinkUITests: GlintUITestCase {
         XCTAssertTrue(hint.exists, "the warning row isn't expanded with the MinIO hint")
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: AccessibilityID.makeLinksPublic).firstMatch.exists, "Make Links Public shows for a non-AWS endpoint")
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "title == %@ OR label == %@", "Copy Details", "Copy Details")).firstMatch.exists, "no Copy Details button")
-
-        // Both expanded rows outgrow the 1024x768 CI screen under the pinned Settings window (settingsWindowFrame),
-        // so fold the warning to bring the failed row's fix on screen.
-        step("publicLink").click()
-        let folded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: hint)
-        XCTAssertEqual(XCTWaiter.wait(for: [folded], timeout: Self.captureTimeout), .completed, "clicking the warning row didn't fold it")
-        XCTAssertTrue(deleteFix.exists, "folding the warning row folded the failed one too")
+        let onScreen = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: deleteFix)
+        XCTAssertEqual(XCTWaiter.wait(for: [onScreen], timeout: Self.captureTimeout), .completed, "the failed row's fix never scrolled on screen")
         keepScreenshot(named: "connection checklist")
 
         let requests = server.requests.map { "\($0.method) \($0.path) signed=\($0.headers["authorization"] != nil)" }
