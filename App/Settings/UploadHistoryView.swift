@@ -24,7 +24,8 @@ struct UploadHistoryView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 480, height: 360)
+        .frame(width: 480)
+        .frame(idealHeight: 360)
     }
 
     private func row(_ record: UploadRecord) -> some View {

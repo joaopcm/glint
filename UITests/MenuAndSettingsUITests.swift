@@ -2,7 +2,10 @@ import AppKit
 import XCTest
 
 final class MenuAndSettingsUITests: GlintUITestCase {
-    override var extraLaunchArguments: [String] { ["-bucketEndpoint", "not-a-url"] }
+    /// Saved low on the 1024x768 screen, bottom at y 150 and top at y 450: a taller tab grows the window down from its top.
+    override var extraLaunchArguments: [String] {
+        ["-bucketEndpoint", "not-a-url", "-NSWindow Frame com_apple_SwiftUI_Settings_window", "272 150 480 300 0 0 1024 768 "]
+    }
 
     @MainActor func testMenuShowsCaptureItemsSettingsVersionAndQuit() {
         let menu = openMenu()
@@ -47,6 +50,19 @@ final class MenuAndSettingsUITests: GlintUITestCase {
         XCTAssertTrue(upload.waitForExistence(timeout: Self.captureTimeout), "Test Connection showed no upload row")
         let shown = "\(upload.value ?? "") \(upload.label)"
         XCTAssertTrue(shown.contains("failed") && shown.contains("The endpoint URL not-a-url isn't an http:// or https:// URL with a host."), "upload row reads: \(shown)")
+    }
+
+    /// #104: switching tabs grew Settings off the bottom of the screen; Test Connection sat at y 751 in run 45616804705.
+    @MainActor func testSettingsStaysOnScreenWhenATallerTabOpens() {
+        openSettingsTab("General")
+        let uploadTab = app.buttons.matching(NSPredicate(format: "title == %@ OR label == %@", "Upload", "Upload")).firstMatch
+        uploadTab.click()
+        let testConnection = app.descendants(matching: .any).matching(identifier: AccessibilityID.testConnection).firstMatch
+        XCTAssertTrue(testConnection.waitForExistence(timeout: Self.captureTimeout), "the Upload tab has no Test Connection button")
+        let screen = NSScreen.main!
+        let dockTop = screen.frame.height - screen.visibleFrame.minY
+        XCTAssertTrue(testConnection.isHittable, "Test Connection is not clickable at \(testConnection.frame)")
+        XCTAssertLessThanOrEqual(testConnection.frame.maxY, dockTop, "Test Connection ends at y \(testConnection.frame.maxY), under the Dock's top at y \(dockTop)")
     }
 
     /// Settings reopens on whichever tab an earlier test left it on, so look for the tab bar, not one tab's content.
