@@ -2,12 +2,12 @@ import AppKit
 import XCTest
 
 final class RestoreDefaultShortcutsUITests: GlintUITestCase {
-    /// Capture Area is cleared in Glint's own defaults instead of pinned, like `ShortcutRecorderUITests`: a pinned argument
+    /// Capture Area is left to Glint's own defaults instead of pinned, like `ShortcutRecorderUITests`: a pinned argument
     /// would hide what Restore Defaults saves (run 45520447954).
     override var pinnedHotkeys: [Hotkey] { Hotkey.allCases.filter { $0 != .area } }
 
     override func setUpWithError() throws {
-        CFPreferencesSetAppValue("KeyboardShortcuts_captureArea" as CFString, kCFBooleanFalse, Self.glintBundleID as CFString)
+        CFPreferencesSetAppValue("KeyboardShortcuts_captureArea" as CFString, nil, Self.glintBundleID as CFString)
         CFPreferencesAppSynchronize(Self.glintBundleID as CFString)
         try super.setUpWithError()
     }
@@ -22,12 +22,18 @@ final class RestoreDefaultShortcutsUITests: GlintUITestCase {
         XCTAssertTrue(generalTab.waitForExistence(timeout: Self.captureTimeout), "Settings has no General tab")
         generalTab.click()
 
+        let clear = app.buttons["Clear Capture Area shortcut"]
+        XCTAssertTrue(clear.waitForExistence(timeout: Self.captureTimeout), "the Capture Area recorder has no clear button")
+        clear.click()
+        let cleared = recorder(showing: "Record Shortcut")
+        XCTAssertTrue(cleared.waitForExistence(timeout: Self.captureTimeout), "clearing Capture Area did not leave its recorder showing Record Shortcut")
+
         let restore = app.descendants(matching: .any).matching(identifier: AccessibilityID.restoreDefaultShortcuts).firstMatch
         XCTAssertTrue(restore.waitForExistence(timeout: Self.captureTimeout), "Settings has no Restore Defaults button")
-        XCTAssertFalse(recorder(showing: "⇧⌘2").exists, "Capture Area should start cleared")
         restore.click()
 
-        XCTAssertTrue(recorder(showing: "⇧⌘2").waitForExistence(timeout: Self.captureTimeout), "Restore Defaults did not bring back ⇧⌘2")
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: cleared)
+        XCTAssertEqual(XCTWaiter.wait(for: [restored], timeout: Self.captureTimeout), .completed, "Restore Defaults left Capture Area cleared")
         app.typeKey("w", modifierFlags: .command)
 
         press(.area)
