@@ -39,6 +39,7 @@ class GlintUITestCase: XCTestCase {
     var extraLaunchArguments: [String] { [] }
     var pickerPromptExplained: Bool { true }
     var extraLaunchEnvironment: [String: String] { [:] }
+    var pinnedHotkeys: [Hotkey] { Hotkey.allCases }
 
     @MainActor private(set) var app: XCUIApplication!
     @MainActor private(set) var finder: XCUIApplication!
@@ -93,7 +94,7 @@ class GlintUITestCase: XCTestCase {
     /// The installed Glint shares the `com.joaopcm.glint` defaults, so a rebound shortcut there would make every hotkey miss.
     /// The argument domain wins over those defaults; the quotes keep the JSON a plist string.
     private var defaultShortcutArguments: [String] {
-        Hotkey.allCases.flatMap { hotkey in
+        pinnedHotkeys.flatMap { hotkey in
             let shortcut = hotkey.shortcut
             return ["-KeyboardShortcuts_\(shortcut.name)", #""{\"carbonKeyCode\":\#(shortcut.key),\"carbonModifiers\":\#(shortcut.carbonModifiers)}""#]
         }
@@ -116,7 +117,7 @@ class GlintUITestCase: XCTestCase {
         postKey(kVK_Escape)
     }
 
-    private func postKey(_ key: Int, flags: CGEventFlags = []) {
+    func postKey(_ key: Int, flags: CGEventFlags = []) {
         for isDown in [true, false] {
             let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(key), keyDown: isDown)!
             event.flags = flags
