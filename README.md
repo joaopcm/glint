@@ -88,6 +88,30 @@ rm -rf "$d"
 
 `security find-identity -v -p codesigning` should now list `"Glint Local Dev"`.
 
+## Release
+
+Pushing a `v*` tag runs the `release` workflow: it builds Release, signs with Developer ID, notarizes and staples the app and a DMG, checks them with `spctl -a -vv` and `stapler validate`, and publishes `Glint-<version>.dmg` to GitHub Releases with the notes in `.github/release-notes.md`. Running it by hand from the Actions tab does the same but uploads the DMG as an artifact instead of publishing. The tag has to match `CFBundleShortVersionString` in `App/Info.plist`, so bump that first.
+
+Check the build and the DMG without any secrets:
+
+```sh
+scripts/release.sh --dry-run dist
+```
+
+It signs ad-hoc and skips notarization, but checks everything else: nested code signed inside out, hardened runtime on, `get-task-allow` gone (notarization rejects it, and Xcode's ad-hoc Release builds carry it), and the app inside the DMG still verifies. PRs that touch the release files run it in the `release-dry-run` workflow.
+
+The workflow stops before building if any of these repo secrets is missing, and names each one. They all need a paid Apple Developer Program membership:
+
+| Secret | How to get it |
+| --- | --- |
+| `DEVELOPER_ID_P12_BASE64` | In Xcode > Settings > Accounts > Manage Certificates, add a "Developer ID Application" certificate. In Keychain Access, export it with its private key as a `.p12`, then `base64 -i cert.p12 \| gh secret set DEVELOPER_ID_P12_BASE64` |
+| `DEVELOPER_ID_P12_PASSWORD` | The password you set on that export: `gh secret set DEVELOPER_ID_P12_PASSWORD` |
+| `NOTARY_API_KEY_P8_BASE64` | In App Store Connect > Users and Access > Integrations > App Store Connect API, create a team key with the Developer role and download `AuthKey_<id>.p8` (only downloadable once), then `base64 -i AuthKey_<id>.p8 \| gh secret set NOTARY_API_KEY_P8_BASE64` |
+| `NOTARY_API_KEY_ID` | The Key ID next to that key |
+| `NOTARY_API_ISSUER_ID` | The Issuer ID above the keys list |
+
+Moving from the dev certificate to Developer ID changes Glint's designated requirement, so everyone grants Screen Recording (and Microphone) once more after installing the first release. The release notes say so.
+
 ## License
 
 MIT
