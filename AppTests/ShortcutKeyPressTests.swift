@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import KeyboardShortcuts
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 @MainActor struct ShortcutKeyPressTests {
     let hyper: NSEvent.ModifierFlags = [.control, .option, .shift, .command]
@@ -39,7 +39,7 @@ import Testing
         #expect(interpret(kVK_F5, [.function]) == .record(.init(.f5)))
     }
 
-    @Test func aShortcutAnotherGlintActionUsesIsRejectedByName() {
+    @Test func aShortcutAnotherLunettaActionUsesIsRejectedByName() {
         #expect(interpret(kVK_ANSI_2, [.command, .shift], usedBy: "Capture Area") == .reject("⇧⌘2 is already the Capture Area shortcut."))
     }
 }

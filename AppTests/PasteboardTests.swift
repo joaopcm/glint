@@ -1,11 +1,11 @@
 import AppKit
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 @MainActor @Test func copyPNGFilePutsFileURLAndPNGOnThePasteboard() throws {
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 30, pixelsHigh: 20, bitsPerSample: 8, samplesPerPixel: 4,
                                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-    let url = FileManager.default.temporaryDirectory.appending(path: "glint-pasteboard-\(UUID().uuidString).png")
+    let url = FileManager.default.temporaryDirectory.appending(path: "lunetta-pasteboard-\(UUID().uuidString).png")
     let png = try #require(rep.representation(using: .png, properties: [:]))
     try png.write(to: url)
     defer { try? FileManager.default.removeItem(at: url) }
@@ -19,7 +19,7 @@ import Testing
 }
 
 @MainActor @Test func copyPNGDataPutsFileURLAndPNGOnThePasteboardWithoutReadingDisk() throws {
-    let url = FileManager.default.temporaryDirectory.appending(path: "glint-pasteboard-missing-\(UUID().uuidString).png")
+    let url = FileManager.default.temporaryDirectory.appending(path: "lunetta-pasteboard-missing-\(UUID().uuidString).png")
     let png = Data([0x89, 0x50, 0x4e, 0x47])
     let pasteboard = NSPasteboard.withUniqueName()
     defer { pasteboard.releaseGlobally() }

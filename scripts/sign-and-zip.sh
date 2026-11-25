@@ -8,7 +8,7 @@ fi
 
 app_path="$1"
 out_zip="$2"
-entitlements="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/App/Glint.entitlements"
+entitlements="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/App/Lunetta.entitlements"
 
 for var in DEV_CERT_P12_BASE64 DEV_CERT_PASSWORD; do
   if [[ -z "${!var:-}" ]]; then
@@ -20,7 +20,7 @@ done
 [[ -f "$entitlements" ]] || { echo "error: entitlements not found at $entitlements" >&2; exit 1; }
 
 work_dir="$(mktemp -d)"
-keychain="$work_dir/glint-signing.keychain-db"
+keychain="$work_dir/lunetta-signing.keychain-db"
 keychain_password="$(uuidgen)"
 original_keychains=()
 while IFS= read -r line; do

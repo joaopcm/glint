@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-final class PublicLinkUITests: GlintUITestCase {
+final class PublicLinkUITests: LunettaUITestCase {
     private var server: StubS3Server!
 
     override var extraLaunchArguments: [String] {
@@ -17,8 +17,8 @@ final class PublicLinkUITests: GlintUITestCase {
 
     override var extraLaunchEnvironment: [String: String] {
         [
-            "GLINT_UI_TEST_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
-            "GLINT_UI_TEST_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            "LUNETTA_UI_TEST_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+            "LUNETTA_UI_TEST_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
         ]
     }
 
@@ -34,7 +34,7 @@ final class PublicLinkUITests: GlintUITestCase {
 
     @MainActor func testTestConnectionShowsAChecklistWithTheFailedStepExpanded() {
         let statusItem = app.statusItems.firstMatch
-        XCTAssertTrue(statusItem.waitForExistence(timeout: Self.captureTimeout), "Glint's menu bar icon is missing")
+        XCTAssertTrue(statusItem.waitForExistence(timeout: Self.captureTimeout), "Lunetta's menu bar icon is missing")
         statusItem.click()
         statusItem.descendants(matching: .menuItem)["Settings…"].click()
         // The Settings toolbar tab is a button titled "Upload" whose label is sometimes empty (ui.xcresult of run 45478719380).
@@ -63,7 +63,7 @@ final class PublicLinkUITests: GlintUITestCase {
         let deleteFix = app.staticTexts.matching(NSPredicate(
             format: "value BEGINSWITH %@ AND value CONTAINS %@",
             "Add s3:DeleteObject on arn:aws:s3:::shots/uitest/* to the IAM policy of these keys.",
-            "Delete it by hand: uitest/glint-connection-test-"
+            "Delete it by hand: uitest/lunetta-connection-test-"
         )).firstMatch
         XCTAssertTrue(deleteFix.exists, "the failed delete row isn't expanded with its fix")
         let deleteError = app.staticTexts.matching(NSPredicate(format: "value == %@", "AccessDenied: Access Denied")).firstMatch
@@ -78,8 +78,8 @@ final class PublicLinkUITests: GlintUITestCase {
 
         let requests = server.requests.map { "\($0.method) \($0.path) signed=\($0.headers["authorization"] != nil)" }
         XCTAssertEqual(requests.count, 3, "\(requests)")
-        XCTAssertTrue(requests[1].hasPrefix("GET /shots/uitest/glint-connection-test-") && requests[1].hasSuffix("signed=false"), "\(requests)")
-        XCTAssertTrue(requests[2].hasPrefix("DELETE /shots/uitest/glint-connection-test-"), "\(requests)")
+        XCTAssertTrue(requests[1].hasPrefix("GET /shots/uitest/lunetta-connection-test-") && requests[1].hasSuffix("signed=false"), "\(requests)")
+        XCTAssertTrue(requests[2].hasPrefix("DELETE /shots/uitest/lunetta-connection-test-"), "\(requests)")
     }
 
     @MainActor private func step(_ id: String) -> XCUIElement {

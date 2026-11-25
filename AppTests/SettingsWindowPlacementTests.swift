@@ -1,6 +1,6 @@
 import CoreGraphics
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 private let visible = CGRect(x: 0, y: 70, width: 1024, height: 668)
 

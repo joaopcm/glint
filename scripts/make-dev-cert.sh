@@ -24,23 +24,23 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -subj "/CN=Glint Development" \
   -addext "keyUsage=critical,digitalSignature" \
   -addext "extendedKeyUsage=critical,codeSigning" \
-  -keyout "$out_dir/glint-dev.key" \
-  -out "$out_dir/glint-dev.pem"
+  -keyout "$out_dir/lunetta-dev.key" \
+  -out "$out_dir/lunetta-dev.pem"
 
 openssl pkcs12 -export -legacy \
-  -inkey "$out_dir/glint-dev.key" \
-  -in "$out_dir/glint-dev.pem" \
+  -inkey "$out_dir/lunetta-dev.key" \
+  -in "$out_dir/lunetta-dev.pem" \
   -name "Glint Development" \
   -passout "pass:$password" \
-  -out "$out_dir/glint-dev.p12"
+  -out "$out_dir/lunetta-dev.p12"
 
-base64 -w0 "$out_dir/glint-dev.p12" > "$out_dir/glint-dev.p12.base64"
-printf '%s' "$password" > "$out_dir/glint-dev.password"
+base64 -w0 "$out_dir/lunetta-dev.p12" > "$out_dir/lunetta-dev.p12.base64"
+printf '%s' "$password" > "$out_dir/lunetta-dev.password"
 
 cat <<MSG
 wrote to $out_dir:
-  glint-dev.p12, glint-dev.p12.base64, glint-dev.password (plus .key/.pem)
+  lunetta-dev.p12, lunetta-dev.p12.base64, lunetta-dev.password (plus .key/.pem)
 set the repo secrets:
-  gh secret set DEV_CERT_P12_BASE64 < $out_dir/glint-dev.p12.base64
-  gh secret set DEV_CERT_PASSWORD < $out_dir/glint-dev.password
+  gh secret set DEV_CERT_P12_BASE64 < $out_dir/lunetta-dev.p12.base64
+  gh secret set DEV_CERT_PASSWORD < $out_dir/lunetta-dev.password
 MSG

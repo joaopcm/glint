@@ -1,4 +1,4 @@
-name: Glint
+name: Lunetta
 options:
   deploymentTarget:
     macOS: "15.0"
@@ -6,76 +6,76 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
 packages:
-  GlintCore:
-    path: Packages/GlintCore
-  GlintCapture:
-    path: Packages/GlintCapture
-  GlintEditor:
-    path: Packages/GlintEditor
+  LunettaCore:
+    path: Packages/LunettaCore
+  LunettaCapture:
+    path: Packages/LunettaCapture
+  LunettaEditor:
+    path: Packages/LunettaEditor
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     exactVersion: 2.4.0
 targets:
-  Glint:
+  Lunetta:
     type: application
     platform: macOS
     sources: [App]
     entitlements:
-      path: App/Glint.entitlements
+      path: App/Lunetta.entitlements
       # xcodegen writes this file from `properties`; without them it rewrites it empty (#84).
       properties:
         com.apple.security.device.audio-input: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.glint
+        PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.lunetta
         INFOPLIST_FILE: App/Info.plist
         CURRENT_PROJECT_VERSION: "0"
-        GLINT_COMMIT: dev
+        LUNETTA_COMMIT: dev
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual
     dependencies:
-      - package: GlintCore
-      - package: GlintCapture
-      - package: GlintEditor
+      - package: LunettaCore
+      - package: LunettaCapture
+      - package: LunettaEditor
       - package: KeyboardShortcuts
-  GlintTests:
+  LunettaTests:
     type: bundle.unit-test
     platform: macOS
     sources: [AppTests]
     dependencies:
-      - target: Glint
+      - target: Lunetta
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.glint.tests
-  GlintUITests:
+        PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.lunetta.tests
+  LunettaUITests:
     type: bundle.ui-testing
     platform: macOS
-    sources: [UITests, App/AccessibilityID.swift, App/ThumbnailPile.swift, Packages/GlintCore/Sources/GlintCore/Permissions/PickerPromptNotice.swift]
+    sources: [UITests, App/AccessibilityID.swift, App/ThumbnailPile.swift, Packages/LunettaCore/Sources/LunettaCore/Permissions/PickerPromptNotice.swift]
     dependencies:
-      - target: Glint
+      - target: Lunetta
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.glint.uitests
-        TEST_TARGET_NAME: Glint
+        PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.lunetta.uitests
+        TEST_TARGET_NAME: Lunetta
         SWIFT_VERSION: "5.0"
         ENABLE_APP_SANDBOX: NO
-        CODE_SIGN_ENTITLEMENTS: UITests/GlintUITests.entitlements
+        CODE_SIGN_ENTITLEMENTS: UITests/LunettaUITests.entitlements
 schemes:
-  Glint:
+  Lunetta:
     build:
       targets:
-        Glint: all
+        Lunetta: all
     test:
       targets:
-        - GlintTests
-        - package: GlintEditor/GlintEditorTests
-  GlintUI:
+        - LunettaTests
+        - package: LunettaEditor/LunettaEditorTests
+  LunettaUI:
     build:
       targets:
-        Glint: all
-        GlintUITests: [test]
+        Lunetta: all
+        LunettaUITests: [test]
     test:
-      targets: [GlintUITests]
+      targets: [LunettaUITests]

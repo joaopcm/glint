@@ -1,5 +1,5 @@
 import Foundation
-import GlintCore
+import LunettaCore
 
 struct URLSessionS3Transport: S3Transport {
     private let session: URLSession

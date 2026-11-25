@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-final class MenuAndSettingsUITests: GlintUITestCase {
+final class MenuAndSettingsUITests: LunettaUITestCase {
     /// Saved low on the 1024x768 screen, bottom at y 150 and top at y 450: a taller tab grows the window down from its top.
     override var extraLaunchArguments: [String] {
         ["-bucketEndpoint", "not-a-url", "-NSWindow Frame com_apple_SwiftUI_Settings_window", "272 150 480 300 0 0 1024 768 "]
@@ -9,13 +9,13 @@ final class MenuAndSettingsUITests: GlintUITestCase {
 
     @MainActor func testMenuShowsCaptureItemsSettingsVersionAndQuit() {
         let menu = openMenu()
-        for title in ["Capture Area", "Capture Window", "Capture Full Screen", "Capture Text", "Record Area", "Record Window", "Record System Audio", "Record Microphone", "Settings…", "Quit Glint"] {
+        for title in ["Capture Area", "Capture Window", "Capture Full Screen", "Capture Text", "Record Area", "Record Window", "Record System Audio", "Record Microphone", "Settings…", "Quit Lunetta"] {
             let item = menu.descendants(matching: .menuItem)[title]
             XCTAssertTrue(item.waitForExistence(timeout: Self.captureTimeout), "menu has no \"\(title)\"")
             XCTAssertTrue(item.isEnabled, "\"\(title)\" is disabled")
         }
-        let version = menu.descendants(matching: .menuItem).matching(NSPredicate(format: "title MATCHES %@", #"^Glint \S+ \(\S+\) \S+$"#)).firstMatch
-        XCTAssertTrue(version.exists, "menu has no \"Glint <version> (<build>) <commit>\" line")
+        let version = menu.descendants(matching: .menuItem).matching(NSPredicate(format: "title MATCHES %@", #"^Lunetta \S+ \(\S+\) \S+$"#)).firstMatch
+        XCTAssertTrue(version.exists, "menu has no \"Lunetta <version> (<build>) <commit>\" line")
         XCTAssertFalse(version.isEnabled, "the version line should be greyed out")
         app.typeKey(.escape, modifierFlags: [])
     }
@@ -24,7 +24,7 @@ final class MenuAndSettingsUITests: GlintUITestCase {
         for attempt in 1...2 {
             openMenu().descendants(matching: .menuItem)["Settings…"].click()
             XCTAssertTrue(settingsWindowContent.waitForExistence(timeout: Self.captureTimeout), "Settings did not open (attempt \(attempt))")
-            XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.bundleIdentifier, Self.glintBundleID, "Settings is not in front (attempt \(attempt))")
+            XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.bundleIdentifier, Self.lunettaBundleID, "Settings is not in front (attempt \(attempt))")
             app.typeKey("w", modifierFlags: .command)
             XCTAssertTrue(waitForNonExistence(settingsWindowContent), "Settings did not close (attempt \(attempt))")
         }
@@ -73,7 +73,7 @@ final class MenuAndSettingsUITests: GlintUITestCase {
     /// SwiftUI also lists these items in the app's own menus, so look them up under the menu bar icon only.
     @MainActor private func openMenu() -> XCUIElement {
         let statusItem = app.statusItems.firstMatch
-        XCTAssertTrue(statusItem.waitForExistence(timeout: Self.captureTimeout), "Glint's menu bar icon is missing")
+        XCTAssertTrue(statusItem.waitForExistence(timeout: Self.captureTimeout), "Lunetta's menu bar icon is missing")
         statusItem.click()
         return statusItem
     }

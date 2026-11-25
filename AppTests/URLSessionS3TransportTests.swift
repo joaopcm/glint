@@ -1,7 +1,7 @@
 import Foundation
-import GlintCore
+import LunettaCore
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 final class StubURLProtocol: URLProtocol {
     nonisolated(unsafe) static var respond: (URLRequest) -> Result<(Int, Data), URLError> = { _ in .failure(URLError(.unknown)) }
@@ -68,9 +68,9 @@ private let putRequest = S3HTTPRequest(
 
     @MainActor @Test func connectionTestShowsTheProviderErrorFromTheWire() async throws {
         StubURLProtocol.respond = { _ in .success((403, Data("<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>".utf8))) }
-        let suite = "GlintTests-\(UUID().uuidString)"
+        let suite = "LunettaTests-\(UUID().uuidString)"
         defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let settings = GlintSettings(store: UserDefaultsStore(defaults: try #require(UserDefaults(suiteName: suite))), defaultSaveFolder: FileManager.default.temporaryDirectory)
+        let settings = LunettaSettings(store: UserDefaultsStore(defaults: try #require(UserDefaults(suiteName: suite))), defaultSaveFolder: FileManager.default.temporaryDirectory)
         settings.bucketEndpoint = "https://s3.us-east-1.amazonaws.com"
         settings.bucketRegion = "us-east-1"
         settings.bucketName = "shots"
@@ -85,7 +85,7 @@ private let putRequest = S3HTTPRequest(
             return
         }
         #expect(!result.succeeded)
-        #expect(result.log.hasPrefix("PUT https://shots.s3.us-east-1.amazonaws.com/glint-connection-test-"))
+        #expect(result.log.hasPrefix("PUT https://shots.s3.us-east-1.amazonaws.com/lunetta-connection-test-"))
         #expect(result.log.hasSuffix(".txt failed with HTTP 403. AccessDenied: Access Denied"))
     }
 }

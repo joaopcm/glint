@@ -1,7 +1,7 @@
 import CoreGraphics
-import GlintCapture
+import LunettaCapture
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 @MainActor
 private final class Spy: AlertPresenting {

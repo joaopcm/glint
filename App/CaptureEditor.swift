@@ -1,6 +1,6 @@
 import AppKit
-import GlintCapture
-import GlintEditor
+import LunettaCapture
+import LunettaEditor
 import ImageIO
 
 enum CaptureEditorError: LocalizedError, Equatable {
@@ -8,7 +8,7 @@ enum CaptureEditorError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .unreadable(let path, let reason): "Glint couldn't read \(path): \(reason)."
+        case .unreadable(let path, let reason): "Lunetta couldn't read \(path): \(reason)."
         }
     }
 }

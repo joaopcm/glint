@@ -1,8 +1,8 @@
 import AppKit
 import XCTest
 
-final class UploadUITests: GlintUITestCase {
-    static let publicBaseURL = "https://shots.example.test/glint"
+final class UploadUITests: LunettaUITestCase {
+    static let publicBaseURL = "https://shots.example.test/lunetta"
     private var server: StubS3Server!
     private var historyFile: URL!
 
@@ -20,15 +20,15 @@ final class UploadUITests: GlintUITestCase {
 
     override var extraLaunchEnvironment: [String: String] {
         [
-            "GLINT_UI_TEST_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
-            "GLINT_UI_TEST_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-            "GLINT_UI_TEST_UPLOAD_HISTORY": historyFile.path,
+            "LUNETTA_UI_TEST_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+            "LUNETTA_UI_TEST_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            "LUNETTA_UI_TEST_UPLOAD_HISTORY": historyFile.path,
         ]
     }
 
     override func setUpWithError() throws {
         server = try StubS3Server()
-        historyFile = FileManager.default.temporaryDirectory.appending(path: "GlintUITests-history-\(UUID().uuidString).json")
+        historyFile = FileManager.default.temporaryDirectory.appending(path: "LunettaUITests-history-\(UUID().uuidString).json")
         try super.setUpWithError()
     }
 
@@ -99,7 +99,7 @@ final class UploadUITests: GlintUITestCase {
 
     @MainActor private func openHistoryTab() {
         let statusItem = app.statusItems.firstMatch
-        XCTAssertTrue(statusItem.waitForExistence(timeout: Self.captureTimeout), "Glint's menu bar icon is missing")
+        XCTAssertTrue(statusItem.waitForExistence(timeout: Self.captureTimeout), "Lunetta's menu bar icon is missing")
         statusItem.click()
         statusItem.descendants(matching: .menuItem)["Settings…"].click()
         // Settings toolbar tabs are buttons whose label is sometimes empty (ui.xcresult of run 45478719380).

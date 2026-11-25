@@ -1,7 +1,7 @@
 import AppKit
 import CoreGraphics
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 @MainActor @Test func closeButtonGlassIsACircleAndTheActionBarACapsule() {
     let close = Glass.toolbar([NSButton()])

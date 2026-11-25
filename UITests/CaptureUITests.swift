@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-final class CaptureUITests: GlintUITestCase {
+final class CaptureUITests: LunettaUITestCase {
     @MainActor func testAreaDragWritesPNGOfDraggedSizeInPixels() {
         let scale = pointerScreen.backingScaleFactor
         press(.area)

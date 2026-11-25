@@ -1,6 +1,6 @@
 import XCTest
 
-final class WindowWallpaperUITests: GlintUITestCase {
+final class WindowWallpaperUITests: LunettaUITestCase {
     static let padding: CGFloat = 40
 
     override var extraLaunchArguments: [String] {

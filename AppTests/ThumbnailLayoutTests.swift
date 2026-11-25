@@ -1,8 +1,8 @@
 import AppKit
 import CoreGraphics
-import GlintCore
+import LunettaCore
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 @MainActor @Test func thumbnailsStackUpFromTheChosenCorner() {
     let visible = CGRect(x: 0, y: 25, width: 1000, height: 800)
@@ -54,9 +54,9 @@ import Testing
 
 @MainActor @Test func showDropsOldestWhenTheColumnWouldOverflow() throws {
     let screen = try #require(NSScreen.main)
-    let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, pointerLocation: { CGPoint(x: screen.frame.midX, y: screen.frame.midY) })
-    let width = CGFloat(GlintSettings.defaultThumbnailWidth)
+    let width = CGFloat(LunettaSettings.defaultThumbnailWidth)
     let visible = screen.visibleFrame
     let moreThanFit = Int(visible.height / ThumbnailPresenter.size(width: width).height) + 2
     let files = try (0..<moreThanFit).map { _ in try writePNG() }
@@ -76,10 +76,10 @@ import Testing
 
 @MainActor @Test func growingTheCardsDropsOldestWhenTheColumnWouldOverflow() async throws {
     let screen = try #require(NSScreen.main)
-    let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, pointerLocation: { CGPoint(x: screen.frame.midX, y: screen.frame.midY) })
-    let widest = GlintSettings.thumbnailWidthRange.upperBound
-    let fit = ThumbnailPresenter.columnCapacity(in: screen.visibleFrame, width: GlintSettings.defaultThumbnailWidth)
+    let widest = LunettaSettings.thumbnailWidthRange.upperBound
+    let fit = ThumbnailPresenter.columnCapacity(in: screen.visibleFrame, width: LunettaSettings.defaultThumbnailWidth)
     let fitWhenWidest = ThumbnailPresenter.columnCapacity(in: screen.visibleFrame, width: widest)
     try #require(fitWhenWidest < fit)
     let files = try (0..<fit).map { _ in try writePNG() }
@@ -101,7 +101,7 @@ import Testing
 
 @MainActor @Test func changingTheCornerMovesAVisibleThumbnailWithoutAnyDefaultsNotification() async throws {
     let screen = try #require(NSScreen.main)
-    let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, pointerLocation: { CGPoint(x: screen.frame.midX, y: screen.frame.midY) })
     let file = try writePNG()
     defer { try? FileManager.default.removeItem(at: file) }

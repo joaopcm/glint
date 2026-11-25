@@ -1,5 +1,5 @@
 import AppKit
-import GlintCore
+import LunettaCore
 
 final class LoupeLayer: CALayer {
     static let gridPixels = 15

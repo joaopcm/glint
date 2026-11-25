@@ -1,7 +1,7 @@
 import AppKit
-import GlintCore
+import LunettaCore
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 final class Defaults: KeyValueStore {
     var values: [String: Any] = [:]
@@ -16,7 +16,7 @@ final class Defaults: KeyValueStore {
 @MainActor func writePNG() throws -> URL {
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 30, pixelsHigh: 20, bitsPerSample: 8, samplesPerPixel: 4,
                                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-    let url = FileManager.default.temporaryDirectory.appending(path: "glint-thumb-\(UUID().uuidString).png")
+    let url = FileManager.default.temporaryDirectory.appending(path: "lunetta-thumb-\(UUID().uuidString).png")
     try rep.representation(using: .png, properties: [:])!.write(to: url)
     return url
 }
@@ -24,7 +24,7 @@ final class Defaults: KeyValueStore {
 let offScreen = CGPoint(x: -10_000, y: -10_000) // the real pointer could hover a card and pause auto-hide
 
 @MainActor @Test func autoHideWaitsUntilStackingStopsThenHidesThePileTogether() async throws {
-    let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     settings.overlayAutoDismiss = true
     let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, autoDismissDelay: .seconds(1), pointerLocation: { offScreen })
 
@@ -39,7 +39,7 @@ let offScreen = CGPoint(x: -10_000, y: -10_000) // the real pointer could hover 
 }
 
 @MainActor @Test func autoHideOffKeepsThumbnails() async throws {
-    let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, autoDismissDelay: .milliseconds(100), pointerLocation: { offScreen })
     presenter.show(try writePNG())
     try await Task.sleep(for: .milliseconds(300))
@@ -47,7 +47,7 @@ let offScreen = CGPoint(x: -10_000, y: -10_000) // the real pointer could hover 
 }
 
 @MainActor @Test func dragOutPausesAutoHideAndItsEndRestartsTheCountdown() async throws {
-    let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     settings.overlayAutoDismiss = true
     let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, autoDismissDelay: .milliseconds(400), pointerLocation: { offScreen })
 

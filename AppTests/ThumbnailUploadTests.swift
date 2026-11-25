@@ -1,7 +1,7 @@
 import AppKit
-import GlintCore
+import LunettaCore
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 @MainActor let noUpload: @MainActor (URL) async throws -> UploadedCapture = { _ in
     Issue.record("a thumbnail uploaded without being asked to")
@@ -14,7 +14,7 @@ import Testing
 }
 
 @MainActor @Test func uploadAfterCaptureUploadsTheNewCaptureReportsItsLinkAndKeepsTheCard() async throws {
-    let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     settings.uploadAfterCapture = true
     let log = UploadLog()
     let uploaded = UploadedCapture(
@@ -42,7 +42,7 @@ import Testing
 }
 
 @MainActor @Test func uploadAfterCaptureOffLeavesTheCaptureOnThisMac() async throws {
-    let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, pointerLocation: { offScreen })
 
     presenter.show(try writePNG())
@@ -62,7 +62,7 @@ import Testing
 }
 
 @MainActor @Test func aRunningUploadHoldsAutoHideUntilItFinishes() async throws {
-    let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     settings.overlayAutoDismiss = true
     settings.uploadAfterCapture = true
     let bucketAnswers = AsyncStream<Void>.makeStream()

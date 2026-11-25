@@ -1,4 +1,4 @@
-# Glint
+# Lunetta
 
 Open source screenshot and screen recording app for macOS.
 
@@ -8,7 +8,7 @@ Open source screenshot and screen recording app for macOS.
 - Capture Text (`⌥⇧⌘2`): drag over any text on screen and it goes to the clipboard as plain text. Recognition runs on-device, and nothing is saved to disk
 - Record an area (`⌥⇧⌘5`) or a window (`⌃⌥⇧⌘5`) to an MP4 (H.264, or HEVC in Settings). Stop from the menu bar or press the shortcut again. System audio and microphone are separate toggles in the menu, both off by default
 - Quick-access thumbnail after each capture: copy, upload, save as, annotate, pin or drag it out
-- Upload to your own S3-compatible bucket (AWS S3, Cloudflare R2, MinIO, ...): one click puts the capture there and its public link on the clipboard. Turn on Upload after capture in Settings to skip the click. Your bucket is the only place Glint ever sends anything
+- Upload to your own S3-compatible bucket (AWS S3, Cloudflare R2, MinIO, ...): one click puts the capture there and its public link on the clipboard. Turn on Upload after capture in Settings to skip the click. Your bucket is the only place Lunetta ever sends anything
 - Every shortcut can be changed in Settings
 
 ## Performance
@@ -27,7 +27,7 @@ Runs on macOS 15+. Building needs Xcode 26+ (the macOS 26 SDK) and [XcodeGen](ht
 
 ```sh
 xcodegen generate
-open Glint.xcodeproj
+open Lunetta.xcodeproj
 ```
 
 ## Test
@@ -35,33 +35,33 @@ open Glint.xcodeproj
 On macOS, run all three suites:
 
 ```sh
-xcodegen generate && xcodebuild -scheme Glint -destination 'platform=macOS' test
-(cd Packages/GlintCore && swift test)
-(cd Packages/GlintCapture && swift test)
+xcodegen generate && xcodebuild -scheme Lunetta -destination 'platform=macOS' test
+(cd Packages/LunettaCore && swift test)
+(cd Packages/LunettaCapture && swift test)
 ```
 
-UI tests drive the real app: they press the hotkeys, drag and click, so they take over the keyboard and pointer while they run. The first local run needs Screen Recording granted to the Debug build, and Accessibility granted to `GlintUITests-Runner` so it can press the hotkeys.
+UI tests drive the real app: they press the hotkeys, drag and click, so they take over the keyboard and pointer while they run. The first local run needs Screen Recording granted to the Debug build, and Accessibility granted to `LunettaUITests-Runner` so it can press the hotkeys.
 
 ```sh
-xcodegen generate && xcodebuild -scheme GlintUI -destination 'platform=macOS' test
+xcodegen generate && xcodebuild -scheme LunettaUI -destination 'platform=macOS' test
 ```
 
-A local UI test run quits your installed Glint and doesn't relaunch it, and the Copy test overwrites your clipboard.
+A local UI test run quits your installed Lunetta and doesn't relaunch it, and the Copy test overwrites your clipboard.
 
-`GlintCore` also builds and tests on Linux. The app and `GlintCapture` need macOS.
+`LunettaCore` also builds and tests on Linux. The app and `LunettaCapture` need macOS.
 
 ## Install a dev build
 
-Every CI run uploads a signed `Glint-<short-sha>` artifact. All builds share one signing certificate, so the Screen Recording permission survives updates.
+Every CI run uploads a signed `Lunetta-<short-sha>` artifact. All builds share one signing certificate, so the Screen Recording permission survives updates.
 
-You unzip twice: GitHub wraps every artifact in its own zip, and inside it is `Glint.zip`, which `ditto` made so the signed bundle keeps its signature and extended attributes.
+You unzip twice: GitHub wraps every artifact in its own zip, and inside it is `Lunetta.zip`, which `ditto` made so the signed bundle keeps its signature and extended attributes.
 
 1. Download the artifact from the latest green run of the `ci` workflow and unzip it.
-2. Unzip `Glint.zip` and move `Glint.app` to `/Applications`.
+2. Unzip `Lunetta.zip` and move `Lunetta.app` to `/Applications`.
 3. Clear the quarantine flag:
 
 ```sh
-xattr -d com.apple.quarantine /Applications/Glint.app
+xattr -d com.apple.quarantine /Applications/Lunetta.app
 ```
 
 ## Install a local build
@@ -70,7 +70,7 @@ xattr -d com.apple.quarantine /Applications/Glint.app
 scripts/install-local.sh
 ```
 
-Builds Release from your checkout, installs it to `~/Applications/Glint.app`, and relaunches Glint if it was running. It signs with a code-signing identity named `Glint Local Dev` (override with `GLINT_SIGN_IDENTITY`), so Screen Recording and Microphone permissions survive rebuilds. `GLINT_SIGN_IDENTITY=-` signs ad-hoc instead, and the permissions reset on every install.
+Builds Release from your checkout, installs it to `~/Applications/Lunetta.app`, and relaunches Lunetta if it was running. It signs with a code-signing identity named `Glint Local Dev` (override with `LUNETTA_SIGN_IDENTITY`), so Screen Recording and Microphone permissions survive rebuilds. `LUNETTA_SIGN_IDENTITY=-` signs ad-hoc instead, and the permissions reset on every install.
 
 Create the identity once. It's self-signed, trusted only for code signing on your Mac, and the keys never touch the repo:
 
@@ -80,8 +80,8 @@ d="$(mktemp -d)"
   -addext "keyUsage=critical,digitalSignature" -addext "extendedKeyUsage=critical,codeSigning" \
   -keyout "$d/key.pem" -out "$d/cert.pem"
 /usr/bin/openssl pkcs12 -export -inkey "$d/key.pem" -in "$d/cert.pem" -name "Glint Local Dev" \
-  -passout pass:glint -out "$d/id.p12"
-security import "$d/id.p12" -k ~/Library/Keychains/login.keychain-db -P glint -T /usr/bin/codesign
+  -passout pass:lunetta -out "$d/id.p12"
+security import "$d/id.p12" -k ~/Library/Keychains/login.keychain-db -P lunetta -T /usr/bin/codesign
 security add-trusted-cert -r trustRoot -p codeSign -k ~/Library/Keychains/login.keychain-db "$d/cert.pem"
 rm -rf "$d"
 ```
@@ -90,7 +90,7 @@ rm -rf "$d"
 
 ## Release
 
-Pushing a `v*` tag runs the `release` workflow: it builds Release, signs with Developer ID, notarizes and staples the app and a DMG, checks them with `spctl -a -vv` and `stapler validate`, and publishes `Glint-<version>.dmg` to GitHub Releases with the notes in `.github/release-notes.md`. Running it by hand from the Actions tab does the same but uploads the DMG as an artifact instead of publishing. The tag has to match `CFBundleShortVersionString` in `App/Info.plist`, so bump that first.
+Pushing a `v*` tag runs the `release` workflow: it builds Release, signs with Developer ID, notarizes and staples the app and a DMG, checks them with `spctl -a -vv` and `stapler validate`, and publishes `Lunetta-<version>.dmg` to GitHub Releases with the notes in `.github/release-notes.md`. Running it by hand from the Actions tab does the same but uploads the DMG as an artifact instead of publishing. The tag has to match `CFBundleShortVersionString` in `App/Info.plist`, so bump that first.
 
 Check the build and the DMG without any secrets:
 
@@ -110,7 +110,7 @@ The workflow stops before building if any of these repo secrets is missing, and 
 | `NOTARY_API_KEY_ID` | The Key ID next to that key |
 | `NOTARY_API_ISSUER_ID` | The Issuer ID above the keys list |
 
-Moving from the dev certificate to Developer ID changes Glint's designated requirement, so everyone grants Screen Recording (and Microphone) once more after installing the first release. The release notes say so.
+Moving from the dev certificate to Developer ID changes Lunetta's designated requirement, so everyone grants Screen Recording (and Microphone) once more after installing the first release. The release notes say so.
 
 ## License
 

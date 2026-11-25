@@ -1,9 +1,9 @@
 import AppKit
 import XCTest
 
-final class TextCaptureUITests: GlintUITestCase {
-    static let knownText = "Glint reads this line"
-    /// The first recognition on a machine that never ran Vision took 27.4 s locally (`swift test` in GlintCapture); warm runs take 0.15 s.
+final class TextCaptureUITests: LunettaUITestCase {
+    static let knownText = "Lunetta reads this line"
+    /// The first recognition on a machine that never ran Vision took 27.4 s locally (`swift test` in LunettaCapture); warm runs take 0.15 s.
     static let recognitionTimeout: TimeInterval = 60
 
     @MainActor func testDragOverTextCopiesItAndSavesNothing() throws {
@@ -30,11 +30,11 @@ final class TextCaptureUITests: GlintUITestCase {
         XCTAssertFalse(app.images.matching(NSPredicate(format: "label BEGINSWITH 'Screenshot '")).firstMatch.exists, "a text capture showed a thumbnail")
     }
 
-    /// Only the text view: the toolbar and ruler around it gave Vision enough noise to read "Glint" as "slint" (run 45441759860).
+    /// Only the text view: the toolbar and ruler around it gave Vision enough noise to read "Lunetta" as "slint" (run 45441759860).
     @MainActor private func openTextEditDocumentBody(showing text: String) throws -> XCUIElement {
-        let folder = FileManager.default.temporaryDirectory.appending(path: "GlintTextUITests-\(UUID().uuidString)")
+        let folder = FileManager.default.temporaryDirectory.appending(path: "LunettaTextUITests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let name = "glint-ocr-\(UUID().uuidString.prefix(8))"
+        let name = "lunetta-ocr-\(UUID().uuidString.prefix(8))"
         let file = folder.appending(path: "\(name).rtf")
         try #"{\rtf1\ansi{\fonttbl\f0 Helvetica;}\f0\fs72 \#(text)\par}"#.write(to: file, atomically: true, encoding: .utf8)
         let textEdit = XCUIApplication(bundleIdentifier: "com.apple.TextEdit")

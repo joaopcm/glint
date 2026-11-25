@@ -1,5 +1,5 @@
 import AppKit
-import GlintCore
+import LunettaCore
 import SwiftUI
 
 struct UploadHistoryView: View {

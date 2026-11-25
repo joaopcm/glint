@@ -23,17 +23,17 @@ jobs:
         image: bitnamilegacy/minio@sha256:50cec18ac4184af4671a78aedd5554942c8ae105d51a465fa82037949046da01
         ports: ["9000:9000"]
         env:
-          MINIO_ROOT_USER: glintroot
-          MINIO_ROOT_PASSWORD: glintrootsecret
+          MINIO_ROOT_USER: lunettaroot
+          MINIO_ROOT_PASSWORD: lunettarootsecret
     env:
-      GLINT_MINIO_ENDPOINT: http://127.0.0.1:9000
-      GLINT_MINIO_ROOT_USER: glintroot
-      GLINT_MINIO_ROOT_PASSWORD: glintrootsecret
-      GLINT_MINIO_READER_USER: glintreader
-      GLINT_MINIO_READER_PASSWORD: glintreadersecret
-      GLINT_MINIO_BUCKET: shots
-      GLINT_MINIO_PUBLIC_BUCKET: shots-public
-      GLINT_MINIO_POLICY_BUCKET: shots-policy
+      LUNETTA_MINIO_ENDPOINT: http://127.0.0.1:9000
+      LUNETTA_MINIO_ROOT_USER: lunettaroot
+      LUNETTA_MINIO_ROOT_PASSWORD: lunettarootsecret
+      LUNETTA_MINIO_READER_USER: lunettareader
+      LUNETTA_MINIO_READER_PASSWORD: lunettareadersecret
+      LUNETTA_MINIO_BUCKET: shots
+      LUNETTA_MINIO_PUBLIC_BUCKET: shots-public
+      LUNETTA_MINIO_POLICY_BUCKET: shots-policy
       SWIFT_VERSION: 6.2.1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,8 +61,8 @@ jobs:
           MINIO: ${{ job.services.minio.id }}
         run: |
           deadline=$((SECONDS + 60))
-          until docker exec -e B="$GLINT_MINIO_BUCKET" -e PB="$GLINT_MINIO_PUBLIC_BUCKET" -e PolB="$GLINT_MINIO_POLICY_BUCKET" \
-            -e U="$GLINT_MINIO_READER_USER" -e P="$GLINT_MINIO_READER_PASSWORD" "$MINIO" sh -c '
+          until docker exec -e B="$LUNETTA_MINIO_BUCKET" -e PB="$LUNETTA_MINIO_PUBLIC_BUCKET" -e PolB="$LUNETTA_MINIO_POLICY_BUCKET" \
+            -e U="$LUNETTA_MINIO_READER_USER" -e P="$LUNETTA_MINIO_READER_PASSWORD" "$MINIO" sh -c '
             mc alias set ci http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" &&
             mc mb --ignore-existing "ci/$B" "ci/$PB" "ci/$PolB" &&
             mc anonymous set download "ci/$PB" &&
@@ -74,7 +74,7 @@ jobs:
           done
           echo "MinIO ready after $SECONDS s"
       - run: swift test
-        working-directory: Packages/GlintCore
+        working-directory: Packages/LunettaCore
 
   app-macos:
     runs-on: macos-26
@@ -91,13 +91,13 @@ jobs:
       - run: xcodegen generate
       - name: Check generate left tracked files alone
         run: git diff --exit-code -- App/
-      - run: xcodebuild -scheme Glint -destination 'platform=macOS' -derivedDataPath build COMPILATION_CACHE_ENABLE_CACHING="$COMPILATION_CACHE_ENABLE_CACHING" test
-      - name: swift test GlintCore (pinned Xcode's toolchain)
+      - run: xcodebuild -scheme Lunetta -destination 'platform=macOS' -derivedDataPath build COMPILATION_CACHE_ENABLE_CACHING="$COMPILATION_CACHE_ENABLE_CACHING" test
+      - name: swift test LunettaCore (pinned Xcode's toolchain)
         run: swift test
-        working-directory: Packages/GlintCore
-      - name: swift test GlintCapture (pinned Xcode's toolchain)
+        working-directory: Packages/LunettaCore
+      - name: swift test LunettaCapture (pinned Xcode's toolchain)
         run: swift test
-        working-directory: Packages/GlintCapture
+        working-directory: Packages/LunettaCapture
       - name: Short sha
         id: sha
         env:
@@ -105,26 +105,26 @@ jobs:
         run: echo "short=${HEAD_SHA::7}" >> "$GITHUB_OUTPUT"
       - name: Build Release
         run: |
-          xcodebuild -scheme Glint -configuration Release -destination 'platform=macOS' -derivedDataPath build COMPILATION_CACHE_ENABLE_CACHING="$COMPILATION_CACHE_ENABLE_CACHING" \
-            CURRENT_PROJECT_VERSION=${{ github.run_number }} GLINT_COMMIT=${{ steps.sha.outputs.short }} build
-          plutil -p build/Build/Products/Release/Glint.app/Contents/Info.plist
+          xcodebuild -scheme Lunetta -configuration Release -destination 'platform=macOS' -derivedDataPath build COMPILATION_CACHE_ENABLE_CACHING="$COMPILATION_CACHE_ENABLE_CACHING" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} LUNETTA_COMMIT=${{ steps.sha.outputs.short }} build
+          plutil -p build/Build/Products/Release/Lunetta.app/Contents/Info.plist
       # Hardened runtime blocks the mic without this entitlement, and CI has no mic to notice (#84).
       - name: Check the mic entitlement
         env:
-          APP: build/Build/Products/Release/Glint.app
+          APP: build/Build/Products/Release/Lunetta.app
         run: |
           codesign -d --entitlements - --xml "$APP" > "$RUNNER_TEMP/entitlements.plist"
           value=$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' "$RUNNER_TEMP/entitlements.plist" 2>&1) || true
           [ "$value" = true ] || { echo "::error::$APP is missing com.apple.security.device.audio-input=true (got: $value). Add it under entitlements.properties in project.yml"; exit 1; }
       - name: Check build label stamping
         env:
-          PLIST: build/Build/Products/Release/Glint.app/Contents/Info.plist
+          PLIST: build/Build/Products/Release/Lunetta.app/Contents/Info.plist
           WANT_COMMIT: ${{ steps.sha.outputs.short }}
           WANT_BUILD: ${{ github.run_number }}
         run: |
-          commit=$(plutil -extract GlintCommit raw "$PLIST")
+          commit=$(plutil -extract LunettaCommit raw "$PLIST")
           build=$(plutil -extract CFBundleVersion raw "$PLIST")
-          [ "$commit" = "$WANT_COMMIT" ] || { echo "GlintCommit is '$commit', expected '$WANT_COMMIT'"; exit 1; }
+          [ "$commit" = "$WANT_COMMIT" ] || { echo "LunettaCommit is '$commit', expected '$WANT_COMMIT'"; exit 1; }
           [ "$build" = "$WANT_BUILD" ] || { echo "CFBundleVersion is '$build', expected '$WANT_BUILD'"; exit 1; }
       - name: Check signing secrets
         id: gate
@@ -139,15 +139,15 @@ jobs:
         env:
           DEV_CERT_P12_BASE64: ${{ secrets.DEV_CERT_P12_BASE64 }}
           DEV_CERT_PASSWORD: ${{ secrets.DEV_CERT_PASSWORD }}
-        run: scripts/sign-and-zip.sh build/Build/Products/Release/Glint.app Glint.zip
+        run: scripts/sign-and-zip.sh build/Build/Products/Release/Lunetta.app Lunetta.zip
       - name: Print designated requirement
         if: success() && steps.gate.outputs.enabled == 'true'
-        run: codesign -d -r- build/Build/Products/Release/Glint.app
+        run: codesign -d -r- build/Build/Products/Release/Lunetta.app
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: success() && steps.gate.outputs.enabled == 'true'
         with:
-          name: Glint-${{ steps.sha.outputs.short }}
-          path: Glint.zip
+          name: Lunetta-${{ steps.sha.outputs.short }}
+          path: Lunetta.zip
 
   ui-shard:
     name: ui-macos (${{ matrix.shard }})
@@ -176,11 +176,11 @@ jobs:
           key: xcode-ui-${{ matrix.shard }}-${{ hashFiles('.github/actions/setup-xcode/action.yml', 'project.yml') }}-${{ github.sha }}
           restore-keys: xcode-ui-${{ matrix.shard }}-${{ hashFiles('.github/actions/setup-xcode/action.yml', 'project.yml') }}-
       - run: xcodegen generate
-      - run: scripts/ci-grant-tcc.sh kTCCServiceScreenCapture com.joaopcm.glint com.joaopcm.glint.uitests.xctrunner
-      - run: scripts/ci-grant-tcc.sh kTCCServicePostEvent com.joaopcm.glint.uitests.xctrunner
+      - run: scripts/ci-grant-tcc.sh kTCCServiceScreenCapture com.joaopcm.lunetta com.joaopcm.lunetta.uitests.xctrunner
+      - run: scripts/ci-grant-tcc.sh kTCCServicePostEvent com.joaopcm.lunetta.uitests.xctrunner
       - run: sudo automationmodetool enable-automationmode-without-authentication
       # The quick-access card faded in place instead of sliding on the runner (recording in run 45611987356, #92),
-      # which is what Glint does under Reduce Motion.
+      # which is what Lunetta does under Reduce Motion.
       - name: Turn Reduce Motion off
         run: |
           echo "before: $(defaults read com.apple.universalaccess reduceMotion 2>&1)"
@@ -189,19 +189,19 @@ jobs:
       # macOS 15 shows its own "bypass the private window picker" prompt on top of the TCC grant (run 45266766603).
       - name: Pre-approve the private window picker prompt
         env:
-          GLINT_EXECUTABLE: ${{ github.workspace }}/${{ env.DERIVED_DATA }}/Build/Products/Debug/Glint.app/Contents/MacOS/Glint
+          LUNETTA_EXECUTABLE: ${{ github.workspace }}/${{ env.DERIVED_DATA }}/Build/Products/Debug/Lunetta.app/Contents/MacOS/Lunetta
         run: |
           APPROVALS="$HOME/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist"
           mkdir -p "$(dirname "$APPROVALS")"
-          defaults write "$APPROVALS" "$GLINT_EXECUTABLE" -date "4000-01-01 00:00:00 +0000"
-          defaults read "$APPROVALS" "$GLINT_EXECUTABLE"
+          defaults write "$APPROVALS" "$LUNETTA_EXECUTABLE" -date "4000-01-01 00:00:00 +0000"
+          defaults read "$APPROVALS" "$LUNETTA_EXECUTABLE"
       # The slowest test took 48.9 s (45642473032) and the slowest shard 7 min 0 s with a cold cache (45654796825), so the
       # step cap is 2x that. The per-test cap lets xcodebuild kill a hung test and still finalize ui.xcresult; the step
       # cap leaves the upload time inside the job's.
       - run: |
           selection=()
-          for class in $SHARD_A_CLASSES; do selection+=("-${{ matrix.select }}:GlintUITests/$class"); done
-          xcodebuild -scheme GlintUI -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA" -resultBundlePath ui.xcresult \
+          for class in $SHARD_A_CLASSES; do selection+=("-${{ matrix.select }}:LunettaUITests/$class"); done
+          xcodebuild -scheme LunettaUI -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA" -resultBundlePath ui.xcresult \
             COMPILATION_CACHE_ENABLE_CACHING="$COMPILATION_CACHE_ENABLE_CACHING" "${selection[@]}" \
             -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 test
         timeout-minutes: 14

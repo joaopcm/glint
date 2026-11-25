@@ -1,10 +1,10 @@
 import Foundation
-import GlintCore
+import LunettaCore
 import Testing
-@testable import Glint
+@testable import Lunetta
 
 private func withScratchKeychainService(_ body: (KeychainCredentialStore) throws -> Void) throws {
-    let store = KeychainCredentialStore(service: "com.joaopcm.glint.tests.\(UUID().uuidString)")
+    let store = KeychainCredentialStore(service: "com.joaopcm.lunetta.tests.\(UUID().uuidString)")
     defer { try? store.save(nil) }
     try body(store)
 }
@@ -22,11 +22,11 @@ private func withScratchKeychainService(_ body: (KeychainCredentialStore) throws
 }
 
 @MainActor @Test func bucketSecretsLandInTheKeychainAndNeverInUserDefaults() throws {
-    let suite = "GlintTests-\(UUID().uuidString)"
+    let suite = "LunettaTests-\(UUID().uuidString)"
     defer { UserDefaults().removePersistentDomain(forName: suite) }
     let defaults = try #require(UserDefaults(suiteName: suite))
     try withScratchKeychainService { keychain in
-        let settings = GlintSettings(store: UserDefaultsStore(defaults: defaults), defaultSaveFolder: FileManager.default.temporaryDirectory)
+        let settings = LunettaSettings(store: UserDefaultsStore(defaults: defaults), defaultSaveFolder: FileManager.default.temporaryDirectory)
         let access = BucketAccess(settings: settings, credentialStore: keychain, transport: URLSessionS3Transport())
         settings.bucketEndpoint = "https://s3.us-east-1.amazonaws.com"
         settings.bucketRegion = "us-east-1"

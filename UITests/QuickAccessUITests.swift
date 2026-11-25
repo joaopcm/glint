@@ -2,7 +2,7 @@ import AppKit
 import ImageIO
 import XCTest
 
-final class QuickAccessUITests: GlintUITestCase {
+final class QuickAccessUITests: LunettaUITestCase {
     /// `ThumbnailPresenter` folds the column back 1 s after the pointer leaves it.
     static let foldBackTimeout: TimeInterval = 5
     /// With no card in the capture, 0 of the 40080 card-region pixels changed (run 45505547400); a card changes nearly all of them.
@@ -47,7 +47,7 @@ final class QuickAccessUITests: GlintUITestCase {
                       "the toolbar stayed after the pointer left")
     }
 
-    /// Finder stays frontmost: the labels have to show while Glint is in the background (#91).
+    /// Finder stays frontmost: the labels have to show while Lunetta is in the background (#91).
     @MainActor func testHoveringAnActionShowsItsLabelWhileAnotherAppIsFrontmost() {
         let card = captureOneCard()
         center(of: card).hover()
@@ -227,7 +227,7 @@ final class QuickAccessUITests: GlintUITestCase {
     }
 
     @MainActor private var cards: XCUIElementQuery {
-        app.images.matching(NSPredicate(format: "label BEGINSWITH %@", "Screenshot Glint "))
+        app.images.matching(NSPredicate(format: "label BEGINSWITH %@", "Screenshot Lunetta "))
     }
 
     @MainActor private func card(for png: URL) -> XCUIElement {
@@ -258,7 +258,7 @@ final class QuickAccessUITests: GlintUITestCase {
     @MainActor private func savePanelSaveButton() -> XCUIElement {
         let save = app.buttons.matching(NSPredicate(format: "label == 'Save' OR title == 'Save'")).firstMatch
         if !save.waitForExistence(timeout: Self.captureTimeout) {
-            XCTFail("Save As showed no save panel. Glint's accessibility tree:\n\(app.debugDescription)")
+            XCTFail("Save As showed no save panel. Lunetta's accessibility tree:\n\(app.debugDescription)")
         }
         return save
     }
@@ -269,7 +269,7 @@ final class QuickAccessUITests: GlintUITestCase {
         return high - low
     }
 
-    @MainActor private func waitUntil(timeout: TimeInterval = GlintUITestCase.captureTimeout, _ condition: @escaping () -> Bool) -> Bool {
+    @MainActor private func waitUntil(timeout: TimeInterval = LunettaUITestCase.captureTimeout, _ condition: @escaping () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() {
             guard Date() < deadline else { return false }

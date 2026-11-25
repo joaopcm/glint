@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-final class LoupeUITests: GlintUITestCase {
+final class LoupeUITests: LunettaUITestCase {
     override var showsMagnifier: Bool { true }
 
     @MainActor func testAreaModeShowsLoupe() {
@@ -34,7 +34,7 @@ final class LoupeUITests: GlintUITestCase {
     }
 }
 
-final class LoupeOffUITests: GlintUITestCase {
+final class LoupeOffUITests: LunettaUITestCase {
     /// The loupe's snapshot is the same display grab a capture is, so `noFileWait` is long enough for one to show up.
     @MainActor func testAreaModeShowsOnlyTheCrosshairByDefault() {
         press(.area)

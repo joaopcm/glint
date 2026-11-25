@@ -1,5 +1,5 @@
 import AppKit
-import GlintCore
+import LunettaCore
 import SwiftUI
 
 struct UploadSettingsView: View {
@@ -99,12 +99,12 @@ struct UploadSettingsView: View {
         }
     }
 
-    private func uploadPolicy(_ settings: GlintSettings) -> some View {
+    private func uploadPolicy(_ settings: LunettaSettings) -> some View {
         let name = settings.bucketName.trimmingCharacters(in: .whitespacesAndNewlines)
         let prefix = settings.bucketKeyPrefix.split(separator: "/").joined(separator: "/")
         return DisclosureGroup("IAM policy for these keys") {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Give Glint keys of its own with only this policy. Don't paste admin keys: anyone who reads them from this Mac could do anything in the account.")
+                Text("Give Lunetta keys of its own with only this policy. Don't paste admin keys: anyone who reads them from this Mac could do anything in the account.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 PolicyBlock(text: BucketPolicy.uploadAccess(bucket: name.isEmpty ? "<bucket>" : name, keyPrefix: prefix))

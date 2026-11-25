@@ -1,5 +1,5 @@
 import AppKit
-import GlintCore
+import LunettaCore
 
 final class AreaSelectionView: OverlayView {
     private static let dimColor = NSColor.black.withAlphaComponent(0.3).cgColor

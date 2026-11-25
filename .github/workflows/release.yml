@@ -49,10 +49,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$RELEASE_TAG" dist/Glint-*.dmg --verify-tag \
-            --title "Glint ${RELEASE_TAG#v}" --notes-file .github/release-notes.md
+          gh release create "$RELEASE_TAG" dist/Lunetta-*.dmg --verify-tag \
+            --title "Lunetta ${RELEASE_TAG#v}" --notes-file .github/release-notes.md
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: github.ref_type != 'tag'
         with:
-          name: Glint-dmg-${{ github.run_number }}
-          path: dist/Glint-*.dmg
+          name: Lunetta-dmg-${{ github.run_number }}
+          path: dist/Lunetta-*.dmg

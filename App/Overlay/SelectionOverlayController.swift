@@ -1,7 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
-import GlintCapture
-import GlintCore
+import LunettaCapture
+import LunettaCore
 import os
 
 @MainActor
@@ -17,7 +17,7 @@ final class SelectionOverlayController: Selecting {
     private var snapshotTasks: [Task<Void, Never>] = []
     private let showsMagnifier: @MainActor () -> Bool
     private let snapshot: @Sendable (DisplayInfo) async throws -> CGImage
-    private let log = Logger(subsystem: "com.joaopcm.glint", category: "loupe")
+    private let log = Logger(subsystem: "com.joaopcm.lunetta", category: "loupe")
 
     init(showsMagnifier: @escaping @MainActor () -> Bool, snapshot: @escaping @Sendable (DisplayInfo) async throws -> CGImage) {
         self.showsMagnifier = showsMagnifier
