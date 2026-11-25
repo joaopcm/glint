@@ -37,6 +37,7 @@ class GlintUITestCase: XCTestCase {
 
     /// Subclasses add `-key value` pairs to start Glint with other settings.
     var extraLaunchArguments: [String] { [] }
+    var pickerPromptExplained: Bool { true }
     var extraLaunchEnvironment: [String: String] { [:] }
 
     @MainActor private(set) var app: XCUIApplication!
@@ -79,7 +80,7 @@ class GlintUITestCase: XCTestCase {
             "-overlayAutoDismiss", "NO",
             "-overlayCorner", "bottomRight",
             "-thumbnailWidth", "240",
-        ] + defaultShortcutArguments + extraLaunchArguments
+        ] + (pickerPromptExplained ? ["-pickerPromptExplained", "YES"] : []) + defaultShortcutArguments + extraLaunchArguments
         app.launchEnvironment = extraLaunchEnvironment
         app.launch()
         finder.activate()

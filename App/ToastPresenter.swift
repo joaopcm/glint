@@ -49,6 +49,28 @@ final class ToastPresenter {
     }
 
     func show(_ message: String) {
+        present(message)
+        hideTask = Task { [weak self, visibleFor] in
+            do {
+                try await Task.sleep(for: visibleFor)
+            } catch {
+                return
+            }
+            self?.panel.orderOut(nil)
+        }
+    }
+
+    /// No timer: the private window picker prompt holds the capture for as long as the user takes to answer it.
+    func showUntilHidden(_ message: String) {
+        present(message)
+    }
+
+    func hide(_ message: String) {
+        guard visibleMessage == message else { return }
+        panel.orderOut(nil)
+    }
+
+    private func present(_ message: String) {
         label.stringValue = message
         let size = panel.contentView?.fittingSize ?? .zero
         let pointer = pointerLocation()
@@ -59,13 +81,6 @@ final class ToastPresenter {
         }
         panel.orderFrontRegardless()
         hideTask?.cancel()
-        hideTask = Task { [weak self, visibleFor] in
-            do {
-                try await Task.sleep(for: visibleFor)
-            } catch {
-                return
-            }
-            self?.panel.orderOut(nil)
-        }
+        hideTask = nil
     }
 }

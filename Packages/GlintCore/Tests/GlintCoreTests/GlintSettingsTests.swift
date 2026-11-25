@@ -127,6 +127,13 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(GlintSettings(store: store, defaultSaveFolder: desktop).uploadAfterCapture == true)
 }
 
+@MainActor @Test func pickerPromptExplainedDefaultsOffAndRoundTrips() {
+    let store = MemoryStore()
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).pickerPromptExplained == false)
+    GlintSettings(store: store, defaultSaveFolder: desktop).pickerPromptExplained = true
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).pickerPromptExplained == true)
+}
+
 @MainActor @Test func freezeScreenDefaultsOffAndRoundTrips() {
     let store = MemoryStore()
     #expect(GlintSettings(store: store, defaultSaveFolder: desktop).freezeScreenWhileSelecting == false)
