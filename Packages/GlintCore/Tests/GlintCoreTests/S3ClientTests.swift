@@ -105,16 +105,47 @@ func client(_ transport: FakeTransport) -> S3Client {
         == "PUT http://localhost:9000/shots/glint/a.png failed: A server with the specified hostname could not be found.")
 }
 
-@Test func connectionTestPutsThenDeletesTheSameObjectAndLogsBoth() async {
-    let transport = FakeTransport([ok(200), ok(204)])
+@Test func connectionTestPutsGetsWithoutKeysThenDeletesTheSameObjectAndLogsEach() async {
+    let transport = FakeTransport([ok(200), ok(200), ok(204)])
     let result = await ConnectionTest.run(client: client(transport), id: "1234")
 
-    #expect(transport.requests.map(\.method) == ["PUT", "DELETE"])
-    #expect(transport.requests.map(\.url) == Array(repeating: URL(string: "http://localhost:9000/shots/glint/glint-connection-test-1234.txt")!, count: 2))
+    #expect(transport.requests.map(\.method) == ["PUT", "GET", "DELETE"])
+    #expect(transport.requests.map(\.url) == Array(repeating: URL(string: "http://localhost:9000/shots/glint/glint-connection-test-1234.txt")!, count: 3))
+    #expect(transport.requests[1].headers.isEmpty)
     #expect(result == ConnectionTestResult(succeeded: true, log: """
         PUT http://localhost:9000/shots/glint/glint-connection-test-1234.txt: HTTP 200
+        GET http://localhost:9000/shots/glint/glint-connection-test-1234.txt without keys: HTTP 200
         DELETE http://localhost:9000/shots/glint/glint-connection-test-1234.txt: HTTP 204
-        """))
+        """, publicLink: .opens))
+}
+
+@Test func connectionTestGetsThePublicBaseURLAndStillDeletesWhenTheLinkIsBlocked() async throws {
+    let configuration = try BucketConfiguration(
+        endpoint: "https://s3.us-east-2.amazonaws.com", region: "us-east-2", bucket: "glint-captures",
+        pathStyle: false, keyPrefix: "", publicBaseURL: "https://cdn.example.com/shots"
+    )
+    let transport = FakeTransport([ok(200), s3Error(403, "AccessDenied", "Access Denied"), ok(204)])
+    let s3 = S3Client(configuration: configuration, credentials: testCredentials, transport: transport, now: { fixedDate })
+    let result = await ConnectionTest.run(client: s3, id: "1234")
+
+    #expect(transport.requests.map(\.url.absoluteString) == [
+        "https://glint-captures.s3.us-east-2.amazonaws.com/glint-connection-test-1234.txt",
+        "https://cdn.example.com/shots/glint-connection-test-1234.txt",
+        "https://glint-captures.s3.us-east-2.amazonaws.com/glint-connection-test-1234.txt",
+    ])
+    #expect(result.succeeded)
+    #expect(result.publicLink == .blocked(status: 403, code: "AccessDenied"))
+    #expect(result.log.contains("GET https://cdn.example.com/shots/glint-connection-test-1234.txt without keys: HTTP 403 AccessDenied"))
+}
+
+@Test func connectionTestStillDeletesWhenThePublicLinkIsUnreachable() async {
+    let transport = FakeTransport([ok(200), .failure(S3TransportError(reason: "DNS can't find cdn.example.com.")), ok(204)])
+    let result = await ConnectionTest.run(client: client(transport), id: "1234")
+
+    #expect(transport.requests.map(\.method) == ["PUT", "GET", "DELETE"])
+    #expect(result.succeeded)
+    #expect(result.publicLink == .unreachable(reason: "DNS can't find cdn.example.com."))
+    #expect(result.log.contains("GET http://localhost:9000/shots/glint/glint-connection-test-1234.txt failed: DNS can't find cdn.example.com. (the public link, without keys)"))
 }
 
 @Test func connectionTestStopsAtAFailedPut() async {
@@ -129,12 +160,13 @@ func client(_ transport: FakeTransport) -> S3Client {
 }
 
 @Test func connectionTestSaysTheObjectWasLeftWhenDeleteFails() async {
-    let transport = FakeTransport([ok(200), s3Error(403, "AccessDenied", "Access Denied")])
+    let transport = FakeTransport([ok(200), ok(200), s3Error(403, "AccessDenied", "Access Denied")])
     let result = await ConnectionTest.run(client: client(transport), id: "1234")
 
     #expect(result == ConnectionTestResult(succeeded: false, log: """
         PUT http://localhost:9000/shots/glint/glint-connection-test-1234.txt: HTTP 200
+        GET http://localhost:9000/shots/glint/glint-connection-test-1234.txt without keys: HTTP 200
         DELETE http://localhost:9000/shots/glint/glint-connection-test-1234.txt failed with HTTP 403. AccessDenied: Access Denied
         The test object glint/glint-connection-test-1234.txt is still in the bucket. Delete it by hand.
-        """))
+        """, publicLink: .opens))
 }

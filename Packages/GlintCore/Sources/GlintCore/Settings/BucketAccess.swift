@@ -12,6 +12,12 @@ public enum ConnectionTestState: Equatable, Sendable {
     case finished(ConnectionTestResult)
 }
 
+public enum MakePublicState: Equatable, Sendable {
+    case idle
+    case running
+    case finished(MakePublicResult)
+}
+
 @MainActor @Observable
 public final class BucketAccess {
     public let settings: GlintSettings
@@ -28,6 +34,8 @@ public final class BucketAccess {
 
     public private(set) var credentialError: String?
     public private(set) var connectionTest: ConnectionTestState = .idle
+    public private(set) var makePublic: MakePublicState = .idle
+    public private(set) var bucketURLError: String?
 
     public init(settings: GlintSettings, credentialStore: any CredentialStore, transport: any S3Transport) {
         self.settings = settings
@@ -67,7 +75,60 @@ public final class BucketAccess {
         )
     }
 
+    public var provider: StorageProvider? {
+        StorageProvider.hosting(endpoint: settings.bucketEndpoint)
+    }
+
+    public var publicLinkAdvice: PublicLinkAdvice? {
+        try? client().map { PublicLinkAdvice(for: $0.configuration) }
+    }
+
     public func testConnection() async {
+        makePublic = .idle
+        await runConnectionTest()
+    }
+
+    public func makeLinksPublic() async {
+        let client: S3Client
+        do {
+            guard let configured = try self.client() else {
+                makePublic = .finished(MakePublicResult(succeeded: false, log: "No bucket is set up. Fill in the endpoint URL, region, bucket and keys.", policyToPaste: nil))
+                return
+            }
+            client = configured
+        } catch {
+            makePublic = .finished(MakePublicResult(succeeded: false, log: error.localizedDescription, policyToPaste: nil))
+            return
+        }
+        makePublic = .running
+        let result = await MakeLinksPublic.run(client: client)
+        makePublic = .finished(result)
+        if result.succeeded {
+            await runConnectionTest()
+        }
+    }
+
+    public func fill(fromBucketURL text: String) {
+        guard let location = BucketLocation.parse(text) else {
+            bucketURLError = "Glint can't read a bucket from \(text). Paste a bucket URL like https://my-bucket.s3.us-east-2.amazonaws.com or s3://my-bucket/shots."
+            return
+        }
+        bucketURLError = nil
+        if let endpoint = location.endpoint { settings.bucketEndpoint = endpoint }
+        if let region = location.region { settings.bucketRegion = region }
+        settings.bucketName = location.bucket
+        settings.bucketPathStyle = location.pathStyle
+        settings.bucketKeyPrefix = location.keyPrefix
+    }
+
+    public func apply(_ provider: StorageProvider) {
+        let preset = provider.preset(currentRegion: settings.bucketRegion)
+        settings.bucketEndpoint = preset.endpoint
+        settings.bucketRegion = preset.region
+        settings.bucketPathStyle = preset.pathStyle
+    }
+
+    private func runConnectionTest() async {
         connectionTest = .running
         let client: S3Client?
         do {

@@ -107,6 +107,18 @@ public struct BucketConfiguration: Sendable, Equatable {
         return components.url!
     }
 
+    public func bucketURL(subresource: String) -> URL {
+        var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
+        if pathStyle {
+            components.percentEncodedPath = "/\(SigV4.uriEncode(bucket, keepingSlashes: false))"
+        } else {
+            components.host = "\(bucket).\(components.host!)"
+            components.percentEncodedPath = "/"
+        }
+        components.percentEncodedQuery = subresource
+        return components.url!
+    }
+
     private struct WebURL {
         let url: URL
         let path: String
