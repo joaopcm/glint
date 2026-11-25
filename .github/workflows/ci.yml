@@ -34,9 +34,16 @@ jobs:
       GLINT_MINIO_BUCKET: shots
       GLINT_MINIO_PUBLIC_BUCKET: shots-public
       GLINT_MINIO_POLICY_BUCKET: shots-policy
+      SWIFT_VERSION: 6.2.1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: swift-cache
+        with:
+          path: ~/.local/share/swiftly
+          key: swiftly-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_VERSION }}
       - name: Install Swift
+        if: steps.swift-cache.outputs.cache-hit != 'true'
         run: |
           curl -fsSLO "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz"
           tar zxf swiftly-*.tar.gz
@@ -44,8 +51,8 @@ jobs:
           sudo apt-get install -y libcurl4-openssl-dev
           ./swiftly init --quiet-shell-followup --assume-yes --skip-install
           . "$HOME/.local/share/swiftly/env.sh"
-          swiftly install --use --assume-yes 6.2.1
-          echo "$HOME/.local/share/swiftly/bin" >> "$GITHUB_PATH"
+          swiftly install --use --assume-yes "$SWIFT_VERSION"
+      - run: ls "$HOME/.local/share/swiftly/toolchains" && echo "$HOME/.local/share/swiftly/toolchains/$SWIFT_VERSION/usr/bin" >> "$GITHUB_PATH"
       - run: swift --version
       # The image runs a setup server, stops it and starts the real one, so retry until mc gets through to the real one.
       # 60 s is a tripwire: a fresh container took 1.4 s locally (OrbStack, M-series Mac).
@@ -71,13 +78,22 @@ jobs:
 
   app-macos:
     runs-on: macos-26
+    env:
+      COMPILATION_CACHE_ENABLE_CACHING: YES
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-xcode
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build/CompilationCache.noindex
+            build/SourcePackages
+          key: xcode-app-${{ hashFiles('.github/actions/setup-xcode/action.yml', 'project.yml') }}-${{ github.sha }}
+          restore-keys: xcode-app-${{ hashFiles('.github/actions/setup-xcode/action.yml', 'project.yml') }}-
       - run: xcodegen generate
       - name: Check generate left tracked files alone
         run: git diff --exit-code -- App/
-      - run: xcodebuild -scheme Glint -destination 'platform=macOS' -derivedDataPath build test
+      - run: xcodebuild -scheme Glint -destination 'platform=macOS' -derivedDataPath build COMPILATION_CACHE_ENABLE_CACHING="$COMPILATION_CACHE_ENABLE_CACHING" test
       - name: swift test GlintCore (pinned Xcode's toolchain)
         run: swift test
         working-directory: Packages/GlintCore
@@ -91,7 +107,7 @@ jobs:
         run: echo "short=${HEAD_SHA::7}" >> "$GITHUB_OUTPUT"
       - name: Build Release
         run: |
-          xcodebuild -scheme Glint -configuration Release -destination 'platform=macOS' -derivedDataPath build \
+          xcodebuild -scheme Glint -configuration Release -destination 'platform=macOS' -derivedDataPath build COMPILATION_CACHE_ENABLE_CACHING="$COMPILATION_CACHE_ENABLE_CACHING" \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} GLINT_COMMIT=${{ steps.sha.outputs.short }} build
           plutil -p build/Build/Products/Release/Glint.app/Contents/Info.plist
       # Hardened runtime blocks the mic without this entitlement, and CI has no mic to notice (#84).
@@ -135,15 +151,33 @@ jobs:
           name: Glint-${{ steps.sha.outputs.short }}
           path: Glint.zip
 
-  ui-macos:
+  ui-shard:
+    name: ui-macos (${{ matrix.shard }})
     runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: a
+            select: only-testing
+          - shard: b
+            select: skip-testing
     env:
       DERIVED_DATA: build
+      COMPILATION_CACHE_ENABLE_CACHING: YES
+      SHARD_A_CLASSES: QuickAccessUITests MenuAndSettingsUITests PublicLinkUITests FreezeScreenUITests
     # 3x the first green run of all 27 UI tests on macos-26 (45497261627: 7 min 8 s).
     timeout-minutes: 22
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-xcode
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build/CompilationCache.noindex
+            build/SourcePackages
+          key: xcode-ui-${{ matrix.shard }}-${{ hashFiles('.github/actions/setup-xcode/action.yml', 'project.yml') }}-${{ github.sha }}
+          restore-keys: xcode-ui-${{ matrix.shard }}-${{ hashFiles('.github/actions/setup-xcode/action.yml', 'project.yml') }}-
       - run: xcodegen generate
       - run: scripts/ci-grant-tcc.sh kTCCServiceScreenCapture com.joaopcm.glint com.joaopcm.glint.uitests.xctrunner
       - run: scripts/ci-grant-tcc.sh kTCCServicePostEvent com.joaopcm.glint.uitests.xctrunner
@@ -167,12 +201,24 @@ jobs:
       # A failing run took 8 min 1 s here (45493012014) and the slowest test 29.5 s (45499134237). The per-test cap lets
       # xcodebuild kill a hung test and still finalize ui.xcresult; the step cap leaves the upload time inside the job's.
       - run: |
+          selection=()
+          for class in $SHARD_A_CLASSES; do selection+=("-${{ matrix.select }}:GlintUITests/$class"); done
           xcodebuild -scheme GlintUI -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA" -resultBundlePath ui.xcresult \
+            COMPILATION_CACHE_ENABLE_CACHING="$COMPILATION_CACHE_ENABLE_CACHING" "${selection[@]}" \
             -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 test
         timeout-minutes: 19
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: ui-xcresult-${{ github.run_attempt }}
+          name: ui-xcresult-${{ matrix.shard }}-${{ github.run_attempt }}
           path: ui.xcresult
           retention-days: 7
+
+  ui-macos:
+    needs: ui-shard
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - run: '[ "$RESULT" = success ] || { echo "::error::a ui-macos shard ended with $RESULT"; exit 1; }'
+        env:
+          RESULT: ${{ needs.ui-shard.result }}
