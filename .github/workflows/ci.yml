@@ -163,8 +163,8 @@ jobs:
     env:
       DERIVED_DATA: build
       COMPILATION_CACHE_ENABLE_CACHING: YES
-      # Shard a ran 300 s of UI tests and shard b 289 s in run 45654796825. New classes land in b.
-      SHARD_A_CLASSES: QuickAccessUITests MenuAndSettingsUITests PublicLinkUITests FreezeScreenUITests
+      # These two ran 285 s of UI tests and the rest 293 s in run 45664723521. New classes land in shard b.
+      SHARD_A_CLASSES: QuickAccessUITests MenuAndSettingsUITests
     # The test step's cap plus the 30 s of setup before it and the upload after it, rounded up.
     timeout-minutes: 15
     steps:
