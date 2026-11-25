@@ -87,6 +87,23 @@ struct ObscureAndCropTests {
         document.undoManager.undo()
         #expect(document.annotations.isEmpty)
     }
+
+    @Test func croppedFlattenMatchesFullFlattenThenCropWithObscureAndInk() throws {
+        let crop = CGRect(x: 30, y: 15, width: 90, height: 65)
+        let annotations = [
+            Annotation(kind: .blur, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 70, y: 60), lineWidth: 6),
+            Annotation(kind: .pixelate, start: CGPoint(x: 60, y: 30), end: CGPoint(x: 110, y: 75), lineWidth: 6),
+            Annotation(kind: .arrow, start: CGPoint(x: 20, y: 20), end: CGPoint(x: 100, y: 70), lineWidth: 4),
+            Annotation(kind: .rectangle, start: CGPoint(x: 150, y: 10), end: CGPoint(x: 190, y: 90), lineWidth: 4),
+        ]
+        let document = AnnotationDocument(base: stripes)
+        annotations.forEach(document.add)
+        document.setCrop(crop)
+
+        let direct = try Pixels(#require(document.flattened()))
+        let reference = try Pixels(#require(AnnotationRenderer.flatten(stripes, annotations)?.cropping(to: crop)))
+        #expect(direct.matchingShare(reference, in: CGRect(x: 0, y: 0, width: crop.width, height: crop.height)) == 1)
+    }
 }
 
 extension Pixels {

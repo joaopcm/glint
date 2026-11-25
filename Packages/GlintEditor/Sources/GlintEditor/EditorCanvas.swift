@@ -35,6 +35,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     public var onSave: (() -> Void)?
     public private(set) var selectedID: UUID? {
         didSet {
+            guard selectedID != oldValue else { return }
             needsDisplay = true
             updateAccessibilityValue()
         }
@@ -144,7 +145,8 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         context.scaleBy(x: 1, y: -1)
         context.draw(document.base, in: CGRect(origin: .zero, size: imageSize))
         context.restoreGState()
-        AnnotationRenderer.draw(annotations.filter { $0.id != editingTextID }, over: document.base, inFlippedContext: context)
+        let visibleAnnotations = editingTextID == nil ? annotations : annotations.filter { $0.id != editingTextID }
+        AnnotationRenderer.draw(visibleAnnotations, over: document.base, inFlippedContext: context, cache: document.renderCache)
         context.restoreGState()
 
         if let crop = displayedCrop {

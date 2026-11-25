@@ -13,8 +13,16 @@ struct GlintApp: App {
             Button("Quit Glint") { NSApplication.shared.terminate(nil) }
         }
         Settings {
-            SettingsView(settings: state.settings, bucket: state.bucket, history: state.history)
+            LazySettingsView(state: state)
         }
+    }
+}
+
+private struct LazySettingsView: View {
+    let state: AppState
+
+    var body: some View {
+        SettingsView(settings: state.settings, bucket: state.bucket, history: state.history)
     }
 }
 
@@ -24,38 +32,37 @@ final class AppState {
         store: UserDefaultsStore(),
         defaultSaveFolder: FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
     )
-    let bucket: BucketAccess
-    let history: UploadHistory
-    private let coordinator: CaptureCoordinator
-    private let textCapture: TextCapture
-    private let thumbnail: ThumbnailPresenter
-    private let recordingIndicator: RecordingIndicator
-    private let toast: ToastPresenter
+    lazy var bucket = BucketAccess(
+        settings: settings,
+        credentialStore: Self.bucketCredentialStore(),
+        transport: URLSessionS3Transport()
+    )
+    lazy var history = UploadHistory(file: Self.uploadHistoryFile())
+    private lazy var toast = ToastPresenter()
+    private var coordinator: CaptureCoordinator!
+    private var textCapture: TextCapture!
+    private var thumbnail: ThumbnailPresenter!
+    private let recordingIndicator = RecordingIndicator()
 
     init() {
-        let bucket = BucketAccess(settings: settings, credentialStore: Self.bucketCredentialStore(), transport: URLSessionS3Transport())
-        self.bucket = bucket
-        let toast = ToastPresenter()
-        self.toast = toast
-        let history = UploadHistory(file: Self.uploadHistoryFile())
-        self.history = history
-        let thumbnail = ThumbnailPresenter(
+        thumbnail = ThumbnailPresenter(
             settings: settings,
-            upload: { try await bucket.upload($0) },
-            onUploaded: { uploaded in
-                history.add(uploaded)
+            upload: { [weak self] url in
+                guard let self else { throw UploadError.notConfigured }
+                return try await self.bucket.upload(url)
+            },
+            onUploaded: { [weak self] uploaded in
+                guard let self else { return }
+                self.history.add(uploaded)
                 do {
                     try NSPasteboard.general.copyText(uploaded.link.absoluteString)
-                    toast.show("Link copied")
+                    self.toast.show("Link copied")
                 } catch {
-                    toast.show("Uploaded, but the clipboard refused the link: \(error.localizedDescription)")
+                    self.toast.show("Uploaded, but the clipboard refused the link: \(error.localizedDescription)")
                 }
             }
         )
-        self.thumbnail = thumbnail
         let capturer = ScreenCapturer()
-        let recordingIndicator = RecordingIndicator()
-        self.recordingIndicator = recordingIndicator
         let coordinator = CaptureCoordinator(
             capturer: capturer,
             recorder: capturer,
@@ -63,15 +70,17 @@ final class AppState {
             selector: SelectionOverlayController(snapshot: { try await capturer.captureDisplay($0) }),
             alerts: NSAlertPresenter(),
             settings: settings,
-            onSaved: { thumbnail.show($0) },
-            onRecordingChange: { recordingIndicator.update(region: $0) }
+            onSaved: { [weak self] url, precomputedThumbnail in
+                self?.thumbnail.show(url, precomputedThumbnail: precomputedThumbnail)
+            },
+            onRecordingChange: { [recordingIndicator] region in recordingIndicator.update(region: region) }
         )
         self.coordinator = coordinator
         recordingIndicator.onStop = { Task { await coordinator.stopRecording() } }
         textCapture = TextCapture(
             captureImage: { await coordinator.captureImage(.area) },
             alerts: NSAlertPresenter(),
-            onOutcome: { toast.show($0.message) }
+            onOutcome: { [weak self] outcome in self?.toast.show(outcome.message) }
         )
         let shortcuts: [(KeyboardShortcuts.Name, CaptureMode)] = [
             (.captureArea, .area),

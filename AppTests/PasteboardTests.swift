@@ -18,6 +18,18 @@ import Testing
     #expect(pasteboard.data(forType: .png) == png)
 }
 
+@MainActor @Test func copyPNGDataPutsFileURLAndPNGOnThePasteboardWithoutReadingDisk() throws {
+    let url = FileManager.default.temporaryDirectory.appending(path: "glint-pasteboard-missing-\(UUID().uuidString).png")
+    let png = Data([0x89, 0x50, 0x4e, 0x47])
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+
+    try pasteboard.copyPNGData(png, fileURL: url)
+
+    #expect(pasteboard.string(forType: .fileURL) == url.absoluteString)
+    #expect(pasteboard.data(forType: .png) == png)
+}
+
 @MainActor @Test func copyTextPutsPlainTextOnThePasteboard() throws {
     let pasteboard = NSPasteboard.withUniqueName()
     defer { pasteboard.releaseGlobally() }

@@ -74,8 +74,16 @@ final class ThumbnailPresenter {
     }
 
     func show(_ url: URL) {
+        show(url, precomputedThumbnail: nil)
+    }
+
+    func show(_ url: URL, precomputedThumbnail: CGImage?) {
         let screen = NSScreen.screens.first { $0.frame.contains(pointerLocation()) } ?? NSScreen.main
         guard let screen else { return }
+        if let precomputedThumbnail {
+            let scaled = ThumbnailDownsampler.downsample(precomputedThumbnail, maxPixelSize: ThumbnailItem.maxPixelSize(on: screen))
+            return show(url, thumbnail: scaled, on: screen)
+        }
         guard ThumbnailItem.isVideo(url) else {
             guard let thumbnail = ThumbnailItem.thumbnail(of: url, on: screen) else { return }
             return show(url, thumbnail: thumbnail, on: screen)
@@ -126,15 +134,24 @@ final class ThumbnailPresenter {
         return base.insetBy(dx: 10 * depth, dy: 0).offsetBy(dx: 0, dy: ThumbnailPile.offset * depth)
     }
 
+    // ponytail: drops the oldest once the expanded column would overflow the screen, on every layout, so a
+    // new capture, a resize, a Settings change and a smaller display all follow the same rule.
     private func layout() {
-        dropOverflow()
-        guard !items.isEmpty else { return }
-        let corner = settings.overlayCorner
         var groups: [NSScreen: [ThumbnailItem]] = [:]
         for item in items { groups[item.screen, default: []].append(item) }
-
         for (screen, group) in groups {
+            let capacity = Self.columnCapacity(in: screen.visibleFrame, width: width)
+            if group.count > capacity {
+                group.dropFirst(capacity).forEach(remove)
+                groups[screen] = Array(group.prefix(capacity))
+            }
+        }
+        guard !items.isEmpty else { return }
+        let corner = settings.overlayCorner
+
+        for (screen, group) in groups where !group.isEmpty {
             let collapsed = !expansion.isExpanded(on: screen) && group.count > 1
+            var needsOrderFront = liveWidth == nil
             for (index, item) in group.enumerated() {
                 item.view.stackCount = collapsed && index == 0 ? group.count : nil
                 item.view.isStacked = collapsed
@@ -144,26 +161,21 @@ final class ThumbnailPresenter {
                     item.panel.orderOut(nil)
                     continue
                 }
+                if !item.panel.isVisible { needsOrderFront = true }
                 if item.panel.isVisible, liveWidth == nil {
                     item.panel.animator().setFrame(frame, display: true)
                 } else {
                     item.panel.setFrame(frame, display: item.panel.isVisible) // follow resize gestures without lag
                 }
             }
-            // Newest on top: order back to front.
-            for item in group.reversed() where item.targetFrame != nil {
-                item.panel.orderFrontRegardless()
+            if needsOrderFront {
+                // Newest on top: order back to front.
+                for item in group.reversed() where item.targetFrame != nil {
+                    item.panel.orderFrontRegardless()
+                }
             }
         }
         refreshHover()
-    }
-
-    // ponytail: drops the oldest once the expanded column would overflow the screen, on every layout, so a
-    // new capture, a resize, a Settings change and a smaller display all follow the same rule.
-    private func dropOverflow() {
-        for (screen, group) in Dictionary(grouping: items, by: { $0.screen }) {
-            group.dropFirst(Self.columnCapacity(in: screen.visibleFrame, width: width)).forEach(remove)
-        }
     }
 
     /// Hover is derived from the pointer position, not cached from enter/exit events: panels that move,
@@ -355,7 +367,7 @@ final class ThumbnailPresenter {
                 document,
                 savingTo: url,
                 on: item.screen,
-                onSaved: { [weak self] in self?.items.first { $0.url == url }?.reloadThumbnail() },
+                onSaved: { [weak self] savedImage in self?.items.first { $0.url == url }?.reloadThumbnail(from: savedImage) },
                 onClose: { [weak self] in
                     self?.editors[url] = nil
                     self?.refreshHover()
@@ -462,7 +474,11 @@ private final class ThumbnailItem {
         panel.contentView = view
     }
 
-    func reloadThumbnail() {
+    func reloadThumbnail(from image: CGImage? = nil) {
+        if let image {
+            view.show(ThumbnailDownsampler.downsample(image, maxPixelSize: Self.maxPixelSize(on: screen)))
+            return
+        }
         guard let thumbnail = Self.thumbnail(of: url, on: screen) else { return }
         view.show(thumbnail)
     }
@@ -479,7 +495,7 @@ private final class ThumbnailItem {
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options)
     }
 
-    private static func maxPixelSize(on screen: NSScreen) -> CGFloat {
+    static func maxPixelSize(on screen: NSScreen) -> CGFloat {
         GlintSettings.thumbnailWidthRange.upperBound * screen.backingScaleFactor
     }
 }
@@ -523,12 +539,16 @@ private final class ThumbnailView: NSView, NSDraggingSource {
     private static let inset: CGFloat = 5
 
     var isHovered = false {
-        didSet { updateControls() }
+        didSet {
+            guard isHovered != oldValue else { return }
+            updateControls()
+        }
     }
 
     /// Part of a collapsed pile: no hover actions, a click expands the pile.
     var isStacked = false {
         didSet {
+            guard isStacked != oldValue else { return }
             updateControls()
             toolTip = isStacked ? "Click to expand" : nil
         }
@@ -536,6 +556,7 @@ private final class ThumbnailView: NSView, NSDraggingSource {
 
     var isUploading = false {
         didSet {
+            guard isUploading != oldValue else { return }
             uploadButton?.isEnabled = !isUploading
             uploadIndicator.isHidden = !isUploading
             if isUploading {
@@ -548,6 +569,7 @@ private final class ThumbnailView: NSView, NSDraggingSource {
 
     var stackCount: Int? {
         didSet {
+            guard stackCount != oldValue else { return }
             badgeLabel.stringValue = stackCount.map(String.init) ?? ""
             badge.isHidden = stackCount == nil
             setAccessibilityHelp(stackCount.map { "\($0) screenshots, click to expand" })
@@ -925,5 +947,30 @@ private final class PinnedPanel: NSPanel {
     override func close() {
         super.close()
         onClose?()
+    }
+}
+
+enum ThumbnailDownsampler {
+    static func downsample(_ image: CGImage, maxPixelSize: CGFloat) -> CGImage {
+        let width = CGFloat(image.width)
+        let height = CGFloat(image.height)
+        let longest = max(width, height)
+        guard longest > maxPixelSize, maxPixelSize > 0 else { return image }
+        let scale = maxPixelSize / longest
+        let outWidth = max(Int((width * scale).rounded()), 1)
+        let outHeight = max(Int((height * scale).rounded()), 1)
+        let colorSpace = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
+        guard let context = CGContext(
+            data: nil,
+            width: outWidth,
+            height: outHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return image }
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: outWidth, height: outHeight))
+        return context.makeImage() ?? image
     }
 }

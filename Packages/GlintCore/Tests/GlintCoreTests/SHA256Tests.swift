@@ -56,3 +56,23 @@ func hmacMatchesRFC4231(key: String, data: String, expected: String) {
     let mac = SHA256.hmac(key: bytes(hex: "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"), message: Array("Test With Truncation".utf8))
     #expect(Array(mac.prefix(16)).hex == "a3b6167473100ee06e0c796c2955552b")
 }
+
+@Test func softwareHasherMatchesAcrossChunkAndDataBoundaries() {
+    let payload = [UInt8](repeating: 0x61, count: 1_000_000)
+    #expect(SHA256.softwareHash(payload).hex == "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0")
+    #expect(SHA256.hash(Data(payload)).hex == "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0")
+
+    var chunked = SHA256.SoftwareHasher()
+    var offset = 0
+    for step in [1, 7, 56, 63, 64, 65, 129, 512] {
+        let end = min(offset + step, payload.count)
+        payload[offset..<end].withUnsafeBytes { chunked.update($0) }
+        offset = end
+    }
+    payload[offset...].withUnsafeBytes { chunked.update($0) }
+    #expect(chunked.finalize().hex == "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0")
+
+    let key = bytes(hex: "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
+    let msg = bytes(hex: "4869205468657265")
+    #expect(SHA256.softwareHMAC(key: key, message: msg).hex == "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
+}

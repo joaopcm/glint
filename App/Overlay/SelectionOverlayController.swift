@@ -7,6 +7,8 @@ import os
 @MainActor
 final class SelectionOverlayController: Selecting {
     private var panels: [OverlayPanel] = []
+    private var areaViews: [AreaSelectionView] = []
+    private var windowViews: [WindowPickerView] = []
     private var continuation: CheckedContinuation<SelectionResult, any Error>?
     private var windowLoading: Task<Void, Never>?
     private var windowTargets: [WindowTarget]?
@@ -22,6 +24,7 @@ final class SelectionOverlayController: Selecting {
 
     func selectArea(frozen: [FrozenDisplay]) async throws -> SelectionResult {
         let displays = DisplayInfo.onScreens()
+        var views: [AreaSelectionView] = []
         return try await present { screen in
             let display = displays.first { $0.frame == screen.frame }
             let backdrop = frozen.first { $0.display.frame == screen.frame }?.image
@@ -29,20 +32,22 @@ final class SelectionOverlayController: Selecting {
             view.onSelectionChange = { [weak self] rect in self?.updateAreaSelection(rect) }
             view.onPointerMove = { [weak self] point in self?.updateLoupes(at: point) }
             view.onFinish = { [weak self] result in self?.finish(result) }
+            views.append(view)
             return view
         } afterShowing: {
+            areaViews = views
             loadSnapshots()
         }
     }
 
     private func loadSnapshots() {
-        for view in panels.compactMap({ $0.contentView as? AreaSelectionView }) where view.needsSnapshot {
+        for view in areaViews where view.needsSnapshot {
             guard let display = view.display else { continue }
             let id = display.id
             snapshotTasks.append(Task { [weak self, weak view, snapshot, log] in
                 do {
                     let image = try await snapshot(display)
-                    guard !Task.isCancelled, let view, self?.panels.contains(where: { $0.contentView === view }) == true else { return }
+                    guard !Task.isCancelled, let view, self?.areaViews.contains(where: { $0 === view }) == true else { return }
                     view.setSnapshot(image)
                 } catch {
                     log.error("loupe snapshot failed for display \(id): \(error.localizedDescription, privacy: .public)")
@@ -52,18 +57,21 @@ final class SelectionOverlayController: Selecting {
     }
 
     private func updateLoupes(at point: CGPoint) {
-        for view in panels.compactMap({ $0.contentView as? AreaSelectionView }) {
+        for view in areaViews {
             view.updateLoupe(at: point)
         }
     }
 
     func selectWindow(_ windows: Task<[CapturableWindow], any Error>) async throws -> SelectionResult {
-        try await present { screen in
+        var views: [WindowPickerView] = []
+        return try await present { screen in
             let view = WindowPickerView(screenFrame: screen.frame)
             view.onPointerMove = { [weak self] point in self?.highlightWindow(at: point) }
             view.onClick = { [weak self] point in self?.pickWindow(at: point) }
+            views.append(view)
             return view
         } afterShowing: {
+            windowViews = views
             windowLoading = Task { [weak self] in
                 let result = await windows.result
                 guard !Task.isCancelled else { return }
@@ -107,6 +115,8 @@ final class SelectionOverlayController: Selecting {
         snapshotTasks = []
         panels.forEach { $0.orderOut(nil) }
         panels = []
+        areaViews = []
+        windowViews = []
         windowTargets = nil
         pendingClick = nil
         highlightedWindow = nil
@@ -115,7 +125,7 @@ final class SelectionOverlayController: Selecting {
     }
 
     private func updateAreaSelection(_ rect: CGRect?) {
-        for view in panels.compactMap({ $0.contentView as? AreaSelectionView }) {
+        for view in areaViews {
             view.selection = rect
         }
     }
@@ -148,7 +158,7 @@ final class SelectionOverlayController: Selecting {
         let target = windowTarget(at: point)
         guard target != highlightedWindow else { return }
         highlightedWindow = target
-        for view in panels.compactMap({ $0.contentView as? WindowPickerView }) {
+        for view in windowViews {
             view.highlight = target?.frame
         }
     }

@@ -247,8 +247,8 @@ private struct Harness {
             now: { Date(timeIntervalSince1970: 1_795_000_000) },
             fileExists: { FileManager.default.fileExists(atPath: $0.path) },
             pointerLocation: { pointer },
-            copyToClipboard: copyToClipboard ?? { _ in },
-            onSaved: onSaved,
+            copyToClipboard: { url, _ in try copyToClipboard?(url) },
+            onSaved: { url, _ in onSaved(url) },
             onRecordingChange: onRecordingChange
         )
     }

@@ -105,8 +105,8 @@ final class CaptureCoordinator {
     private let now: () -> Date
     private let fileExists: (URL) -> Bool
     private let pointerLocation: @MainActor () -> CGPoint
-    private let copyToClipboard: @MainActor (URL) throws -> Void
-    private let onSaved: @MainActor (URL) -> Void
+    private let copyToClipboard: @MainActor (URL, Data) throws -> Void
+    private let onSaved: @MainActor (URL, _ thumbnail: CGImage?) -> Void
     private let onRecordingChange: @MainActor (_ region: CGRect?) -> Void
     private var isRunning = false
     private var recording: (any ActiveRecording)?
@@ -122,8 +122,8 @@ final class CaptureCoordinator {
         now: @escaping () -> Date = Date.init,
         fileExists: @escaping (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
-        copyToClipboard: @escaping @MainActor (URL) throws -> Void = { try NSPasteboard.general.copyPNGFile(at: $0) },
-        onSaved: @escaping @MainActor (URL) -> Void = { _ in },
+        copyToClipboard: @escaping @MainActor (URL, Data) throws -> Void = { url, data in try NSPasteboard.general.copyPNGData(data, fileURL: url) },
+        onSaved: @escaping @MainActor (URL, _ thumbnail: CGImage?) -> Void = { _, _ in },
         onRecordingChange: @escaping @MainActor (_ region: CGRect?) -> Void = { _ in }
     ) {
         self.capturer = capturer
@@ -146,7 +146,7 @@ final class CaptureCoordinator {
         defer { isRunning = false }
         guard let image = await takeImage(mode) else { return }
         do {
-            try deliver(image)
+            try await deliver(image)
         } catch {
             present(error)
         }
@@ -225,7 +225,7 @@ final class CaptureCoordinator {
         recording = nil
         recordingEnd = nil
         onRecordingChange(nil)
-        if fileExists(url) { onSaved(url) }
+        if fileExists(url) { onSaved(url, nil) }
         guard let failure else { return }
         let stoppedEarly = if case .recordingStoppedEarly = failure as? CaptureError { true } else { false }
         present(failure, failure: stoppedEarly ? "Glint's recording stopped early" : "Glint couldn't finish the recording")
@@ -242,7 +242,10 @@ final class CaptureCoordinator {
             return (.area(region, on: display), region)
         case .window:
             let windows = windowList()
-            guard case .window(let id) = try await selector.selectWindow(windows) else { return nil }
+            guard case .window(let id) = try await selector.selectWindow(windows) else {
+                windows.cancel()
+                return nil
+            }
             guard let window = try await windows.value.first(where: { $0.id == id }) else { throw CaptureError.windowNotFound(id) }
             let mainDisplayHeight = await capturer.displays().first { $0.frame.origin == .zero }?.frame.height ?? 0
             return (.window(id), DisplayGeometry.appKitRect(fromTopLeftGlobal: window.frame, mainDisplayHeight: mainDisplayHeight))
@@ -253,7 +256,7 @@ final class CaptureCoordinator {
     /// The list reached the picker at 96.5 ms median that way, 59.1 ms detached (ui-macos run 45517264886, #41).
     private func windowList() -> Task<[CapturableWindow], any Error> {
         let capturer = capturer
-        return Task.detached { try await capturer.shareableWindows() }
+        return Task.detached(priority: .userInitiated) { try await capturer.shareableWindows() }
     }
 
     private func nextFileURL(ext: String) -> URL {
@@ -265,13 +268,20 @@ final class CaptureCoordinator {
         )
     }
 
-    private func deliver(_ image: CGImage) throws {
+    private func deliver(_ image: CGImage) async throws {
         let url = nextFileURL(ext: "png")
-        try PNGWriter.write(image, to: url)
-        onSaved(url)
+        let maxScale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
+        let maxThumbnailPixels = GlintSettings.thumbnailWidthRange.upperBound * maxScale
+        let (pngData, thumbnail) = try await Task.detached(priority: .userInitiated) {
+            let data = try PNGWriter.encode(image, path: url.path)
+            try PNGWriter.write(data, to: url)
+            let thumb = ThumbnailDownsampler.downsample(image, maxPixelSize: maxThumbnailPixels)
+            return (data, thumb)
+        }.value
+        onSaved(url, thumbnail)
         guard settings.copyToClipboardAfterCapture else { return }
         do {
-            try copyToClipboard(url)
+            try copyToClipboard(url, pngData)
         } catch {
             throw CoordinatorError.clipboardFailed(savedTo: url, reason: error.localizedDescription)
         }
@@ -290,7 +300,10 @@ final class CaptureCoordinator {
             return try Self.crop(rect, from: frozen)
         case .window:
             let windows = windowList()
-            guard case .window(let id) = try await selector.selectWindow(windows) else { return nil }
+            guard case .window(let id) = try await selector.selectWindow(windows) else {
+                windows.cancel()
+                return nil
+            }
             return try await capturer.captureWindow(id: id)
         case .fullScreen:
             let displays = await capturer.displays()

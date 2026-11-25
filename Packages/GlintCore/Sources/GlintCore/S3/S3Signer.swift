@@ -18,7 +18,7 @@ public struct PayloadHash: Sendable, Equatable {
     public static let unsigned = PayloadHash(value: "UNSIGNED-PAYLOAD")
 
     public static func sha256(of body: Data) -> PayloadHash {
-        PayloadHash(value: SHA256.hash([UInt8](body)).hex)
+        PayloadHash(value: SHA256.hash(body).hex)
     }
 
     private init(value: String) {
@@ -56,14 +56,18 @@ public struct S3Signer: Sendable {
         date: Date
     ) throws(S3SigningError) -> SignedRequest {
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        guard let host = components?.percentEncodedHost, !host.isEmpty else {
+        guard let components, let host = components.percentEncodedHost, !host.isEmpty else {
             throw .urlHasNoHost(url)
         }
-        var signed = headers.filter { $0.key.lowercased() != "host" }.map { (name: $0.key, value: $0.value) }
-        signed.append(("host", components?.port.map { "\(host):\($0)" } ?? host))
+        var signed: [(name: String, value: String)] = []
+        signed.reserveCapacity(headers.count + 4)
+        for (name, value) in headers where name.caseInsensitiveCompare("host") != .orderedSame {
+            signed.append((name: name, value: value))
+        }
+        signed.append(("host", components.port.map { "\(host):\($0)" } ?? host))
         signed.append(("x-amz-content-sha256", payload.value))
         return SigV4.sign(
-            method: method, url: url, headers: signed, payloadHash: payload.value,
+            method: method, components: components, headers: signed, payloadHash: payload.value,
             credentials: credentials, region: region, service: service, date: date
         )
     }
