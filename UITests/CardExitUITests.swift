@@ -25,7 +25,11 @@ class CardExitUITests: GlintUITestCase {
         let xs = sampler.stop()
 
         let moved = expectedEdge == "right" ? xs.contains { $0 > start.minX + 1 } : xs.contains { $0 < start.minX - 1 }
-        XCTAssertTrue(moved, "the card started at x \(start.minX) and was seen at \(xs) while leaving, never toward the \(expectedEdge) edge")
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            XCTAssertTrue(xs.allSatisfy { abs($0 - start.minX) < 1 }, "Reduce Motion is on, yet the card moved from x \(start.minX) to \(xs) instead of fading in place")
+        } else {
+            XCTAssertTrue(moved, "the card started at x \(start.minX) and was seen at \(xs) while leaving, never toward the \(expectedEdge) edge")
+        }
     }
 
     @MainActor private func waitUntilGone(_ element: XCUIElement) -> Bool {
