@@ -241,12 +241,19 @@ final class CaptureCoordinator {
             let region = selection.intersection(display.frame)
             return (.area(region, on: display), region)
         case .window:
-            let windows = Task { try await capturer.shareableWindows() }
+            let windows = windowList()
             guard case .window(let id) = try await selector.selectWindow(windows) else { return nil }
             guard let window = try await windows.value.first(where: { $0.id == id }) else { throw CaptureError.windowNotFound(id) }
             let mainDisplayHeight = await capturer.displays().first { $0.frame.origin == .zero }?.frame.height ?? 0
             return (.window(id), DisplayGeometry.appKitRect(fromTopLeftGlobal: window.frame, mainDisplayHeight: mainDisplayHeight))
         }
+    }
+
+    /// Detached: a main-actor task only starts the request once the overlay is up, and the request then runs beside it.
+    /// The list reached the picker at 96.5 ms median that way, 59.1 ms detached (ui-macos run 45517264886, #41).
+    private func windowList() -> Task<[CapturableWindow], any Error> {
+        let capturer = capturer
+        return Task.detached { try await capturer.shareableWindows() }
     }
 
     private func nextFileURL(ext: String) -> URL {
@@ -282,7 +289,7 @@ final class CaptureCoordinator {
             guard case .area(let rect) = try await selector.selectArea(frozen: frozen) else { return nil }
             return try Self.crop(rect, from: frozen)
         case .window:
-            let windows = Task { try await capturer.shareableWindows() }
+            let windows = windowList()
             guard case .window(let id) = try await selector.selectWindow(windows) else { return nil }
             return try await capturer.captureWindow(id: id)
         case .fullScreen:
