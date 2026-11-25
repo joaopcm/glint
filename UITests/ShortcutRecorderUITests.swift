@@ -31,7 +31,7 @@ final class ShortcutRecorderUITests: GlintUITestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         postKey(kVK_ANSI_Keypad1, flags: hyperKeypad1)
 
-        let recorded = recorder(showing: "⌃⌥⇧⌘1\u{20e3}")
+        let recorded = recorder(showing: "⌃⌥⇧⌘ Num 1")
         XCTAssertTrue(recorded.waitForExistence(timeout: Self.captureTimeout),
                       "the Capture Area recorder did not record ⌃⌥⇧⌘ Num 1, it shows \(captureArea.value ?? "nothing")")
         app.typeKey("w", modifierFlags: .command)
