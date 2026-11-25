@@ -24,9 +24,28 @@ struct SettingsView: View {
 
 private struct GeneralSettingsView: View {
     @Bindable var settings: GlintSettings
+    @State private var openAtLogin = OpenAtLogin()
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Open at login", isOn: Binding(get: { openAtLogin.isOn }, set: { openAtLogin.set($0) }))
+                if openAtLogin.needsApproval {
+                    LabeledContent {
+                        Button("Open Login Items", action: openAtLogin.openLoginItems)
+                    } label: {
+                        Text(OpenAtLogin.approvalNote)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let failure = openAtLogin.failure {
+                    Text(failure)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                }
+            }
             LabeledContent("Save folder") {
                 HStack {
                     Text(settings.saveFolder.path)
@@ -48,6 +67,8 @@ private struct GeneralSettingsView: View {
                 Text("HEVC").tag(VideoCodec.hevc)
             }
         }
+        .onAppear(perform: openAtLogin.refresh)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in openAtLogin.refresh() }
         .formStyle(.grouped)
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)
