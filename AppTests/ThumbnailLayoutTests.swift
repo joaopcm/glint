@@ -10,10 +10,10 @@ import Testing
     let right1 = ThumbnailPresenter.frame(at: 1, in: visible, corner: .bottomRight, collapsed: false, width: 240)!
     let left0 = ThumbnailPresenter.frame(at: 0, in: visible, corner: .bottomLeft, collapsed: false, width: 240)!
 
-    #expect(right0 == CGRect(x: 1000 - 16 - 240, y: 25 + 16, width: 240, height: 160))
+    #expect(right0 == CGRect(x: 1000 - 24 - 240, y: 25 + 24, width: 240, height: 160))
     #expect(right1.minY == right0.maxY + 10)
     #expect(right1.minX == right0.minX)
-    #expect(left0.minX == 16)
+    #expect(left0.minX == 24)
     #expect(!right0.intersects(right1))
 }
 

@@ -218,6 +218,14 @@ class GlintUITestCase: XCTestCase {
         return CGSize(width: width, height: height)
     }
 
+    /// `ui-macos` keeps screen recordings only for failing tests (#83), so a passing visual check keeps a screenshot instead.
+    @MainActor func keepScreenshot(named name: String) {
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = name
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     @MainActor func assertFinderFrontmost(file: StaticString = #filePath, line: UInt = #line) {
         let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         XCTAssertEqual(front, "com.apple.finder", "Finder lost focus to \(front ?? "nothing")", file: file, line: line)
