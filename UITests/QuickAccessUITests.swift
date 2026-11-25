@@ -118,6 +118,29 @@ final class QuickAccessUITests: GlintUITestCase {
         XCTAssertTrue(waitUntilGone(pinned), "the pinned window did not close")
     }
 
+    /// Glint is never the active app, so the resize cursor needs the private `SetsCursorInBackground` property
+    /// (`BackgroundCursor`). A macOS major that drops it fails here instead of silently losing the hint (#28).
+    @MainActor func testTopEdgeShowsResizeCursorWhileFinderIsFrontmost() {
+        let card = captureOneCard()
+        moveAwayFromCards()
+        let frame = card.frame
+        screenPoint(CGPoint(x: frame.midX, y: frame.minY + 3)).hover()
+        assertFinderFrontmost()
+
+        let resize = NSCursor.frameResize(position: .top, directions: .all)
+        let shown = waitUntil { NSCursor.currentSystem.map { Self.sameCursor($0, resize) } ?? false }
+        let current = NSCursor.currentSystem
+        XCTAssertTrue(shown, """
+            hovering a thumbnail's top edge shows a cursor with hot spot \(String(describing: current?.hotSpot)) and size \(String(describing: current?.image.size)), \
+            not the resize cursor (\(resize.hotSpot), \(resize.image.size)). macOS \(ProcessInfo.processInfo.operatingSystemVersionString) may have \
+            dropped SetsCursorInBackground, see #28
+            """)
+    }
+
+    private static func sameCursor(_ a: NSCursor, _ b: NSCursor) -> Bool {
+        a.hotSpot == b.hotSpot && a.image.size == b.image.size
+    }
+
     @MainActor func testCloseRemovesCardKeepsFile() {
         let (card, png) = captureOneCardAndFile()
         center(of: card).hover()
