@@ -74,7 +74,7 @@ import Testing
     #expect(files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
 }
 
-@MainActor @Test func growingTheCardsDropsOldestWhenTheColumnWouldOverflow() throws {
+@MainActor @Test func growingTheCardsDropsOldestWhenTheColumnWouldOverflow() async throws {
     let screen = try #require(NSScreen.main)
     let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, pointerLocation: { CGPoint(x: screen.frame.midX, y: screen.frame.midY) })
@@ -88,8 +88,36 @@ import Testing
     #expect(presenter.count == fit)
 
     settings.thumbnailWidth = widest
-    presenter.settingsChanged()
+    await settingsChangeApplied()
 
     #expect(presenter.count == fitWhenWidest)
     #expect(files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+}
+
+/// The presenter applies a settings change from a main-actor task queued by the setter; the main queue runs in order.
+@MainActor private func settingsChangeApplied() async {
+    await Task { @MainActor in }.value
+}
+
+@MainActor @Test func changingTheCornerMovesAVisibleThumbnailWithoutAnyDefaultsNotification() async throws {
+    let screen = try #require(NSScreen.main)
+    let settings = GlintSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, pointerLocation: { CGPoint(x: screen.frame.midX, y: screen.frame.midY) })
+    let file = try writePNG()
+    defer { try? FileManager.default.removeItem(at: file) }
+    presenter.show(file)
+    let visible = screen.visibleFrame
+    let before = try #require(presenter.frames.first ?? nil)
+    #expect(before.maxX == visible.maxX - ThumbnailPresenter.margin)
+
+    settings.overlayCorner = .bottomLeft
+    await settingsChangeApplied()
+
+    let after = try #require(presenter.frames.first ?? nil)
+    #expect(after.minX == visible.minX + ThumbnailPresenter.margin)
+    #expect(after.minY == before.minY)
+
+    settings.overlayCorner = .bottomRight
+    await settingsChangeApplied()
+    #expect(presenter.frames.first == before)
 }

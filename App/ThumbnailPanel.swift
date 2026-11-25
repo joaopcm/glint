@@ -31,7 +31,6 @@ final class ThumbnailPresenter {
     private let uploadFile: @MainActor (URL) async throws -> UploadedCapture
     private let onUploaded: @MainActor (UploadedCapture) -> Void
     private var observers: [NSObjectProtocol] = []
-    private var lastLayoutSettings: LayoutSettings?
     private var liveWidth: CGFloat?
     private var resizeStartWidth: CGFloat?
     private var width: CGFloat { liveWidth ?? CGFloat(settings.thumbnailWidth) }
@@ -55,13 +54,23 @@ final class ThumbnailPresenter {
             center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.screensChanged() }
             },
-            // Corner / size / auto-hide changes in Settings apply to thumbnails already on screen.
-            // Deferred: AppKit posts this from inside its own launch-time dispatch_once (registerDefaults),
-            // and re-entering AppKit synchronously from there crashes.
-            center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: nil) { [weak self] _ in
-                Task { @MainActor in self?.settingsChanged() }
-            },
         ]
+        relayoutOnLayoutSettingsChange()
+    }
+
+    /// Corner, width and auto-hide changes in Settings apply to thumbnails already on screen.
+    /// `onChange` fires once, from the setter, before the new value is stored: hop to the main actor to read it, then watch again.
+    private func relayoutOnLayoutSettingsChange() {
+        withObservationTracking {
+            _ = settings.overlayCorner
+            _ = settings.thumbnailWidth
+            _ = settings.overlayAutoDismiss
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.layout()
+                self?.relayoutOnLayoutSettingsChange()
+            }
+        }
     }
 
     func show(_ url: URL) {
@@ -118,7 +127,6 @@ final class ThumbnailPresenter {
     }
 
     private func layout() {
-        lastLayoutSettings = LayoutSettings(settings)
         dropOverflow()
         guard !items.isEmpty else { return }
         let corner = settings.overlayCorner
@@ -231,11 +239,6 @@ final class ThumbnailPresenter {
         return start + (abs(horizontal) > abs(vertical) ? horizontal : vertical)
     }
 
-    func settingsChanged() {
-        guard LayoutSettings(settings) != lastLayoutSettings else { return }
-        layout()
-    }
-
     func setDraggingOut(_ inProgress: Bool) {
         isDraggingOut = inProgress
         refreshHover()
@@ -249,6 +252,7 @@ final class ThumbnailPresenter {
     /// Thumbnails currently in the overlay (for tests).
     var count: Int { items.count }
     var urls: [URL] { items.map(\.url) }
+    var frames: [CGRect?] { items.map(\.targetFrame) }
 
     private func screensChanged() {
         let screens = NSScreen.screens
@@ -907,19 +911,6 @@ enum BackgroundCursor {
 private extension NSScreen {
     var displayID: UInt32? {
         (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
-    }
-}
-
-/// Corner, width and auto-hide: the settings the overlay lays out from.
-private struct LayoutSettings: Equatable {
-    let corner: OverlayCorner
-    let width: Double
-    let autoDismiss: Bool
-
-    @MainActor init(_ settings: GlintSettings) {
-        corner = settings.overlayCorner
-        width = settings.thumbnailWidth
-        autoDismiss = settings.overlayAutoDismiss
     }
 }
 
