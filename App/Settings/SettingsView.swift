@@ -23,6 +23,15 @@ struct SettingsView: View {
 private struct GeneralSettingsView: View {
     @Bindable var settings: GlintSettings
 
+    private static let shortcuts: [(title: String, name: KeyboardShortcuts.Name)] = [
+        ("Capture Area", .captureArea),
+        ("Capture Window", .captureWindow),
+        ("Capture Full Screen", .captureFullScreen),
+        ("Capture Text", .captureText),
+        ("Record Area", .recordArea),
+        ("Record Window", .recordWindow),
+    ]
+
     var body: some View {
         Form {
             LabeledContent("Save folder") {
@@ -45,12 +54,11 @@ private struct GeneralSettingsView: View {
                 Text("H.264").tag(VideoCodec.h264)
                 Text("HEVC").tag(VideoCodec.hevc)
             }
-            KeyboardShortcuts.Recorder("Capture Area", name: .captureArea)
-            KeyboardShortcuts.Recorder("Capture Window", name: .captureWindow)
-            KeyboardShortcuts.Recorder("Capture Full Screen", name: .captureFullScreen)
-            KeyboardShortcuts.Recorder("Capture Text", name: .captureText)
-            KeyboardShortcuts.Recorder("Record Area", name: .recordArea)
-            KeyboardShortcuts.Recorder("Record Window", name: .recordWindow)
+            ForEach(Self.shortcuts, id: \.name) { title, name in
+                ShortcutRecorder(title: title, name: name, allNames: Self.shortcuts.map(\.name)) { recorded in
+                    Self.shortcuts.first { $0.name != name && KeyboardShortcuts.getShortcut(for: $0.name) == recorded }?.title
+                }
+            }
         }
         .formStyle(.grouped)
         .frame(width: 480)
