@@ -22,6 +22,9 @@ targets:
     sources: [App]
     entitlements:
       path: App/Glint.entitlements
+      # xcodegen writes this file from `properties`; without them it rewrites it empty (#84).
+      properties:
+        com.apple.security.device.audio-input: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.glint

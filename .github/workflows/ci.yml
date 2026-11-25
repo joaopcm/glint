@@ -89,6 +89,14 @@ jobs:
           xcodebuild -scheme Glint -configuration Release -destination 'platform=macOS' -derivedDataPath build \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} GLINT_COMMIT=${{ steps.sha.outputs.short }} build
           plutil -p build/Build/Products/Release/Glint.app/Contents/Info.plist
+      # Hardened runtime blocks the mic without this entitlement, and CI has no mic to notice (#84).
+      - name: Check the mic entitlement
+        env:
+          APP: build/Build/Products/Release/Glint.app
+        run: |
+          codesign -d --entitlements - --xml "$APP" > "$RUNNER_TEMP/entitlements.plist"
+          value=$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' "$RUNNER_TEMP/entitlements.plist" 2>&1) || true
+          [ "$value" = true ] || { echo "::error::$APP is missing com.apple.security.device.audio-input=true (got: $value). Add it under entitlements.properties in project.yml"; exit 1; }
       - name: Check build label stamping
         env:
           PLIST: build/Build/Products/Release/Glint.app/Contents/Info.plist
