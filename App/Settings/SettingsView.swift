@@ -29,7 +29,7 @@ private struct GeneralSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Open at login", isOn: Binding(get: { openAtLogin.isOn }, set: openAtLogin.set))
+                Toggle("Open at login", isOn: Binding(get: { openAtLogin.isOn }, set: { openAtLogin.set($0) }))
                 if openAtLogin.needsApproval {
                     LabeledContent {
                         Button("Open Login Items", action: openAtLogin.openLoginItems)
