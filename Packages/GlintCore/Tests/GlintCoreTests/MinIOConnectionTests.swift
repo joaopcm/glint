@@ -12,6 +12,8 @@ private struct MinIO {
     let readerUser: String
     let readerSecret: String
     let bucket: String
+    let publicBucket: String
+    let policyBucket: String
 
     static let environment: MinIO? = {
         let env = ProcessInfo.processInfo.environment
@@ -22,17 +24,23 @@ private struct MinIO {
             rootSecret: env["GLINT_MINIO_ROOT_PASSWORD"] ?? "",
             readerUser: env["GLINT_MINIO_READER_USER"] ?? "",
             readerSecret: env["GLINT_MINIO_READER_PASSWORD"] ?? "",
-            bucket: env["GLINT_MINIO_BUCKET"] ?? ""
+            bucket: env["GLINT_MINIO_BUCKET"] ?? "",
+            publicBucket: env["GLINT_MINIO_PUBLIC_BUCKET"] ?? "",
+            policyBucket: env["GLINT_MINIO_POLICY_BUCKET"] ?? ""
         )
     }()
 
-    func run(bucket: String? = nil, accessKeyID: String? = nil, secret: String? = nil) async throws -> ConnectionTestResult {
+    func client(bucket: String? = nil, accessKeyID: String? = nil, secret: String? = nil) throws -> S3Client {
         let configuration = try BucketConfiguration(
             endpoint: endpoint, region: "us-east-1", bucket: bucket ?? self.bucket,
             pathStyle: true, keyPrefix: "ci", publicBaseURL: ""
         )
         let credentials = S3Credentials(accessKeyID: accessKeyID ?? rootUser, secretAccessKey: secret ?? rootSecret)
-        return await ConnectionTest.run(client: S3Client(configuration: configuration, credentials: credentials, transport: RealTransport()))
+        return S3Client(configuration: configuration, credentials: credentials, transport: RealTransport())
+    }
+
+    func run(bucket: String? = nil, accessKeyID: String? = nil, secret: String? = nil) async throws -> ConnectionTestResult {
+        await ConnectionTest.run(client: try client(bucket: bucket, accessKeyID: accessKeyID, secret: secret))
     }
 }
 
@@ -83,5 +91,33 @@ struct MinIOConnectionTests {
         let result = try await minio.run(accessKeyID: minio.readerUser, secret: minio.readerSecret)
         #expect(!result.succeeded)
         #expect(result.log.contains("HTTP 403. AccessDenied"), "\(result.log)")
+    }
+
+    @Test func aPrivateBucketsLinkIsBlockedAndTheTestObjectIsStillDeleted() async throws {
+        let result = try await minio.run()
+        #expect(result.publicLink == .blocked(status: 403, code: "AccessDenied"), "\(result.log)")
+        #expect(result.log.contains("without keys: HTTP 403 AccessDenied"), "\(result.log)")
+        #expect(result.log.contains("DELETE \(minio.endpoint)/\(minio.bucket)/ci/glint-connection-test-"), "\(result.log)")
+    }
+
+    @Test func anAnonymousDownloadBucketsLinkOpens() async throws {
+        let result = try await minio.run(bucket: minio.publicBucket)
+        #expect(result.succeeded, "\(result.log)")
+        #expect(result.publicLink == .opens, "\(result.log)")
+    }
+
+    @Test func theGeneratedPublicReadPolicyOpensTheLink() async throws {
+        let client = try minio.client(bucket: minio.policyBucket)
+        let policy = BucketPolicy.publicRead(bucket: minio.policyBucket, keyPrefix: "ci")
+        let current = try await client.getBucketPolicy()
+        if let current, let merged = try BucketPolicy.addingPublicRead(bucket: minio.policyBucket, keyPrefix: "ci", to: current) {
+            try await client.putBucketPolicy(merged)
+        } else if current == nil {
+            try await client.putBucketPolicy(policy)
+        }
+        #expect(try await client.getBucketPolicy() != nil)
+
+        let result = await ConnectionTest.run(client: client)
+        #expect(result.publicLink == .opens, "\(result.log)")
     }
 }

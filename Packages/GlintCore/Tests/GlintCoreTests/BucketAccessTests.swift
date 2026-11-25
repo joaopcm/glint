@@ -101,7 +101,7 @@ struct StoreFailure: Error, LocalizedError {
 }
 
 @MainActor @Test func testConnectionReportsTheRawResult() async {
-    let transport = FakeTransport([ok(200), ok(204)])
+    let transport = FakeTransport([ok(200), ok(200), ok(204)])
     let access = BucketAccess(settings: filledSettings(), credentialStore: MemoryCredentialStore(testCredentials), transport: transport)
     await access.testConnection()
     guard case .finished(let result) = access.connectionTest else {
@@ -110,7 +110,7 @@ struct StoreFailure: Error, LocalizedError {
     }
     #expect(result.succeeded)
     #expect(result.log.hasPrefix("PUT http://localhost:9000/shots/glint/glint-connection-test-"))
-    #expect(transport.requests.map(\.method) == ["PUT", "DELETE"])
+    #expect(transport.requests.map(\.method) == ["PUT", "GET", "DELETE"])
 }
 
 @MainActor @Test func testConnectionWithNothingConfiguredSaysSoWithoutTouchingTheNetwork() async {
@@ -134,4 +134,56 @@ struct StoreFailure: Error, LocalizedError {
         succeeded: false,
         log: BucketSetupError.endpointInvalid("s3.example.com").localizedDescription
     )))
+}
+
+@MainActor @Test func pastingABucketURLFillsTheForm() {
+    let settings = filledSettings()
+    let access = BucketAccess(settings: settings, credentialStore: MemoryCredentialStore(), transport: FakeTransport([]))
+    access.fill(fromBucketURL: "https://glint-captures.s3.us-east-2.amazonaws.com")
+
+    #expect(access.bucketURLError == nil)
+    #expect(settings.bucketEndpoint == "https://s3.us-east-2.amazonaws.com")
+    #expect(settings.bucketRegion == "us-east-2")
+    #expect(settings.bucketName == "glint-captures")
+    #expect(settings.bucketPathStyle == false)
+    #expect(settings.bucketKeyPrefix == "")
+    #expect(access.provider == .aws)
+}
+
+@MainActor @Test func pastingTextThatIsntABucketURLSaysSoAndChangesNothing() {
+    let settings = filledSettings()
+    let access = BucketAccess(settings: settings, credentialStore: MemoryCredentialStore(), transport: FakeTransport([]))
+    access.fill(fromBucketURL: "glint-captures")
+
+    #expect(access.bucketURLError == "Glint can't read a bucket from glint-captures. Paste a bucket URL like https://my-bucket.s3.us-east-2.amazonaws.com or s3://my-bucket/shots.")
+    #expect(settings.bucketName == "shots")
+}
+
+@MainActor @Test func aPresetKeepsTheBucketAndPrefix() {
+    let settings = filledSettings()
+    let access = BucketAccess(settings: settings, credentialStore: MemoryCredentialStore(), transport: FakeTransport([]))
+    access.apply(.cloudflareR2)
+
+    #expect(settings.bucketEndpoint == "https://<account-id>.r2.cloudflarestorage.com")
+    #expect(settings.bucketRegion == "auto")
+    #expect(settings.bucketPathStyle)
+    #expect(settings.bucketName == "shots")
+    #expect(settings.bucketKeyPrefix == "glint")
+}
+
+@MainActor @Test func makingLinksPublicChecksTheLinkAgain() async {
+    let transport = FakeTransport([
+        ok(200), s3Error(404, "NoSuchBucketPolicy", "none"), ok(204),
+        ok(200), ok(200), ok(204),
+    ])
+    let access = BucketAccess(settings: filledSettings(), credentialStore: MemoryCredentialStore(testCredentials), transport: transport)
+    await access.makeLinksPublic()
+
+    guard case .finished(let made) = access.makePublic, case .finished(let test) = access.connectionTest else {
+        Issue.record("make public: \(access.makePublic), test: \(access.connectionTest)")
+        return
+    }
+    #expect(made.succeeded)
+    #expect(test.publicLink == .opens)
+    #expect(transport.requests.map(\.method) == ["PUT", "GET", "PUT", "PUT", "GET", "DELETE"])
 }

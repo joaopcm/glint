@@ -1,7 +1,8 @@
 import Foundation
 import Network
 
-/// Stands in for an S3 bucket: answers every request on 127.0.0.1 with 200 and records it.
+/// Stands in for a private S3 bucket: answers every signed request on 127.0.0.1 with 200, an unsigned one with
+/// 403 AccessDenied the way S3 does, and records both.
 /// `holdResponses()` keeps the answers back until `releaseResponses()`, like a slow bucket.
 final class StubS3Server: @unchecked Sendable {
     struct Request {
@@ -24,7 +25,7 @@ final class StubS3Server: @unchecked Sendable {
     private var received: [Request] = []
     private var listenError: NWError?
     private var holding = false
-    private var held: [NWConnection] = []
+    private var held: [(connection: NWConnection, signed: Bool)] = []
 
     var port: UInt16 { listener.port?.rawValue ?? 0 }
 
@@ -73,11 +74,14 @@ final class StubS3Server: @unchecked Sendable {
             defer { held = [] }
             return held
         }
-        queue.async { waiting.forEach(Self.answer) }
+        queue.async { waiting.forEach { Self.answer($0.connection, signed: $0.signed) } }
     }
 
-    private static func answer(_ connection: NWConnection) {
-        let response = Data("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
+    private static func answer(_ connection: NWConnection, signed: Bool) {
+        let denied = "<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>"
+        let response = Data((signed
+            ? "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            : "HTTP/1.1 403 Forbidden\r\nContent-Type: application/xml\r\nContent-Length: \(denied.utf8.count)\r\nConnection: close\r\n\r\n\(denied)").utf8)
         connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
     }
 
@@ -92,12 +96,13 @@ final class StubS3Server: @unchecked Sendable {
             var buffer = buffer
             if let data { buffer.append(data) }
             if let request = StubS3Server.parse(buffer) {
+                let signed = request.headers["authorization"] != nil
                 let hold = lock.withLock {
                     self.received.append(request)
-                    if self.holding { self.held.append(connection) }
+                    if self.holding { self.held.append((connection, signed)) }
                     return self.holding
                 }
-                if !hold { Self.answer(connection) }
+                if !hold { Self.answer(connection, signed: signed) }
             } else if isComplete || error != nil {
                 connection.cancel()
             } else {

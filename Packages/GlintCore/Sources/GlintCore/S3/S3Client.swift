@@ -77,16 +77,63 @@ public struct S3Client: Sendable {
     public func put(key: String, body: Data, contentType: String, contentDisposition: String? = nil) async throws(S3Error) -> Int {
         var headers = ["Content-Type": contentType]
         headers["Content-Disposition"] = contentDisposition
-        return try await send("PUT", key: key, headers: headers, body: body)
+        return try await send("PUT", url: configuration.objectURL(forKey: key), headers: headers, body: body).status
     }
 
     @discardableResult
     public func delete(key: String) async throws(S3Error) -> Int {
-        try await send("DELETE", key: key, headers: [:], body: Data())
+        try await send("DELETE", url: configuration.objectURL(forKey: key), headers: [:], body: Data()).status
     }
 
-    private func send(_ method: String, key: String, headers: [String: String], body: Data) async throws(S3Error) -> Int {
-        let url = configuration.objectURL(forKey: key)
+    public func getBucketPolicy() async throws(S3Error) -> String? {
+        do {
+            let response = try await send("GET", url: configuration.bucketURL(subresource: "policy"), headers: [:], body: Data())
+            return String(decoding: response.body, as: UTF8.self)
+        } catch {
+            if case .service(_, _, 404, "NoSuchBucketPolicy", _) = error { return nil }
+            throw error
+        }
+    }
+
+    @discardableResult
+    public func putBucketPolicy(_ policy: String) async throws(S3Error) -> Int {
+        try await sendChecksummed("PUT", subresource: "policy", contentType: "application/json", body: Data(policy.utf8))
+    }
+
+    @discardableResult
+    public func allowPublicBucketPolicies() async throws(S3Error) -> Int {
+        let body = """
+            <PublicAccessBlockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">\
+            <BlockPublicAcls>true</BlockPublicAcls>\
+            <IgnorePublicAcls>true</IgnorePublicAcls>\
+            <BlockPublicPolicy>false</BlockPublicPolicy>\
+            <RestrictPublicBuckets>false</RestrictPublicBuckets>\
+            </PublicAccessBlockConfiguration>
+            """
+        return try await sendChecksummed("PUT", subresource: "publicAccessBlock", contentType: "application/xml", body: Data(body.utf8))
+    }
+
+    public func anonymousGet(_ url: URL) async throws(S3Error) -> S3HTTPResponse {
+        do throws(S3TransportError) {
+            return try await transport.send(S3HTTPRequest(method: "GET", url: url, headers: [:], body: Data()))
+        } catch {
+            throw .transport(method: "GET", url: url, reason: error.reason)
+        }
+    }
+
+    // S3 rejects PutBucketPolicy and PutPublicAccessBlock without a body checksum (botocore marks both
+    // requestChecksumRequired); x-amz-checksum-sha256 stands in for Content-MD5.
+    // https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html
+    private func sendChecksummed(_ method: String, subresource: String, contentType: String, body: Data) async throws(S3Error) -> Int {
+        let headers = [
+            "Content-Type": contentType,
+            "x-amz-checksum-sha256": Data(SHA256.hash(body)).base64EncodedString(),
+            "x-amz-sdk-checksum-algorithm": "SHA256",
+        ]
+        return try await send(method, url: configuration.bucketURL(subresource: subresource), headers: headers, body: body).status
+    }
+
+    private func send(_ method: String, url: URL, headers: [String: String], body: Data) async throws(S3Error) -> S3HTTPResponse {
         let signed: SignedRequest
         do throws(S3SigningError) {
             signed = try signer.sign(method: method, url: url, headers: headers, payload: .sha256(of: body), date: now())
@@ -103,6 +150,6 @@ public struct S3Client: Sendable {
             let document = S3ErrorDocument(xml: response.body)
             throw .service(method: method, url: url, status: response.status, code: document?.code, message: document?.message)
         }
-        return response.status
+        return response
     }
 }
