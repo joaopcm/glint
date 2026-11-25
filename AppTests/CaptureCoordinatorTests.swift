@@ -220,6 +220,7 @@ private struct Harness {
         systemAudio: Bool = false,
         recordMicrophone: Bool = false,
         copyToClipboard: (@MainActor (URL) throws -> Void)? = nil,
+        writePNG: (@Sendable (CGImage, URL) async throws -> Data)? = nil,
         onSaved: @escaping @MainActor (URL) -> Void = { _ in },
         onRecordingChange: @escaping @MainActor (CGRect?) -> Void = { _ in }
     ) throws {
@@ -248,6 +249,7 @@ private struct Harness {
             fileExists: { FileManager.default.fileExists(atPath: $0.path) },
             pointerLocation: { pointer },
             copyToClipboard: { url, _ in try copyToClipboard?(url) },
+            writePNG: writePNG ?? CaptureCoordinator.writePNG,
             onSaved: { url, _ in onSaved(url) },
             onRecordingChange: onRecordingChange
         )
@@ -456,6 +458,27 @@ private struct PasteboardLocked: LocalizedError {
     #expect(harness.selector.selectionCount == 1)
     #expect(reentrantImage == nil)
     #expect(try harness.savedFiles().count == 1)
+}
+
+// #99: a hotkey pressed once the PNG is on disk, while the card and clipboard are still being handled, used to be dropped.
+@MainActor @Test(.timeLimit(.minutes(1))) func captureRequestedWhileTheLastOneIsDeliveringStillRuns() async throws {
+    let written = Gate()
+    let release = Gate()
+    let harness = try Harness(selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)), writePNG: { image, url in
+        let data = try CaptureCoordinator.writePNG(image, to: url)
+        await written.open()
+        await release.wait()
+        return data
+    })
+    harness.selector.whileSelecting = { await release.open() }
+    let first = Task { await harness.coordinator.run(.fullScreen) }
+    await written.wait()
+    await harness.coordinator.run(.area)
+    await release.open()
+    await first.value
+    #expect(harness.selector.selectionCount == 1)
+    #expect(try harness.savedFiles().count == 2)
+    #expect(harness.alerts.presented.isEmpty)
 }
 
 @MainActor @Test func freezeOnGrabsEveryDisplayBeforeTheOverlayAndCropsFromIt() async throws {

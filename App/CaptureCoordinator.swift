@@ -106,9 +106,11 @@ final class CaptureCoordinator {
     private let fileExists: (URL) -> Bool
     private let pointerLocation: @MainActor () -> CGPoint
     private let copyToClipboard: @MainActor (URL, Data) throws -> Void
+    private let writePNG: @Sendable (CGImage, URL) async throws -> Data
     private let onSaved: @MainActor (URL, _ thumbnail: CGImage?) -> Void
     private let onRecordingChange: @MainActor (_ region: CGRect?) -> Void
     private var isRunning = false
+    private var delivery: Task<Void, Never>?
     private var recording: (any ActiveRecording)?
     private var recordingEnd: Task<Void, Never>?
 
@@ -123,6 +125,7 @@ final class CaptureCoordinator {
         fileExists: @escaping (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
         copyToClipboard: @escaping @MainActor (URL, Data) throws -> Void = { url, data in try NSPasteboard.general.copyPNGData(data, fileURL: url) },
+        writePNG: @escaping @Sendable (CGImage, URL) async throws -> Data = CaptureCoordinator.writePNG,
         onSaved: @escaping @MainActor (URL, _ thumbnail: CGImage?) -> Void = { _, _ in },
         onRecordingChange: @escaping @MainActor (_ region: CGRect?) -> Void = { _ in }
     ) {
@@ -136,20 +139,25 @@ final class CaptureCoordinator {
         self.fileExists = fileExists
         self.pointerLocation = pointerLocation
         self.copyToClipboard = copyToClipboard
+        self.writePNG = writePNG
         self.onSaved = onSaved
         self.onRecordingChange = onRecordingChange
     }
 
+    /// Only taking the image blocks the next capture (#99); deliveries queue so each one names its file after the ones before it are on disk.
     func run(_ mode: CaptureMode) async {
-        guard !isRunning else { return }
-        isRunning = true
-        defer { isRunning = false }
-        guard let image = await takeImage(mode) else { return }
-        do {
-            try await deliver(image)
-        } catch {
-            present(error)
+        guard let image = await captureImage(mode) else { return }
+        let previous = delivery
+        let delivering = Task {
+            await previous?.value
+            do {
+                try await deliver(image)
+            } catch {
+                present(error)
+            }
         }
+        delivery = delivering
+        await delivering.value
     }
 
     func captureImage(_ mode: CaptureMode) async -> CGImage? {
@@ -272,9 +280,9 @@ final class CaptureCoordinator {
         let url = nextFileURL(ext: "png")
         let maxScale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
         let maxThumbnailPixels = GlintSettings.thumbnailWidthRange.upperBound * maxScale
+        let writePNG = writePNG
         let (pngData, thumbnail) = try await Task.detached(priority: .userInitiated) {
-            let data = try PNGWriter.encode(image, path: url.path)
-            try PNGWriter.write(data, to: url)
+            let data = try await writePNG(image, url)
             let thumb = ThumbnailDownsampler.downsample(image, maxPixelSize: maxThumbnailPixels)
             return (data, thumb)
         }.value
@@ -285,6 +293,12 @@ final class CaptureCoordinator {
         } catch {
             throw CoordinatorError.clipboardFailed(savedTo: url, reason: error.localizedDescription)
         }
+    }
+
+    nonisolated static func writePNG(_ image: CGImage, to url: URL) throws -> Data {
+        let data = try PNGWriter.encode(image, path: url.path)
+        try PNGWriter.write(data, to: url)
+        return data
     }
 
     private func selectAndCapture(_ mode: CaptureMode) async throws -> CGImage? {
