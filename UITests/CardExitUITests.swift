@@ -23,6 +23,7 @@ class CardExitUITests: GlintUITestCase {
         closePoint.click()
         XCTAssertTrue(waitUntilGone(card), "Close left the card on screen")
         let xs = sampler.stop()
+        XCTContext.runActivity(named: "card x while leaving \(expectedEdge): \(start.minX) then \(xs.map { Int($0) })") { _ in }
 
         let moved = expectedEdge == "right" ? xs.contains { $0 > start.minX + 1 } : xs.contains { $0 < start.minX - 1 }
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
