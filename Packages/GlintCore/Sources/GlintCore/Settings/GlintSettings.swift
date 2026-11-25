@@ -27,6 +27,7 @@ public final class GlintSettings {
         static let overlayAutoDismiss = "overlayAutoDismiss"
         static let thumbnailWidth = "thumbnailWidth"
         static let freezeScreenWhileSelecting = "freezeScreenWhileSelecting"
+        static let showMagnifierWhileSelecting = "showMagnifierWhileSelecting"
         static let windowCaptureWallpaper = "windowCaptureWallpaper"
         static let windowWallpaperPadding = "windowWallpaperPadding"
         static let recordingCodec = "recordingCodec"
@@ -113,6 +114,15 @@ public final class GlintSettings {
             return store.bool(forKey: Key.freezeScreenWhileSelecting) ?? false
         }
         set { withMutation(keyPath: \.freezeScreenWhileSelecting) { store.set(newValue, forKey: Key.freezeScreenWhileSelecting) } }
+    }
+
+    /// Off by default: the crosshair alone stays out of the way, and no display grab runs to feed the loupe.
+    public var showMagnifierWhileSelecting: Bool {
+        get {
+            access(keyPath: \.showMagnifierWhileSelecting)
+            return store.bool(forKey: Key.showMagnifierWhileSelecting) ?? false
+        }
+        set { withMutation(keyPath: \.showMagnifierWhileSelecting) { store.set(newValue, forKey: Key.showMagnifierWhileSelecting) } }
     }
 
     /// Off by default: the window and its shadow on transparency paste cleanly onto any background.

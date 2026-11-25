@@ -68,6 +68,7 @@ private struct GeneralSettingsView: View {
             }
             Toggle("Hide thumbnail after a few seconds", isOn: $settings.overlayAutoDismiss)
             Toggle("Freeze screen while selecting", isOn: $settings.freezeScreenWhileSelecting)
+            Toggle("Show magnifier while selecting", isOn: $settings.showMagnifierWhileSelecting)
             Toggle("Wallpaper behind window captures", isOn: $settings.windowCaptureWallpaper)
             LabeledContent("Wallpaper padding") {
                 HStack {

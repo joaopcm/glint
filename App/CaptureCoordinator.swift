@@ -287,7 +287,8 @@ final class CaptureCoordinator {
             return (data, thumb)
         }.value
         onSaved(url, thumbnail)
-        guard settings.copyToClipboardAfterCapture else { return }
+        // Upload after capture copies the link once the bucket answers; copying the image first would only be overwritten.
+        guard settings.copyToClipboardAfterCapture, !settings.uploadAfterCapture else { return }
         do {
             try copyToClipboard(url, pngData)
         } catch {

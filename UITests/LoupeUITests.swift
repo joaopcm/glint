@@ -2,6 +2,8 @@ import AppKit
 import XCTest
 
 final class LoupeUITests: GlintUITestCase {
+    override var showsMagnifier: Bool { true }
+
     @MainActor func testAreaModeShowsLoupe() {
         press(.area)
         waitForOverlay(after: .area)
@@ -29,5 +31,18 @@ final class LoupeUITests: GlintUITestCase {
         let region = CGRect(x: 100 * scale, y: 100 * scale, width: 200 * scale, height: 150 * scale)
         let share = differingPixelShare(area, full, regionOfB: region)
         XCTAssertLessThan(share, 0.01, "the area PNG differs from the same region of a full-screen capture (\(Int(share * 100))% of pixels); the loupe may be in it")
+    }
+}
+
+final class LoupeOffUITests: GlintUITestCase {
+    /// The loupe's snapshot is the same display grab a capture is, so `noFileWait` is long enough for one to show up.
+    @MainActor func testAreaModeShowsOnlyTheCrosshairByDefault() {
+        press(.area)
+        waitForOverlay(after: .area)
+        let start = point(onOverlayAt: CGVector(dx: 100, dy: 100))
+        start.hover()
+        XCTAssertFalse(loupe.waitForExistence(timeout: Self.noFileWait), "a loupe showed in area mode with the magnifier setting off")
+        start.press(forDuration: 0.1, thenDragTo: point(onOverlayAt: CGVector(dx: 300, dy: 250)))
+        _ = waitForPNGs(count: 1, after: .area)
     }
 }

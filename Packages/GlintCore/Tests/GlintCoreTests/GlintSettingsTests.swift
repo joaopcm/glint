@@ -114,6 +114,7 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(changeIsSeen(\.overlayAutoDismiss, becomes: true))
     #expect(changeIsSeen(\.thumbnailWidth, becomes: 300))
     #expect(changeIsSeen(\.freezeScreenWhileSelecting, becomes: true))
+    #expect(changeIsSeen(\.showMagnifierWhileSelecting, becomes: true))
     #expect(changeIsSeen(\.windowCaptureWallpaper, becomes: true))
     #expect(changeIsSeen(\.windowWallpaperPadding, becomes: 120))
     #expect(changeIsSeen(\.recordingCodec, becomes: .hevc))
@@ -159,4 +160,11 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(GlintSettings(store: store, defaultSaveFolder: desktop).freezeScreenWhileSelecting == false)
     GlintSettings(store: store, defaultSaveFolder: desktop).freezeScreenWhileSelecting = true
     #expect(GlintSettings(store: store, defaultSaveFolder: desktop).freezeScreenWhileSelecting == true)
+}
+
+@MainActor @Test func magnifierDefaultsOffAndRoundTrips() {
+    let store = MemoryStore()
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).showMagnifierWhileSelecting == false)
+    GlintSettings(store: store, defaultSaveFolder: desktop).showMagnifierWhileSelecting = true
+    #expect(GlintSettings(store: store, defaultSaveFolder: desktop).showMagnifierWhileSelecting == true)
 }

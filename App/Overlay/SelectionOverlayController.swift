@@ -15,20 +15,25 @@ final class SelectionOverlayController: Selecting {
     private var pendingClick: CGPoint?
     private var highlightedWindow: WindowTarget?
     private var snapshotTasks: [Task<Void, Never>] = []
+    private let showsMagnifier: @MainActor () -> Bool
     private let snapshot: @Sendable (DisplayInfo) async throws -> CGImage
     private let log = Logger(subsystem: "com.joaopcm.glint", category: "loupe")
 
-    init(snapshot: @escaping @Sendable (DisplayInfo) async throws -> CGImage) {
+    init(showsMagnifier: @escaping @MainActor () -> Bool, snapshot: @escaping @Sendable (DisplayInfo) async throws -> CGImage) {
+        self.showsMagnifier = showsMagnifier
         self.snapshot = snapshot
     }
 
     func selectArea(frozen: [FrozenDisplay]) async throws -> SelectionResult {
         let displays = DisplayInfo.onScreens()
+        let showsLoupe = showsMagnifier()
         var views: [AreaSelectionView] = []
         return try await present { screen in
             let display = displays.first { $0.frame == screen.frame }
             let backdrop = frozen.first { $0.display.frame == screen.frame }?.image
-            let view = AreaSelectionView(screenFrame: screen.frame, display: display, displays: displays, backdrop: backdrop)
+            let view = AreaSelectionView(
+                screenFrame: screen.frame, display: display, displays: displays, showsLoupe: showsLoupe, backdrop: backdrop
+            )
             view.onSelectionChange = { [weak self] rect in self?.updateAreaSelection(rect) }
             view.onPointerMove = { [weak self] point in self?.updateLoupes(at: point) }
             view.onFinish = { [weak self] result in self?.finish(result) }
