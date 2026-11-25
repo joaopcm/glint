@@ -12,6 +12,8 @@ packages:
     path: Packages/LunettaCapture
   LunettaEditor:
     path: Packages/LunettaEditor
+  LunettaUI:
+    path: Packages/LunettaUI
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     exactVersion: 2.4.0
@@ -39,6 +41,7 @@ targets:
       - package: LunettaCore
       - package: LunettaCapture
       - package: LunettaEditor
+      - package: LunettaUI
       - package: KeyboardShortcuts
   LunettaTests:
     type: bundle.unit-test
