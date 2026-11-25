@@ -10,4 +10,5 @@ enum AccessibilityID {
     static let deleteUpload = "glint.deleteUpload"
     static let uploadProgress = "glint.uploadProgress"
     static let stopRecording = "glint.stopRecording"
+    static let cardActionLabel = "glint.cardActionLabel"
 }

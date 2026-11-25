@@ -12,7 +12,7 @@ final class ThumbnailPresenter {
     static func size(width: CGFloat) -> CGSize {
         CGSize(width: width, height: (width * 2 / 3).rounded())
     }
-    static let margin: CGFloat = 16
+    static let margin: CGFloat = 24
     static let spacing: CGFloat = 10
 
     private let settings: GlintSettings
@@ -520,6 +520,9 @@ private final class ThumbnailView: NSView, NSDraggingSource {
     private lazy var badge = Glass.capsule(holding: badgeLabel, tint: .controlAccentColor)
     private var uploadButton: NSButton?
     private let uploadSpinner = NSProgressIndicator()
+    private let actionLabel = NSTextField(labelWithString: "")
+    private lazy var actionLabelCapsule = Glass.capsule(holding: actionLabel)
+    private var actionLabelCenter: NSLayoutConstraint?
     private lazy var uploadIndicator = Glass.capsule(holding: uploadSpinner, tint: .controlAccentColor)
     private var mouseDownPoint: CGPoint?
     private var mouseDownScreenPoint: CGPoint?
@@ -589,7 +592,7 @@ private final class ThumbnailView: NSView, NSDraggingSource {
         addSubview(frame)
 
         imageView.wantsLayer = true
-        imageView.layer?.contents = thumbnail
+        imageView.layer?.contents = ThumbnailCentering.centered(thumbnail)
         imageView.layer?.contentsGravity = .resizeAspect
         imageView.layer?.cornerRadius = Self.cornerRadius - Self.inset
         imageView.layer?.cornerCurve = .continuous
@@ -611,20 +614,34 @@ private final class ThumbnailView: NSView, NSDraggingSource {
         let upload = button("icloud.and.arrow.up", "Upload", .upload)
         uploadButton = upload
         // The editor and a pinned panel work on still images, so a video card has no Annotate or Pin.
-        let actionBar = Glass.toolbar([
+        let actionButtons = [
             button("doc.on.doc", "Copy", .copy),
             upload,
             button("square.and.arrow.down", "Save As…", .saveAs),
         ] + (isVideo ? [] : [
             button("pencil.tip.crop.circle", "Annotate", .annotate),
             button("pin", "Pin to Screen", .pin),
-        ]))
+        ])
+        // AppKit shows no tooltip for an inactive app's window, and Glint is never active while a card is up (#91).
+        for actionButton in actionButtons {
+            actionButton.onHoverChange = { [weak self] button, hovered in self?.showActionLabel(for: button, hovered: hovered) }
+        }
+        let actionBar = Glass.toolbar(actionButtons)
         actionBar.translatesAutoresizingMaskIntoConstraints = false
         controls.addSubview(actionBar)
 
-        let close = Glass.toolbar([button("xmark", "Close", .close)])
+        let closeButton = button("xmark", "Close", .close)
+        closeButton.toolTip = "Close"
+        let close = Glass.toolbar([closeButton])
         close.translatesAutoresizingMaskIntoConstraints = false
         controls.addSubview(close)
+
+        actionLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        actionLabel.textColor = .labelColor
+        actionLabel.setAccessibilityIdentifier(AccessibilityID.cardActionLabel)
+        actionLabelCapsule.isHidden = true
+        actionLabelCapsule.translatesAutoresizingMaskIntoConstraints = false
+        controls.addSubview(actionLabelCapsule)
 
         badgeLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
         badgeLabel.textColor = .white
@@ -659,6 +676,11 @@ private final class ThumbnailView: NSView, NSDraggingSource {
             // Same inset from the top and the side, so the close button sits evenly in the corner.
             close.topAnchor.constraint(equalTo: controls.topAnchor, constant: 8),
             close.leadingAnchor.constraint(equalTo: controls.leadingAnchor, constant: 8),
+            actionLabelCapsule.bottomAnchor.constraint(equalTo: actionBar.topAnchor, constant: -6),
+            actionLabelCapsule.leadingAnchor.constraint(greaterThanOrEqualTo: controls.leadingAnchor, constant: 6),
+            actionLabelCapsule.trailingAnchor.constraint(lessThanOrEqualTo: controls.trailingAnchor, constant: -6),
+            actionLabelCapsule.heightAnchor.constraint(equalTo: badge.heightAnchor),
+            actionLabelCapsule.widthAnchor.constraint(equalTo: actionLabel.widthAnchor, constant: 16),
             badge.topAnchor.constraint(equalTo: imageView.topAnchor, constant: 8),
             badge.trailingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: -8),
             badge.heightAnchor.constraint(equalToConstant: 22),
@@ -679,7 +701,7 @@ private final class ThumbnailView: NSView, NSDraggingSource {
 
     func show(_ thumbnail: CGImage) {
         self.thumbnail = NSImage(cgImage: thumbnail, size: .zero)
-        imageView.layer?.contents = thumbnail
+        imageView.layer?.contents = ThumbnailCentering.centered(thumbnail)
     }
 
     /// Clicks anywhere but a button belong to the card (click, drag out, resize), not to the glass subviews.
@@ -701,19 +723,30 @@ private final class ThumbnailView: NSView, NSDraggingSource {
         }
     }
 
-    private func button(_ symbol: String, _ label: String, _ action: Action) -> NSButton {
+    private func button(_ symbol: String, _ label: String, _ action: Action) -> CardButton {
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)!
             .withSymbolConfiguration(.init(pointSize: 13, weight: .medium))!
-        let button = FirstMouseButton(image: image, target: self, action: #selector(runAction(_:)))
+        let button = CardButton(image: image, target: self, action: #selector(runAction(_:)))
         button.isBordered = false
         button.imagePosition = .imageOnly
         button.contentTintColor = .labelColor
-        button.widthAnchor.constraint(equalToConstant: 28).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 28).isActive = true
         button.tag = action.rawValue
-        button.toolTip = label
         button.setAccessibilityLabel(label)
         return button
+    }
+
+    private func showActionLabel(for button: NSButton, hovered: Bool) {
+        guard hovered else {
+            if actionLabel.stringValue == button.accessibilityLabel() { actionLabelCapsule.isHidden = true }
+            return
+        }
+        actionLabel.stringValue = button.accessibilityLabel() ?? ""
+        actionLabelCenter?.isActive = false
+        let center = actionLabelCapsule.centerXAnchor.constraint(equalTo: button.centerXAnchor)
+        center.priority = .defaultHigh // the edge constraints win, so a label never spills off the card
+        center.isActive = true
+        actionLabelCenter = center
+        actionLabelCapsule.isHidden = false
     }
 
     @objc private func runAction(_ sender: NSButton) {
@@ -840,7 +873,10 @@ private final class ThumbnailView: NSView, NSDraggingSource {
 
 /// Liquid Glass on macOS 26, with the closest pre-26 material as a fallback (the app still targets macOS 15).
 @MainActor
-private enum Glass {
+enum Glass {
+    static let buttonSide: CGFloat = 28
+    private static let toolbarInset: CGFloat = 2
+
     static func background(cornerRadius: CGFloat, tint: NSColor? = nil) -> NSView {
         if #available(macOS 26, *) {
             let glass = NSGlassEffectView()
@@ -866,7 +902,7 @@ private enum Glass {
         return material
     }
 
-    static func capsule(holding label: NSView, tint: NSColor) -> NSView {
+    static func capsule(holding label: NSView, tint: NSColor? = nil) -> NSView {
         let content = NSView()
         label.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(label)
@@ -879,13 +915,21 @@ private enum Glass {
         return capsule
     }
 
+    /// A capsule, or a circle around a single button. The glass gets an explicit height: the stack's top and bottom
+    /// insets don't size it, which left the close button 32x28 pt under a 16 pt radius (#91).
     static func toolbar(_ buttons: [NSButton]) -> NSView {
+        for button in buttons {
+            button.widthAnchor.constraint(equalToConstant: buttonSide).isActive = true
+            button.heightAnchor.constraint(equalToConstant: buttonSide).isActive = true
+        }
         let stack = NSStackView(views: buttons)
         stack.spacing = 2
-        stack.edgeInsets = NSEdgeInsets(top: 2, left: buttons.count > 1 ? 6 : 2, bottom: 2, right: buttons.count > 1 ? 6 : 2)
-        let radius: CGFloat = 16 // half of the 28pt buttons plus the 2pt insets: a capsule
-        let background = background(cornerRadius: radius)
+        let sideInset = buttons.count > 1 ? 6 : toolbarInset
+        stack.edgeInsets = NSEdgeInsets(top: toolbarInset, left: sideInset, bottom: toolbarInset, right: sideInset)
+        let height = buttonSide + 2 * toolbarInset
+        let background = background(cornerRadius: height / 2)
         setContent(stack, of: background)
+        background.heightAnchor.constraint(equalToConstant: height).isActive = true
         return background
     }
 
@@ -936,9 +980,54 @@ private extension NSScreen {
     }
 }
 
-/// Non-activating panels never become key; without this the first click on a button is eaten.
-private final class FirstMouseButton: NSButton {
+/// The tracking area is `.activeAlways`: Glint is never the active app while a card is up.
+private final class CardButton: NSButton {
+    var onHoverChange: ((CardButton, _ hovered: Bool) -> Void)?
+    private var isHovered = false {
+        didSet { needsDisplay = true }
+    }
+    private var isPressed = false {
+        didSet { needsDisplay = true }
+    }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Non-activating panels never become key; without this the first click on a button is eaten.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// AppKit's insets are uneven (2.5 top, 1.5 bottom, 0.5 right on macOS 27), which turned the hover circle into an oval.
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsetsZero }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        onHoverChange?(self, true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        onHoverChange?(self, false)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        isPressed = true
+        display()
+        super.mouseDown(with: event) // tracks the click until mouse up
+        isPressed = false
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if isEnabled, isHovered || isPressed {
+            NSColor.labelColor.withAlphaComponent(isPressed ? 0.2 : 0.1).setFill()
+            NSBezierPath(ovalIn: bounds).fill()
+        }
+        super.draw(dirtyRect)
+    }
 }
 
 private final class PinnedPanel: NSPanel {
@@ -947,6 +1036,55 @@ private final class PinnedPanel: NSPanel {
     override func close() {
         super.close()
         onClose?()
+    }
+}
+
+/// Window captures keep the macOS shadow, which is heavier below than above (32 px top, 60 px bottom, 46 px each
+/// side for a 400x332 pt window on a 2x display, #91), so the window sat high in the card. Trimming the extra
+/// shadow on the heavier side centers the window; the saved PNG keeps all of it.
+enum ThumbnailCentering {
+    static func centered(_ image: CGImage) -> CGImage {
+        guard hasAlpha(image), let opaque = opaqueBounds(of: image) else { return image }
+        let crop = evenPaddingCrop(size: CGSize(width: image.width, height: image.height), opaque: opaque)
+        return image.cropping(to: crop) ?? image
+    }
+
+    static func evenPaddingCrop(size: CGSize, opaque: CGRect) -> CGRect {
+        let horizontal = min(opaque.minX, size.width - opaque.maxX)
+        let vertical = min(opaque.minY, size.height - opaque.maxY)
+        return opaque.insetBy(dx: -horizontal, dy: -vertical)
+    }
+
+    private static func hasAlpha(_ image: CGImage) -> Bool {
+        ![.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo)
+    }
+
+    /// Fully opaque span of the middle row and middle column, in pixels from the top-left. Shadow is never fully
+    /// opaque, window content always is; nil when either line has no opaque pixel.
+    static func opaqueBounds(of image: CGImage) -> CGRect? {
+        guard let columns = opaqueSpan(of: image, line: CGRect(x: 0, y: image.height / 2, width: image.width, height: 1)),
+              let rows = opaqueSpan(of: image, line: CGRect(x: image.width / 2, y: 0, width: 1, height: image.height))
+        else { return nil }
+        return CGRect(x: columns.lowerBound, y: rows.lowerBound, width: columns.count, height: rows.count)
+    }
+
+    private static func opaqueSpan(of image: CGImage, line: CGRect) -> Range<Int>? {
+        guard let strip = image.cropping(to: line) else { return nil }
+        let count = max(strip.width, strip.height)
+        var pixels = [UInt8](repeating: 0, count: count * 4)
+        let drawn: Bool = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: strip.width, height: strip.height, bitsPerComponent: 8,
+                bytesPerRow: strip.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(strip, in: CGRect(x: 0, y: 0, width: strip.width, height: strip.height))
+            return true
+        }
+        guard drawn else { return nil }
+        let opaque = (0..<count).filter { pixels[$0 * 4 + 3] == 255 }
+        guard let first = opaque.first, let last = opaque.last else { return nil }
+        return first..<(last + 1)
     }
 }
 

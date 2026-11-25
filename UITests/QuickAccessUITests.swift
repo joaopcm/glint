@@ -47,6 +47,20 @@ final class QuickAccessUITests: GlintUITestCase {
                       "the toolbar stayed after the pointer left")
     }
 
+    /// Finder stays frontmost: the labels have to show while Glint is in the background (#91).
+    @MainActor func testHoveringAnActionShowsItsLabelWhileAnotherAppIsFrontmost() {
+        let card = captureOneCard()
+        center(of: card).hover()
+        let label = app.descendants(matching: .any).matching(identifier: AccessibilityID.cardActionLabel).firstMatch
+        for name in ["Copy", "Save As…", "Pin to Screen"] {
+            center(of: app.buttons[name].firstMatch).hover()
+            XCTAssertTrue(waitUntil(label, matches: "value == '\(name)'"), "hovering \"\(name)\" showed \(label.exists ? "\"\(label.value ?? "")\"" : "no label")")
+        }
+        assertFinderFrontmost()
+        moveAwayFromCards()
+        XCTAssertTrue(waitUntil(label, matches: "exists == false"), "the label stayed after the pointer left the card")
+    }
+
     @MainActor func testCopyPutsFileOnPasteboardAndClosesCard() {
         let (card, png) = captureOneCardAndFile()
         center(of: card).hover()
