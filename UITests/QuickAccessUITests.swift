@@ -166,7 +166,7 @@ final class QuickAccessUITests: GlintUITestCase {
         press(.fullScreen)
         let before = waitForPNGs(count: 2, after: .fullScreen)
         XCTAssertTrue(waitUntil(cards, count: 2), "expected 2 cards, found \(cards.count)")
-        let cardFrames = cards.allElementsBoundByIndex.map(\.frame)
+        let cardFrames = cards.allElementsBoundByIndex.map { settledFrame(of: $0) }
         press(.fullScreen)
         let withCards = try XCTUnwrap(waitForPNGs(count: 3, after: .fullScreen).first { !before.contains($0) })
 

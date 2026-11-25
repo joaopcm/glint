@@ -4,6 +4,7 @@ import GlintCore
 import GlintEditor
 import ImageIO
 import os
+import QuartzCore
 import UniformTypeIdentifiers
 
 /// Quick-access overlay. Never appears in captures: ScreenCapturer excludes Glint's own windows.
@@ -14,6 +15,27 @@ final class ThumbnailPresenter {
     }
     static let margin: CGFloat = 24
     static let spacing: CGFloat = 10
+
+    enum Edge { case left, right }
+    // emil-design-eng: enter and exit under 300 ms, exit faster than enter, and its strong ease-out curve (#92).
+    static let enterDuration: TimeInterval = 0.25
+    static let exitDuration: TimeInterval = 0.2
+    static let easeOut = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+
+    /// The side of the screen a card belongs to: it comes in from that edge and leaves through it.
+    static func edge(of frame: CGRect, on screen: CGRect) -> Edge {
+        frame.midX < screen.midX ? .left : .right
+    }
+
+    /// The way the fingers moved: natural scrolling reports the fingers' direction, classic scrolling the opposite.
+    static func swipeEdge(scrollDelta: CGFloat, naturalScrolling: Bool) -> Edge {
+        (scrollDelta > 0) == naturalScrolling ? .right : .left
+    }
+
+    /// `frame` moved sideways until it is just past `screen`'s edge.
+    static func offscreen(_ frame: CGRect, toward edge: Edge, of screen: CGRect) -> CGRect {
+        frame.offsetBy(dx: edge == .right ? screen.maxX - frame.minX : screen.minX - frame.maxX, dy: 0)
+    }
 
     private let settings: GlintSettings
     private var items: [ThumbnailItem] = [] // newest first
@@ -107,6 +129,11 @@ final class ThumbnailPresenter {
         item.view.onPointerChange = { [weak self] in self?.refreshHover() }
         item.view.onResize = { [weak self] change in self?.resize(change) }
         item.view.onDragOut = { [weak self] inProgress in self?.setDraggingOut(inProgress) }
+        item.view.onSwipeAway = { [weak self, weak item] edge in
+            guard let self, let item else { return }
+            self.remove(item, leaving: edge)
+            self.layout()
+        }
         items.insert(item, at: 0)
         expansion.collapse(on: screen)
         cancelAutoDismiss() // still stacking: restart the countdown (layout() schedules it again)
@@ -142,7 +169,7 @@ final class ThumbnailPresenter {
         for (screen, group) in groups {
             let capacity = Self.columnCapacity(in: screen.visibleFrame, width: width)
             if group.count > capacity {
-                group.dropFirst(capacity).forEach(remove)
+                group.dropFirst(capacity).forEach { remove($0) }
                 groups[screen] = Array(group.prefix(capacity))
             }
         }
@@ -162,6 +189,13 @@ final class ThumbnailPresenter {
                     continue
                 }
                 if !item.panel.isVisible { needsOrderFront = true }
+                if !item.hasEntered {
+                    item.hasEntered = true
+                    if liveWidth == nil {
+                        enter(item, at: frame, on: screen.frame)
+                        continue
+                    }
+                }
                 if item.panel.isVisible, liveWidth == nil {
                     item.panel.animator().setFrame(frame, display: true)
                 } else {
@@ -200,7 +234,7 @@ final class ThumbnailPresenter {
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled, let self, self.settings.overlayAutoDismiss else { return }
                 self.autoDismissTask = nil
-                self.items.forEach(self.remove)
+                self.items.forEach { self.remove($0) }
             }
         }
     }
@@ -296,10 +330,12 @@ final class ThumbnailPresenter {
         case .annotate:
             annotate(item)
         case .pin:
-            remove(item)
+            remove(item, animated: false) // the pinned window takes its place
             pin(item.url, on: item.screen)
         case .close:
             remove(item)
+        case .dropped:
+            remove(item, animated: false) // the file went with the pointer
         case .expand:
             expansion.expand(on: item.screen)
         case .open:
@@ -308,11 +344,41 @@ final class ThumbnailPresenter {
         layout()
     }
 
-    private func remove(_ item: ThumbnailItem) {
-        item.panel.orderOut(nil)
+    private func enter(_ item: ThumbnailItem, at frame: CGRect, on screen: CGRect) {
+        let start = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? frame : Self.offscreen(frame, toward: Self.edge(of: frame, on: screen), of: screen)
+        item.panel.setFrame(start, display: false)
+        item.panel.alphaValue = 0
+        item.panel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.enterDuration
+            context.timingFunction = Self.easeOut
+            item.panel.animator().setFrame(frame, display: true)
+            item.panel.animator().alphaValue = 1
+        }
+    }
+
+    /// Slides the card out through `edge` (default: its own side of the screen) while it fades; with Reduce Motion it only fades.
+    private func remove(_ item: ThumbnailItem, leaving edge: Edge? = nil, animated: Bool = true) {
         items.removeAll { $0 === item }
-        // Actions arrive from inside the panel's own event handling; free it on the next turn.
-        DispatchQueue.main.async { withExtendedLifetime(item) {} }
+        guard animated, item.panel.isVisible, let frame = item.targetFrame else {
+            item.panel.orderOut(nil)
+            // Actions arrive from inside the panel's own event handling; free it on the next turn.
+            DispatchQueue.main.async { withExtendedLifetime(item) {} }
+            return
+        }
+        let screen = item.screen.frame
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        item.panel.ignoresMouseEvents = true
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.exitDuration
+            context.timingFunction = Self.easeOut
+            if !reduceMotion {
+                item.panel.animator().setFrame(Self.offscreen(frame, toward: edge ?? Self.edge(of: frame, on: screen), of: screen), display: true)
+            }
+            item.panel.animator().alphaValue = 0
+        } completionHandler: {
+            item.panel.orderOut(nil)
+        }
     }
 
     private func upload(_ item: ThumbnailItem) {
@@ -447,6 +513,7 @@ private final class ThumbnailItem {
     /// Where layout() put the panel (nil = hidden). Used for hover, since animated frames lag behind.
     var targetFrame: CGRect?
     var annotations: AnnotationDocument?
+    var hasEntered = false
     var isUploading = false {
         didSet { view.isUploading = isUploading }
     }
@@ -510,7 +577,7 @@ private final class ThumbnailItem {
 }
 
 final class ThumbnailView: NSView, NSDraggingSource {
-    enum Action: Int { case copy, upload, saveAs, annotate, pin, close, expand, open }
+    enum Action: Int { case copy, upload, saveAs, annotate, pin, close, expand, open, dropped }
 
     static func clickAction(isStacked: Bool, isVideo: Bool) -> Action {
         if isStacked { return .expand }
@@ -525,6 +592,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
     var onPointerChange: (() -> Void)?
     var onResize: ((Resize) -> Void)?
     var onDragOut: ((_ inProgress: Bool) -> Void)?
+    var onSwipeAway: ((ThumbnailPresenter.Edge) -> Void)?
 
     private let url: URL
     private let isVideo: Bool
@@ -868,8 +936,9 @@ final class ThumbnailView: NSView, NSDraggingSource {
         if event.phase == .began { swipeProgress = 0 }
         swipeProgress += event.scrollingDeltaX
         if abs(swipeProgress) > Self.swipeDistance {
+            let edge = ThumbnailPresenter.swipeEdge(scrollDelta: swipeProgress, naturalScrolling: event.isDirectionInvertedFromDevice)
             swipeProgress = 0
-            onAction?(.close)
+            onSwipeAway?(edge)
         }
     }
 
@@ -883,7 +952,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         onDragOut?(false)
-        if operation != [] { onAction?(.close) }
+        if operation != [] { onAction?(.dropped) }
     }
 }
 
