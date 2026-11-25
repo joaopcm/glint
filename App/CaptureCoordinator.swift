@@ -107,6 +107,7 @@ final class CaptureCoordinator {
     private let pointerLocation: @MainActor () -> CGPoint
     private let copyToClipboard: @MainActor (URL, Data) throws -> Void
     private let writePNG: @Sendable (CGImage, URL) async throws -> Data
+    private let playShutterSound: @MainActor () -> Void
     private let onSaved: @MainActor (URL, _ thumbnail: CGImage?) -> Void
     private let onRecordingChange: @MainActor (_ region: CGRect?) -> Void
     private var isRunning = false
@@ -126,6 +127,7 @@ final class CaptureCoordinator {
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
         copyToClipboard: @escaping @MainActor (URL, Data) throws -> Void = { url, data in try NSPasteboard.general.copyPNGData(data, fileURL: url) },
         writePNG: @escaping @Sendable (CGImage, URL) async throws -> Data = CaptureCoordinator.writePNG,
+        playShutterSound: @escaping @MainActor () -> Void = {},
         onSaved: @escaping @MainActor (URL, _ thumbnail: CGImage?) -> Void = { _, _ in },
         onRecordingChange: @escaping @MainActor (_ region: CGRect?) -> Void = { _ in }
     ) {
@@ -140,6 +142,7 @@ final class CaptureCoordinator {
         self.pointerLocation = pointerLocation
         self.copyToClipboard = copyToClipboard
         self.writePNG = writePNG
+        self.playShutterSound = playShutterSound
         self.onSaved = onSaved
         self.onRecordingChange = onRecordingChange
     }
@@ -147,6 +150,7 @@ final class CaptureCoordinator {
     /// Only taking the image blocks the next capture (#99); deliveries queue so each one names its file after the ones before it are on disk.
     func run(_ mode: CaptureMode) async {
         guard let image = await captureImage(mode) else { return }
+        if settings.playSoundOnCapture { playShutterSound() }
         let previous = delivery
         let delivering = Task {
             await previous?.value

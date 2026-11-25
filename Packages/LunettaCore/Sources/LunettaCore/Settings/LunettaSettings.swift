@@ -23,6 +23,7 @@ public final class LunettaSettings {
     private enum Key {
         static let saveFolderPath = "saveFolderPath"
         static let copyToClipboardAfterCapture = "copyToClipboardAfterCapture"
+        static let playSoundOnCapture = "playSoundOnCapture"
         static let overlayCorner = "overlayCorner"
         static let overlayAutoDismiss = "overlayAutoDismiss"
         static let thumbnailWidth = "thumbnailWidth"
@@ -68,6 +69,15 @@ public final class LunettaSettings {
             return store.bool(forKey: Key.copyToClipboardAfterCapture) ?? false
         }
         set { withMutation(keyPath: \.copyToClipboardAfterCapture) { store.set(newValue, forKey: Key.copyToClipboardAfterCapture) } }
+    }
+
+    /// On by default: the shutter confirms the screenshot was taken, like macOS's own screenshots and CleanShot.
+    public var playSoundOnCapture: Bool {
+        get {
+            access(keyPath: \.playSoundOnCapture)
+            return store.bool(forKey: Key.playSoundOnCapture) ?? true
+        }
+        set { withMutation(keyPath: \.playSoundOnCapture) { store.set(newValue, forKey: Key.playSoundOnCapture) } }
     }
 
     public var overlayCorner: OverlayCorner {

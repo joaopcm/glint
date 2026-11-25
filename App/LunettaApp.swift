@@ -43,6 +43,7 @@ final class AppState {
     private var textCapture: TextCapture!
     private var thumbnail: ThumbnailPresenter!
     private let recordingIndicator = RecordingIndicator()
+    private let shutterSound = ShutterSound()
 
     init() {
         thumbnail = ThumbnailPresenter(
@@ -73,6 +74,7 @@ final class AppState {
             ),
             alerts: NSAlertPresenter(),
             settings: settings,
+            playShutterSound: { [shutterSound] in shutterSound.play() },
             onSaved: { [weak self] url, precomputedThumbnail in
                 self?.thumbnail.show(url, precomputedThumbnail: precomputedThumbnail)
             },
