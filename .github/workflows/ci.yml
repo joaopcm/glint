@@ -148,6 +148,13 @@ jobs:
       - run: scripts/ci-grant-tcc.sh kTCCServiceScreenCapture com.joaopcm.glint com.joaopcm.glint.uitests.xctrunner
       - run: scripts/ci-grant-tcc.sh kTCCServicePostEvent com.joaopcm.glint.uitests.xctrunner
       - run: sudo automationmodetool enable-automationmode-without-authentication
+      # The quick-access card faded in place instead of sliding on the runner (recording in run 45611987356, #92),
+      # which is what Glint does under Reduce Motion.
+      - name: Turn Reduce Motion off
+        run: |
+          echo "before: $(defaults read com.apple.universalaccess reduceMotion 2>&1)"
+          defaults write com.apple.universalaccess reduceMotion -bool false
+          defaults read com.apple.universalaccess reduceMotion
       # macOS 15 shows its own "bypass the private window picker" prompt on top of the TCC grant (run 45266766603).
       - name: Pre-approve the private window picker prompt
         env:

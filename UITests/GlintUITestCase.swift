@@ -42,6 +42,7 @@ class GlintUITestCase: XCTestCase {
 
     /// Subclasses add `-key value` pairs to start Glint with other settings.
     var extraLaunchArguments: [String] { [] }
+    var overlayCorner: String { "bottomRight" }
     var pickerPromptExplained: Bool { true }
     var extraLaunchEnvironment: [String: String] { [:] }
     var pinnedHotkeys: [Hotkey] { Hotkey.allCases }
@@ -84,7 +85,7 @@ class GlintUITestCase: XCTestCase {
             "-saveFolderPath", saveFolder.path,
             "-copyToClipboardAfterCapture", "NO",
             "-overlayAutoDismiss", "NO",
-            "-overlayCorner", "bottomRight",
+            "-overlayCorner", overlayCorner,
             "-thumbnailWidth", "240",
             "-NSWindow Frame com_apple_SwiftUI_Settings_window", Self.settingsWindowFrame,
         ] + (pickerPromptExplained ? ["-pickerPromptExplained", "YES"] : []) + defaultShortcutArguments + extraLaunchArguments
@@ -148,8 +149,21 @@ class GlintUITestCase: XCTestCase {
     }
 
     @MainActor func center(of element: XCUIElement) -> XCUICoordinate {
-        let frame = element.frame
+        let frame = settledFrame(of: element)
         return screenPoint(CGPoint(x: frame.midX, y: frame.midY))
+    }
+
+    /// A new quick-access card slides in for 250 ms (#92); read a frame once two reads 100 ms apart agree.
+    @MainActor func settledFrame(of element: XCUIElement) -> CGRect {
+        var previous = element.frame
+        let deadline = Date().addingTimeInterval(Self.captureTimeout)
+        while Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            let current = element.frame
+            if current == previous { return current }
+            previous = current
+        }
+        return previous
     }
 
     @discardableResult

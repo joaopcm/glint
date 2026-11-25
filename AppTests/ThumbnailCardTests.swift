@@ -58,3 +58,29 @@ private func image(width: Int, height: Int, opaque: CGRect) throws -> CGImage {
     #expect(ThumbnailView.clickAction(isStacked: true, isVideo: true) == .expand)
     #expect(ThumbnailView.clickAction(isStacked: true, isVideo: false) == .expand)
 }
+
+@MainActor @Test func cardsLeaveThroughTheEdgeOfTheirOwnHalf() {
+    let screen = CGRect(x: 0, y: 0, width: 3008, height: 1692)
+    let right = ThumbnailPresenter.frame(at: 0, in: screen, corner: .bottomRight, collapsed: false, width: 240)!
+    let left = ThumbnailPresenter.frame(at: 0, in: screen, corner: .bottomLeft, collapsed: false, width: 240)!
+
+    #expect(ThumbnailPresenter.edge(of: right, on: screen) == .right)
+    #expect(ThumbnailPresenter.edge(of: left, on: screen) == .left)
+    #expect(ThumbnailPresenter.offscreen(right, toward: .right, of: screen) == CGRect(x: 3008, y: right.minY, width: 240, height: 160))
+    #expect(ThumbnailPresenter.offscreen(left, toward: .left, of: screen) == CGRect(x: -240, y: left.minY, width: 240, height: 160))
+}
+
+@MainActor @Test func offscreenRespectsADisplayThatDoesNotStartAtZero() {
+    let secondDisplay = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
+    let card = CGRect(x: -1900, y: 24, width: 240, height: 160)
+
+    #expect(ThumbnailPresenter.edge(of: card, on: secondDisplay) == .left)
+    #expect(ThumbnailPresenter.offscreen(card, toward: .left, of: secondDisplay).maxX == -1920)
+}
+
+@MainActor @Test func swipeLeavesTheWayTheFingersMoved() {
+    #expect(ThumbnailPresenter.swipeEdge(scrollDelta: 80, naturalScrolling: true) == .right)
+    #expect(ThumbnailPresenter.swipeEdge(scrollDelta: -80, naturalScrolling: true) == .left)
+    #expect(ThumbnailPresenter.swipeEdge(scrollDelta: 80, naturalScrolling: false) == .left)
+    #expect(ThumbnailPresenter.swipeEdge(scrollDelta: -80, naturalScrolling: false) == .right)
+}
