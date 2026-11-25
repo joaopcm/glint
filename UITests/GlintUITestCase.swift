@@ -35,6 +35,11 @@ class GlintUITestCase: XCTestCase {
     /// Unchanged pixels match exactly between two captures: max channel delta 0 over 40080 pixels in run 45505547400.
     static let pixelTolerance: UInt8 = 8
 
+    /// Settings reopens at the bottom-left origin AppKit saved from the last tab, and a taller tab then grows past the
+    /// 1024x768 CI screen: Test Connection sat at y 751 in run 45616804705. Pinning the top under the 30 pt menu bar keeps
+    /// every tab on screen.
+    static let settingsWindowFrame = "272 95 480 643 0 0 1024 768 "
+
     /// Subclasses add `-key value` pairs to start Glint with other settings.
     var extraLaunchArguments: [String] { [] }
     var pickerPromptExplained: Bool { true }
@@ -81,6 +86,7 @@ class GlintUITestCase: XCTestCase {
             "-overlayAutoDismiss", "NO",
             "-overlayCorner", "bottomRight",
             "-thumbnailWidth", "240",
+            "-NSWindow Frame com_apple_SwiftUI_Settings_window", Self.settingsWindowFrame,
         ] + (pickerPromptExplained ? ["-pickerPromptExplained", "YES"] : []) + defaultShortcutArguments + extraLaunchArguments
         app.launchEnvironment = extraLaunchEnvironment
         app.launch()
