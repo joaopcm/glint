@@ -8,7 +8,7 @@ struct LunettaApp: App {
     private let state = AppState()
 
     var body: some Scene {
-        MenuBarExtra("Lunetta", systemImage: "camera.viewfinder") {
+        MenuBarExtra("Lunetta", image: "MenuBarIcon") {
             MenuContent(state: state)
             Button("Quit Lunetta") { NSApplication.shared.terminate(nil) }
         }
