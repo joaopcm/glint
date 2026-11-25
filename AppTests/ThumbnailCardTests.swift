@@ -51,3 +51,10 @@ private func image(width: Int, height: Int, opaque: CGRect) throws -> CGImage {
     context.fill(opaque)
     return try #require(context.makeImage())
 }
+
+@Test func clickingARecordingOpensItAndClickingAScreenshotAnnotatesIt() {
+    #expect(ThumbnailView.clickAction(isStacked: false, isVideo: true) == .open)
+    #expect(ThumbnailView.clickAction(isStacked: false, isVideo: false) == .annotate)
+    #expect(ThumbnailView.clickAction(isStacked: true, isVideo: true) == .expand)
+    #expect(ThumbnailView.clickAction(isStacked: true, isVideo: false) == .expand)
+}

@@ -302,6 +302,8 @@ final class ThumbnailPresenter {
             remove(item)
         case .expand:
             expansion.expand(on: item.screen)
+        case .open:
+            open(item)
         }
         layout()
     }
@@ -353,6 +355,13 @@ final class ThumbnailPresenter {
             remove(item)
         } catch {
             showError("Glint couldn't save the screenshot", error)
+        }
+    }
+
+    private func open(_ item: ThumbnailItem) {
+        NSWorkspace.shared.open(item.url, configuration: NSWorkspace.OpenConfiguration()) { [weak self] _, error in
+            guard let error else { return }
+            Task { @MainActor in self?.showError("Glint couldn't open the recording", error) }
         }
     }
 
@@ -500,8 +509,13 @@ private final class ThumbnailItem {
     }
 }
 
-private final class ThumbnailView: NSView, NSDraggingSource {
-    enum Action: Int { case copy, upload, saveAs, annotate, pin, close, expand }
+final class ThumbnailView: NSView, NSDraggingSource {
+    enum Action: Int { case copy, upload, saveAs, annotate, pin, close, expand, open }
+
+    static func clickAction(isStacked: Bool, isVideo: Bool) -> Action {
+        if isStacked { return .expand }
+        return isVideo ? .open : .annotate
+    }
     enum Resize {
         case drag(translation: CGSize, ended: Bool)
         case magnify(CGFloat, ended: Bool)
@@ -513,6 +527,7 @@ private final class ThumbnailView: NSView, NSDraggingSource {
     var onDragOut: ((_ inProgress: Bool) -> Void)?
 
     private let url: URL
+    private let isVideo: Bool
     private var thumbnail: NSImage
     private let imageView = NSView()
     private let controls = NSView()
@@ -581,6 +596,7 @@ private final class ThumbnailView: NSView, NSDraggingSource {
 
     init(url: URL, thumbnail: CGImage, isVideo: Bool) {
         self.url = url
+        self.isVideo = isVideo
         self.thumbnail = NSImage(cgImage: thumbnail, size: .zero)
         super.init(frame: CGRect(origin: .zero, size: ThumbnailPresenter.size(width: GlintSettings.defaultThumbnailWidth)))
         setAccessibilityElement(true)
@@ -843,7 +859,7 @@ private final class ThumbnailView: NSView, NSDraggingSource {
             return onResize?(.drag(translation: translation, ended: true)) ?? ()
         }
         guard mouseDownPoint != nil else { return }
-        onAction?(isStacked ? .expand : .annotate)
+        onAction?(Self.clickAction(isStacked: isStacked, isVideo: isVideo))
     }
 
     override func scrollWheel(with event: NSEvent) {
