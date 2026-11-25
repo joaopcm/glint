@@ -7,18 +7,24 @@ struct SettingsView: View {
     let settings: GlintSettings
     let bucket: BucketAccess
     let history: UploadHistory
+    @State private var maxContentHeight: CGFloat?
 
     var body: some View {
         TabView {
             GeneralSettingsView(settings: settings)
+                .fitsSettingsWindowOnScreen(maxHeight: maxContentHeight)
                 .tabItem { Label("General", systemImage: "gearshape") }
             ShortcutsSettingsView()
+                .fitsSettingsWindowOnScreen(maxHeight: maxContentHeight)
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
             UploadSettingsView(bucket: bucket)
+                .fitsSettingsWindowOnScreen(maxHeight: maxContentHeight)
                 .tabItem { Label("Upload", systemImage: "icloud.and.arrow.up") }
             UploadHistoryView(history: history, bucket: bucket)
+                .fitsSettingsWindowOnScreen(maxHeight: maxContentHeight)
                 .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
         }
+        .background(SettingsWindowFitter(maxContentHeight: $maxContentHeight))
     }
 }
 
@@ -71,7 +77,6 @@ private struct GeneralSettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in openAtLogin.refresh() }
         .formStyle(.grouped)
         .frame(width: 480)
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func chooseFolder() {
@@ -117,6 +122,5 @@ private struct ShortcutsSettingsView: View {
         .onAppear(perform: shortcuts.reload)
         .formStyle(.grouped)
         .frame(width: 480)
-        .fixedSize(horizontal: false, vertical: true)
     }
 }

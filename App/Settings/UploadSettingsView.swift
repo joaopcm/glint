@@ -5,7 +5,6 @@ import SwiftUI
 struct UploadSettingsView: View {
     @Bindable var bucket: BucketAccess
     @State private var pastedURL = ""
-    @State private var maxContentHeight: CGFloat?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -80,8 +79,6 @@ struct UploadSettingsView: View {
             }
             .formStyle(.grouped)
             .frame(width: 480)
-            .modifier(CapHeight(maxHeight: maxContentHeight))
-            .background(WindowContentHeightReader(maxContentHeight: $maxContentHeight))
             .onChange(of: bucket.connectionTest.isRunning) { _, isRunning in
                 guard let result = bucket.connectionTest.result else { return }
                 let target = isRunning
@@ -116,60 +113,6 @@ struct UploadSettingsView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
-        }
-    }
-}
-
-// Sized to its content, the tab grew past the bottom of the 1024x768 CI screen once the checklist showed (connection rows
-// at y 738-786, run 45635710585), and would on a small laptop display too. Past the screen's visible height it scrolls.
-private struct CapHeight: ViewModifier {
-    let maxHeight: CGFloat?
-
-    func body(content: Content) -> some View {
-        CappedHeightLayout(maxHeight: maxHeight) { content }
-    }
-}
-
-private struct CappedHeightLayout: Layout {
-    let maxHeight: CGFloat?
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let ideal = subviews.first?.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) ?? .zero
-        return CGSize(width: ideal.width, height: min(ideal.height, maxHeight ?? .infinity))
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
-    }
-}
-
-private struct WindowContentHeightReader: NSViewRepresentable {
-    @Binding var maxContentHeight: CGFloat?
-
-    func makeNSView(context: Context) -> NSView { WindowObservingView(onWindow: report) }
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    private func report(_ window: NSWindow) {
-        guard let screen = window.screen ?? NSScreen.main else { return }
-        let chrome = window.frame.height - window.contentLayoutRect.height
-        let height = screen.visibleFrame.height - chrome
-        if maxContentHeight != height { maxContentHeight = height }
-    }
-
-    final class WindowObservingView: NSView {
-        let onWindow: (NSWindow) -> Void
-
-        init(onWindow: @escaping (NSWindow) -> Void) {
-            self.onWindow = onWindow
-            super.init(frame: .zero)
-        }
-
-        required init?(coder: NSCoder) { nil }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            guard let window else { return }
-            DispatchQueue.main.async { [onWindow] in onWindow(window) }
         }
     }
 }
