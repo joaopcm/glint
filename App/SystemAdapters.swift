@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import LunettaCapture
 import LunettaCore
+import os
 
 extension ScreenCapturer: Capturing {
     @MainActor
@@ -41,6 +42,25 @@ struct SystemMicrophoneAccess: MicrophoneAccess {
 }
 
 extension ScreenRecording: ActiveRecording {}
+
+/// The sound macOS plays for its own screenshots, so a Lunetta capture sounds like every other capture on the Mac.
+/// Loaded on the first capture, not at launch, to keep it out of idle memory.
+@MainActor
+final class ShutterSound {
+    static let systemFile = URL(filePath: "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/Screen Capture.aif")
+
+    private lazy var sound: NSSound? = NSSound(contentsOf: Self.systemFile, byReference: true)
+    private let log = Logger(subsystem: "com.joaopcm.lunetta", category: "sound")
+
+    func play() {
+        guard let sound else {
+            log.error("No shutter sound: macOS has no readable sound at \(Self.systemFile.path, privacy: .public)")
+            return
+        }
+        sound.stop()
+        sound.play()
+    }
+}
 
 @MainActor
 struct NSAlertPresenter: AlertPresenting {

@@ -222,6 +222,8 @@ private struct Harness {
         codec: VideoCodec = .h264,
         systemAudio: Bool = false,
         recordMicrophone: Bool = false,
+        soundOn: Bool = true,
+        onShutter: @escaping @MainActor () -> Void = {},
         copyToClipboard: (@MainActor (URL) throws -> Void)? = nil,
         writePNG: (@Sendable (CGImage, URL) async throws -> Data)? = nil,
         onSaved: @escaping @MainActor (URL) -> Void = { _ in },
@@ -239,6 +241,7 @@ private struct Harness {
         settings.recordingCodec = codec
         settings.recordSystemAudio = systemAudio
         settings.recordMicrophone = recordMicrophone
+        settings.playSoundOnCapture = soundOn
         self.settings = settings
         self.microphone = microphone
         selector = FakeSelector(selection)
@@ -254,6 +257,7 @@ private struct Harness {
             pointerLocation: { pointer },
             copyToClipboard: { url, _ in try copyToClipboard?(url) },
             writePNG: writePNG ?? CaptureCoordinator.writePNG,
+            playShutterSound: onShutter,
             onSaved: { url, _ in onSaved(url) },
             onRecordingChange: onRecordingChange
         )
@@ -287,6 +291,39 @@ private struct Harness {
     let harness = try Harness(selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)), onSaved: { handed.append($0) })
     await harness.coordinator.run(.area)
     #expect(handed.map(\.lastPathComponent) == (try harness.savedFiles()))
+}
+
+@MainActor @Test(arguments: [(CaptureMode.area, SelectionResult.area(CGRect(x: 10, y: 10, width: 5, height: 5))), (.window, .window(42)), (.fullScreen, .cancelled)])
+func eachScreenshotPlaysTheShutterOnce(mode: CaptureMode, selection: SelectionResult) async throws {
+    var shutters = 0
+    let harness = try Harness(selection: selection, onShutter: { shutters += 1 })
+    await harness.coordinator.run(mode)
+    #expect(shutters == 1)
+    #expect(try harness.savedFiles().count == 1)
+}
+
+@MainActor @Test func cancelledOrFailedCapturePlaysNoShutter() async throws {
+    var shutters = 0
+    let cancelled = try Harness(selection: .cancelled, onShutter: { shutters += 1 })
+    await cancelled.coordinator.run(.area)
+    let denied = try Harness(capturer: FakeCapturer(permissionGranted: false), selection: .window(7), onShutter: { shutters += 1 })
+    await denied.coordinator.run(.window)
+    #expect(shutters == 0)
+}
+
+@MainActor @Test func soundOffPlaysNoShutter() async throws {
+    var shutters = 0
+    let harness = try Harness(selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)), soundOn: false, onShutter: { shutters += 1 })
+    await harness.coordinator.run(.area)
+    #expect(shutters == 0)
+    #expect(try harness.savedFiles().count == 1)
+}
+
+@MainActor @Test func captureTextPlaysNoShutter() async throws {
+    var shutters = 0
+    let harness = try Harness(selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)), onShutter: { shutters += 1 })
+    _ = await harness.coordinator.captureImage(.area)
+    #expect(shutters == 0)
 }
 
 @MainActor @Test func windowCapturesPickedWindow() async throws {

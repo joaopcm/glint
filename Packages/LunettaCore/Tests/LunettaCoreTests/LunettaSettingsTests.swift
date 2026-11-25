@@ -110,6 +110,7 @@ private final class ChangeFlag: @unchecked Sendable {
 @MainActor @Test func changeThroughOneReferenceIsSeenThroughTheOther() {
     #expect(changeIsSeen(\.saveFolder, becomes: URL(filePath: "/tmp/shots")))
     #expect(changeIsSeen(\.copyToClipboardAfterCapture, becomes: true))
+    #expect(changeIsSeen(\.playSoundOnCapture, becomes: false))
     #expect(changeIsSeen(\.overlayCorner, becomes: .bottomLeft))
     #expect(changeIsSeen(\.overlayAutoDismiss, becomes: true))
     #expect(changeIsSeen(\.thumbnailWidth, becomes: 300))
@@ -167,4 +168,11 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).showMagnifierWhileSelecting == false)
     LunettaSettings(store: store, defaultSaveFolder: desktop).showMagnifierWhileSelecting = true
     #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).showMagnifierWhileSelecting == true)
+}
+
+@MainActor @Test func captureSoundDefaultsOnAndRoundTrips() {
+    let store = MemoryStore()
+    #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).playSoundOnCapture == true)
+    LunettaSettings(store: store, defaultSaveFolder: desktop).playSoundOnCapture = false
+    #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).playSoundOnCapture == false)
 }
