@@ -1,0 +1,35 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "srgb:0.16471,0.18039,0.43137,1.00000",
+      "srgb:0.03529,0.04314,0.13333,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "glass" : true,
+          "image-name" : "star.svg",
+          "name" : "star"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      }
+    },
+    {
+      "layers" : [
+        {
+          "glass" : true,
+          "image-name" : "lens.svg",
+          "name" : "lens"
+        }
+      ]
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}

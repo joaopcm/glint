@@ -116,6 +116,17 @@ jobs:
           codesign -d --entitlements - --xml "$APP" > "$RUNNER_TEMP/entitlements.plist"
           value=$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' "$RUNNER_TEMP/entitlements.plist" 2>&1) || true
           [ "$value" = true ] || { echo "::error::$APP is missing com.apple.security.device.audio-input=true (got: $value). Add it under entitlements.properties in project.yml"; exit 1; }
+      - name: Check the app icon
+        env:
+          APP: build/Build/Products/Release/Lunetta.app
+        run: |
+          plist="$APP/Contents/Info.plist"
+          for key in CFBundleIconFile CFBundleIconName; do
+            value=$(plutil -extract "$key" raw "$plist" 2>&1) || true
+            [ "$value" = AppIcon ] || { echo "::error::$key is '$value', expected AppIcon. Check App/AppIcon.icon and ASSETCATALOG_COMPILER_APPICON_NAME in project.yml"; exit 1; }
+          done
+          [ -s "$APP/Contents/Resources/AppIcon.icns" ] || { echo "::error::$APP has no Contents/Resources/AppIcon.icns, so macOS 15 shows a blank icon"; exit 1; }
+          ls -l "$APP/Contents/Resources"
       - name: Check build label stamping
         env:
           PLIST: build/Build/Products/Release/Lunetta.app/Contents/Info.plist
