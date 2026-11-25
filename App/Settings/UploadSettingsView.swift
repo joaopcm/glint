@@ -52,7 +52,7 @@ struct UploadSettingsView: View {
                 }
                 Section {
                     Toggle("Upload after capture", isOn: $settings.uploadAfterCapture)
-                        .help("Upload every new capture and copy its link, as if you clicked Upload on its thumbnail.")
+                        .help("Upload every new capture and copy its link instead of the image. The thumbnail stays on screen.")
                 }
                 Section {
                     HStack {
