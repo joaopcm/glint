@@ -7,7 +7,7 @@ public enum Glass {
     public static let toolbarHeight = buttonSide + 2 * toolbarInset
     public static let capsuleHeight: CGFloat = 22
     private static let toolbarInset: CGFloat = 2
-    private static let titlePadding: CGFloat = 10
+    public static let titlePadding: CGFloat = 10
     private static let groupSpacing: CGFloat = 6
 
     /// `.behindWindow` blurs the desktop under a transparent panel; chrome floating over a window's own
@@ -102,6 +102,16 @@ public enum Glass {
         let surface = background(cornerRadius: cornerRadius)
         setContent(content, of: surface)
         return surface
+    }
+
+    /// The size `surface` needs for what it holds. A macOS 26 glass view measured itself without its content's edge
+    /// insets: the stage's notice came out 13 pt too narrow for its message (ui-macos run 45848227046), and its toolbar
+    /// short enough that Record lost its padding.
+    public static func fittingSize(of surface: NSView) -> CGSize {
+        if #available(macOS 26, *), let glass = surface as? NSGlassEffectView, let content = glass.contentView {
+            return content.fittingSize
+        }
+        return surface.fittingSize
     }
 
     /// Only a glass view's `contentView` is guaranteed to render inside the glass.
