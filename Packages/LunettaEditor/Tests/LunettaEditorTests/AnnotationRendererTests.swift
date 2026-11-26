@@ -42,8 +42,16 @@ struct AnnotationRendererTests {
         let pixels = try Pixels(#require(AnnotationRenderer.flatten(base, [arrow])))
         #expect(pixels.isInk(x: 60, y: 50))
         #expect(pixels.isInk(x: 180, y: 50))
-        #expect(pixels.isInk(x: 178, y: 56), "the head is wider than the shaft")
+        #expect(pixels.isInk(x: 184, y: 54), "the head is wider than the shaft")
+        #expect(pixels.isWhite(x: 176, y: 53), "the head is an open chevron, not a filled triangle")
         #expect(pixels.isWhite(x: 60, y: 60))
+    }
+
+    @Test func bentArrowPassesThroughItsBend() throws {
+        let arrow = Annotation(kind: .arrow, start: CGPoint(x: 10, y: 80), end: CGPoint(x: 190, y: 80), lineWidth: 4, bend: CGPoint(x: 100, y: 20))
+        let pixels = try Pixels(#require(AnnotationRenderer.flatten(base, [arrow])))
+        #expect(pixels.isInk(x: 100, y: 20))
+        #expect(pixels.isWhite(x: 100, y: 80))
     }
 
     @Test func textDrawsInsideItsBox() throws {

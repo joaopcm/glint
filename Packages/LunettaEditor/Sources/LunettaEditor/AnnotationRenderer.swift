@@ -196,28 +196,36 @@ public enum AnnotationRenderer {
         return context.makeImage()
     }
 
+    /// An open chevron head on a round-capped shaft; the head follows the curve's direction at the tip.
     private static func drawArrow(_ arrow: Annotation, in context: CGContext) {
-        let length = hypot(arrow.end.x - arrow.start.x, arrow.end.y - arrow.start.y)
-        guard length > 0 else { return }
-        let headLength = min(arrow.lineWidth * 4, length)
-        let headHalfWidth = arrow.lineWidth * 2.5
-        let ux = (arrow.end.x - arrow.start.x) / length, uy = (arrow.end.y - arrow.start.y) / length
-        let base = CGPoint(x: arrow.end.x - ux * headLength, y: arrow.end.y - uy * headLength)
+        let chord = hypot(arrow.end.x - arrow.start.x, arrow.end.y - arrow.start.y)
+        guard chord > 0 else { return }
+        let control = arrow.curveControl
+        let tail = control == arrow.end ? arrow.start : control
+        let length = hypot(arrow.end.x - tail.x, arrow.end.y - tail.y)
+        let ux = (arrow.end.x - tail.x) / length, uy = (arrow.end.y - tail.y) / length
+        let arm = min(arrow.lineWidth * headArmRatio, chord / 2)
+        let cosine = cos(headSpread), sine = sin(headSpread)
+        func barb(_ side: CGFloat) -> CGPoint {
+            CGPoint(
+                x: arrow.end.x - arm * (ux * cosine - side * uy * sine),
+                y: arrow.end.y - arm * (uy * cosine + side * ux * sine)
+            )
+        }
 
         context.setStrokeColor(ink)
-        context.setFillColor(ink)
         context.setLineWidth(arrow.lineWidth)
         context.setLineCap(.round)
-        context.move(to: arrow.start)
-        context.addLine(to: base)
+        context.setLineJoin(.round)
+        context.addPath(arrow.curve)
+        context.move(to: barb(1))
+        context.addLine(to: arrow.end)
+        context.addLine(to: barb(-1))
         context.strokePath()
-
-        context.move(to: arrow.end)
-        context.addLine(to: CGPoint(x: base.x - uy * headHalfWidth, y: base.y + ux * headHalfWidth))
-        context.addLine(to: CGPoint(x: base.x + uy * headHalfWidth, y: base.y - ux * headHalfWidth))
-        context.closePath()
-        context.fillPath()
     }
+
+    private static let headArmRatio: CGFloat = 3
+    private static let headSpread: CGFloat = .pi * 2 / 9
 
     static func lineCount(_ text: String) -> Int {
         var lines = 1

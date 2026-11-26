@@ -117,4 +117,27 @@ struct AnnotationDocumentTests {
         #expect(arrow.contains(CGPoint(x: 50, y: 52), tolerance: 2))
         #expect(!arrow.contains(CGPoint(x: 90, y: 10), tolerance: 2))
     }
+
+    @Test func bentArrowsHitAlongTheCurveNotTheChord() {
+        let arrow = Annotation(kind: .arrow, start: CGPoint(x: 0, y: 100), end: CGPoint(x: 200, y: 100), lineWidth: 4, bend: CGPoint(x: 100, y: 20))
+        #expect(arrow.contains(CGPoint(x: 100, y: 21), tolerance: 2))
+        #expect(!arrow.contains(CGPoint(x: 100, y: 100), tolerance: 2))
+    }
+
+    @Test func draggingTheBendHandleCurvesTheArrowAndMovingKeepsTheCurve() {
+        let arrow = Annotation(kind: .arrow, start: .zero, end: CGPoint(x: 100, y: 0), lineWidth: 4)
+        #expect(arrow.point(of: .bend) == CGPoint(x: 50, y: 0))
+        document.add(arrow)
+        document.resize(arrow.id, .bend, to: CGPoint(x: 50, y: 30))
+        document.move(arrow.id, by: CGSize(width: 10, height: 5))
+        #expect(document.annotation(arrow.id)?.bend == CGPoint(x: 60, y: 35))
+        document.undoManager.undo()
+        document.undoManager.undo()
+        #expect(document.annotation(arrow.id)?.bend == nil)
+    }
+
+    @Test func onlyArrowsHaveABendHandle() {
+        #expect(box.handles == [.start, .end])
+        #expect(Annotation(kind: .arrow, start: .zero, end: .zero, lineWidth: 4).handles == [.start, .end, .bend])
+    }
 }
