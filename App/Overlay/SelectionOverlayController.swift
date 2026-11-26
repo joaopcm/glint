@@ -186,6 +186,7 @@ struct WindowTarget: Equatable {
 final class OverlayPanel: NSPanel {
     convenience init(screen: NSScreen, view: OverlayView) {
         self.init(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        CaptureChrome.mark(self)
         level = .screenSaver
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isOpaque = false

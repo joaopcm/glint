@@ -5,7 +5,7 @@ import LunettaUI
 import os
 
 /// Everything on screen around a recording: the dim outside the recorded area, the countdown, the floating controls
-/// and the timer in the menu bar. All of them are Lunetta windows, which ScreenCapturer leaves out of every recording.
+/// and the timer in the menu bar. All of them are capture chrome, which ScreenCapturer leaves out of every capture.
 @MainActor
 final class RecordingHUD {
     static let countdownSeconds = 3
@@ -241,6 +241,7 @@ final class RecordingHUD {
 
     private static func panel(frame: CGRect, level: NSWindow.Level) -> NSPanel {
         let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        CaptureChrome.mark(panel)
         panel.level = level
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
@@ -681,6 +682,7 @@ private final class RecordingTimerItem: NSObject {
         self.onClick = onClick
         super.init()
         guard let button = item.button else { return }
+        if let window = button.window { CaptureChrome.mark(window) }
         button.imagePosition = .imageLeading
         button.toolTip = "Stop Recording"
         button.target = self

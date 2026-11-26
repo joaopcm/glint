@@ -13,10 +13,9 @@ final class ClickRingOverlay: ClickShowing {
     private var panel: NSPanel?
     private var monitor: Any?
 
-    func show(over region: CGRect) -> UInt32 {
+    func show(over region: CGRect) {
         hide()
         let panel = Self.makePanel(over: region)
-        // On screen before the recording starts: ScreenCaptureKit only keeps windows it lists, and it lists on-screen ones.
         panel.orderFrontRegardless()
         self.panel = panel
         monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
@@ -24,7 +23,6 @@ final class ClickRingOverlay: ClickShowing {
             let location = event.locationInWindow
             MainActor.assumeIsolated { self?.ring(at: location) }
         }
-        return UInt32(panel.windowNumber)
     }
 
     func hide() {

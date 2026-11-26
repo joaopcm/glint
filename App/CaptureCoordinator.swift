@@ -56,8 +56,7 @@ protocol MicrophoneAccess {
 @MainActor
 protocol KeystrokeShowing {
     var isAllowed: Bool { get }
-    /// Returns the overlay's window ID, which the recording keeps while it leaves out Lunetta's other windows.
-    func show(over region: CGRect) throws -> UInt32
+    func show(over region: CGRect) throws
     func hide()
     func openSettings()
 }
@@ -65,12 +64,11 @@ protocol KeystrokeShowing {
 /// The rings drawn under the pointer on each click in a recorded area.
 @MainActor
 protocol ClickShowing {
-    /// Returns the overlay's window ID, which the recording keeps while it leaves out Lunetta's other windows.
-    func show(over region: CGRect) -> UInt32
+    func show(over region: CGRect)
     func hide()
 }
 
-/// What Lunetta draws over a recorded area; each rides along in the video as a kept window.
+/// What Lunetta draws over a recorded area for the video to show.
 private struct RecordingOverlays {
     var keys = false
     var clicks = false
@@ -338,7 +336,7 @@ final class CaptureCoordinator {
             let input = choices.microphone ? choices.input : nil
             // A window recording holds that window alone, so Lunetta's rings can't reach it and macOS's circles stand in.
             let drawsClicks = choices.showsClicks && mode == .area
-            var options = RecordingOptions(
+            let options = RecordingOptions(
                 codec: settings.recordingCodec,
                 systemAudio: choices.systemAudio,
                 microphone: choices.microphone,
@@ -346,7 +344,7 @@ final class CaptureCoordinator {
                 showsClicks: choices.showsClicks && !drawsClicks
             )
             overlays = RecordingOverlays(keys: choices.showsKeys, clicks: drawsClicks)
-            options.keptWindowIDs = try show(overlays, over: region)
+            try show(overlays, over: region)
             let status = RecordingStatus(region: region, dimsOutside: mode == .area)
             try await record(target, status: status, options: options, overlays: overlays, input: input)
         } catch {
@@ -363,22 +361,19 @@ final class CaptureCoordinator {
         let overlays = session.overlays
         defer { if self.session == nil { hide(overlays) } }
         do {
-            var options = session.options
             // Discarding took the overlays down with the old recording; the new one gets them back.
-            options.keptWindowIDs = try show(overlays, over: session.status.region)
+            try show(overlays, over: session.status.region)
             let status = RecordingStatus(region: session.status.region, dimsOutside: session.status.dimsOutside)
-            try await record(session.target, status: status, options: options, overlays: overlays, input: session.input)
+            try await record(session.target, status: status, options: session.options, overlays: overlays, input: session.input)
         } catch {
             onRecordingEvent(.ended(.failed))
             present(error, failure: "Lunetta couldn't start the recording over")
         }
     }
 
-    private func show(_ overlays: RecordingOverlays, over region: CGRect) throws -> [UInt32] {
-        var kept: [UInt32] = []
-        if overlays.keys { kept.append(try keystrokes.show(over: region)) }
-        if overlays.clicks { kept.append(clickRings.show(over: region)) }
-        return kept
+    private func show(_ overlays: RecordingOverlays, over region: CGRect) throws {
+        if overlays.keys { try keystrokes.show(over: region) }
+        if overlays.clicks { clickRings.show(over: region) }
     }
 
     private func hide(_ overlays: RecordingOverlays) {
@@ -395,13 +390,14 @@ final class CaptureCoordinator {
     ) async throws {
         guard await countDownIfOn(status) else { return }
         let url = nextFileURL(ext: "mp4")
-        let active = try await recorder.startRecording(target, to: url, options: options)
         var status = status
         status.clock.start(at: now())
+        // The HUD has to be on screen before the stream starts, or the recording can't tell to leave it out.
+        onRecordingEvent(.started(status))
+        let active = try await recorder.startRecording(target, to: url, options: options)
         let session = RecordingSession(target: target, options: options, overlays: overlays, input: input, url: url, status: status)
         self.session = session
         attach(active, writingTo: url, in: session)
-        onRecordingEvent(.started(status))
     }
 
     private func countDownIfOn(_ status: RecordingStatus) async -> Bool {
