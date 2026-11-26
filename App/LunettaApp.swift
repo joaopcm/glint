@@ -43,9 +43,11 @@ final class AppState {
     private var coordinator: CaptureCoordinator!
     private var textCapture: TextCapture!
     private var thumbnail: ThumbnailPresenter!
+    private var clipboardCompressor: ClipboardCompressor!
     private lazy var recordingHUD = RecordingHUD(settings: settings)
     private let microphone = SystemMicrophoneAccess()
     private let keystrokes = KeystrokeOverlay()
+    private let clickRings = ClickRingOverlay()
     private lazy var recordingStage = RecordingStage(
         model: RecordingStageModel(
             settings: settings,
@@ -77,12 +79,20 @@ final class AppState {
                 }
             }
         )
+        clipboardCompressor = ClipboardCompressor(
+            settings: settings,
+            show: { [weak self] url, compression in
+                self?.thumbnail.show(url, precomputedThumbnail: nil, compression: compression, isCapture: false)
+            },
+            onProblem: { [weak self] message in self?.toast.show(message) }
+        )
         let capturer = ScreenCapturer()
         let coordinator = CaptureCoordinator(
             capturer: capturer,
             recorder: capturer,
             microphone: microphone,
             keystrokes: keystrokes,
+            clickRings: clickRings,
             stager: recordingStage,
             selector: SelectionOverlayController(
                 showsMagnifier: { [settings] in settings.showMagnifierWhileSelecting },

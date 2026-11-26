@@ -84,6 +84,12 @@ private struct GeneralSettingsView: View {
                     Text("Shrinks screenshots and recordings before they're copied or uploaded. Screenshots keep up to 256 colors, so photos in them can band a little.")
                 }
             }
+            Section("Clipboard") {
+                Toggle(isOn: $settings.compressCopiedMedia) {
+                    Text("Compress copied images and recordings")
+                    Text("A PNG, TIFF or BMP image or a recording you copy in any app gets a thumbnail that compresses a copy of it, and the smaller copy replaces it on the clipboard. The file you copied stays as it is.")
+                }
+            }
             Section("Quick Access") {
                 ThumbnailCornerPicker(corner: $settings.overlayCorner)
                 Toggle(isOn: $settings.overlayAutoDismiss) {

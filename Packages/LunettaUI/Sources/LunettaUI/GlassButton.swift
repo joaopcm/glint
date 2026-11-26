@@ -23,6 +23,9 @@ public final class GlassButton: NSButton {
     public override init(frame: NSRect) {
         super.init(frame: frame)
         isBordered = false
+        // Without it AppKit pins the image to the leading edge and centers the title in what's left, so a titled
+        // button's padding all went between Record's dot and its title.
+        imageHugsTitle = true
         stopCellHighlight()
         applyTint()
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))

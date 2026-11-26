@@ -38,6 +38,19 @@ import Testing
     #expect(uploaded == [png])
 }
 
+@MainActor @Test func uploadAfterCaptureLeavesACompressedCopyAlone() async throws {
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    settings.uploadAfterCapture = true
+    let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, pointerLocation: { offScreen })
+    let compression: PendingCompression = Task { CompressionResult(originalBytes: 1000, compressedBytes: 380) }
+
+    presenter.show(try writePNG(), precomputedThumbnail: nil, compression: compression, isCapture: false)
+    _ = await compression.result
+    try await Task.sleep(for: .milliseconds(200)) // the card uploads, when it does, right after compression
+
+    #expect(presenter.count == 1)
+}
+
 @MainActor @Test func aRunningCompressionHoldsAutoHideUntilItFinishes() async throws {
     let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     settings.overlayAutoDismiss = true

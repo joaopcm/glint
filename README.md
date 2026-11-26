@@ -10,6 +10,7 @@ Open source screenshot and screen recording app for macOS.
 - Quick-access thumbnail after each capture: copy, upload, save as, annotate, pin or drag it out
 - Upload to your own S3-compatible bucket (AWS S3, Cloudflare R2, MinIO, ...): one click puts the capture there and its public link on the clipboard. Turn on Upload after capture in Settings to skip the click. Your bucket is the only place Lunetta ever sends anything
 - Compress after capture (off by default, in Settings): each capture shrinks on this Mac before it's copied or uploaded, and its thumbnail says by how much. Screenshots become PNGs of up to 256 colors, recordings are encoded again in their own format, and a capture that wouldn't get smaller stays as saved
+- Compress copied images and recordings (off by default, in Settings): a PNG, TIFF or BMP image or a recording you copy in any app gets a thumbnail that compresses a copy of it, and the smaller copy replaces it on the clipboard. The file you copied stays as it is
 - Every shortcut can be changed in Settings
 
 ## Performance

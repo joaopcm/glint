@@ -114,7 +114,16 @@ enum PasteboardError: LocalizedError {
     }
 }
 
+@MainActor
 extension NSPasteboard {
+    /// Each pasteboard's change count right after Lunetta last wrote to it.
+    private static var changeCountsAfterLunettaWrote: [Name: Int] = [:]
+
+    /// True while the pasteboard still holds what Lunetta put there, so compressing copies leaves Lunetta's own alone.
+    var holdsLunettaCopy: Bool {
+        Self.changeCountsAfterLunettaWrote[name] == changeCount
+    }
+
     func copyPNGFile(at url: URL) throws {
         try copyPNGData(Data(contentsOf: url), fileURL: url)
     }
@@ -123,17 +132,20 @@ extension NSPasteboard {
         let item = NSPasteboardItem()
         item.setString(url.absoluteString, forType: .fileURL)
         item.setData(data, forType: .png)
-        clearContents()
-        guard writeObjects([item]) else { throw PasteboardError.rejected }
+        try replaceContents { $0.writeObjects([item]) }
     }
 
     func copyFileReference(_ url: URL) throws {
-        clearContents()
-        guard writeObjects([url as NSURL]) else { throw PasteboardError.rejected }
+        try replaceContents { $0.writeObjects([url as NSURL]) }
     }
 
     func copyText(_ text: String) throws {
+        try replaceContents { $0.setString(text, forType: .string) }
+    }
+
+    private func replaceContents(_ write: (NSPasteboard) -> Bool) throws {
         clearContents()
-        guard setString(text, forType: .string) else { throw PasteboardError.rejected }
+        guard write(self) else { throw PasteboardError.rejected }
+        Self.changeCountsAfterLunettaWrote[name] = changeCount
     }
 }
