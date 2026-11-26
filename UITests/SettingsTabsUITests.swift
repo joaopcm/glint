@@ -2,14 +2,14 @@ import AppKit
 import XCTest
 
 final class SettingsTabsUITests: LunettaUITestCase {
-    /// The padding stays out of the arguments: the argument domain would shadow what the slider writes.
     override var extraLaunchArguments: [String] {
         ["-windowCaptureWallpaper", "YES"]
     }
 
     /// Frames are whole points and the canvas is ~400 pt wide, so rounding moves a width ratio by ~0.005.
-    /// A slider snapped one 8 pt step short of either end moves it by under 0.016.
     static let ratioTolerance: CGFloat = 0.02
+    /// `LunettaSettings.windowWallpaperPaddingRange`'s upper bound.
+    static let maxPadding: Double = 256
 
     @MainActor func testEveryTabOpensOnScreenWithItsControls() {
         let landmarks: [(tab: String, id: String?)] = [
@@ -47,28 +47,24 @@ final class SettingsTabsUITests: LunettaUITestCase {
         XCTAssertNotEqual(element(AccessibilityID.thumbnailCorner("bottomLeft")).value as? String, "selected", "both corners are marked")
     }
 
-    @MainActor func testPaddingSliderResizesTheWindowInThePreviewOverTheWallpaper() {
-        openSettingsTab("Capture")
-        let canvas = element(AccessibilityID.wallpaperPaddingPreview)
-        XCTAssertTrue(canvas.waitForExistence(timeout: Self.captureTimeout), "the Capture tab has no padding preview")
-        // SwiftUI leaves AXValue empty on this "Other" element (run 45811845542), so the label says what's behind the window.
-        let readWallpaper = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Padding preview on your wallpaper"), object: canvas)
-        if XCTWaiter.wait(for: [readWallpaper], timeout: Self.captureTimeout) != .completed {
-            let fallback = element(AccessibilityID.wallpaperPreviewFallback)
-            XCTFail("the preview reads \"\(canvas.label)\" instead of showing the wallpaper: \(fallback.exists ? fallback.label : "no reason shown")")
+    /// XCUITest can't move this SwiftUI slider on macOS 26: `adjust(toNormalizedSliderPosition:)`, a drag from the track and a
+    /// drag from the knob all left it at 64 pt (runs 45814761757, 45817668878, 45827511198; the last
+    /// recording shows the pointer on the knob). So Lunetta launches at each end of the range and the preview has to match it.
+    @MainActor func testPaddingPreviewShowsTheWindowOnTheWallpaperWithTheChosenPadding() {
+        for (padding, share) in [(0.0, 1.0), (Self.maxPadding, 1000 / (1000 + 2 * Self.maxPadding))] {
+            relaunch(withPadding: padding)
+            openSettingsTab("Capture")
+            let canvas = element(AccessibilityID.wallpaperPaddingPreview)
+            XCTAssertTrue(canvas.waitForExistence(timeout: Self.captureTimeout), "the Capture tab has no padding preview")
+            // SwiftUI leaves AXValue empty on this "Other" element (run 45811845542), so the label says what's behind the window.
+            let readWallpaper = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Padding preview on your wallpaper"), object: canvas)
+            if XCTWaiter.wait(for: [readWallpaper], timeout: Self.captureTimeout) != .completed {
+                let fallback = element(AccessibilityID.wallpaperPreviewFallback)
+                XCTFail("the preview reads \"\(canvas.label)\" instead of showing the wallpaper: \(fallback.exists ? fallback.label : "no reason shown")")
+            }
+            let shown = waitForWindowShare(near: CGFloat(share))
+            XCTAssertEqual(shown, CGFloat(share), accuracy: Self.ratioTolerance, "at \(Int(padding)) pt a 1000 pt window is \(share) of the capture's width, the preview shows \(shown); the readout says \(paddingReadout)")
         }
-
-        let slider = app.sliders.matching(identifier: AccessibilityID.wallpaperPaddingSlider).firstMatch
-        XCTAssertTrue(slider.waitForExistence(timeout: Self.captureTimeout), "the Capture tab has no padding slider")
-        XCTAssertTrue(slider.isEnabled, "the padding slider is disabled with -windowCaptureWallpaper YES")
-
-        drag(slider, toNormalizedX: -0.2)
-        let none = waitForWindowShare(near: 1)
-        XCTAssertEqual(none, 1, accuracy: Self.ratioTolerance, "at 0 pt the sample window should fill the preview, it takes \(none) of its width; the slider reads \(paddingReadout)")
-
-        drag(slider, toNormalizedX: 1.2)
-        let widest = waitForWindowShare(near: 1000 / 1512)
-        XCTAssertEqual(widest, 1000 / 1512, accuracy: Self.ratioTolerance, "at 256 pt a 1000 pt window is 1000/1512 of the capture's width, the preview shows \(widest); the slider reads \(paddingReadout)")
     }
 
     @MainActor func testSoundsTabListsEverySoundWithAPlayButton() {
@@ -80,23 +76,14 @@ final class SettingsTabsUITests: LunettaUITestCase {
         }
     }
 
-    /// `LunettaSettings.windowWallpaperPaddingRange`'s upper bound.
-    static let maxPadding: Double = 256
-    /// The knob is 20 pt wide in run 45817668878's screen recording, so its center stops 10 pt in from each end of the track.
-    static let sliderKnobInset: CGFloat = 10
-
-    /// `adjust(toNormalizedSliderPosition:)` left the slider at 64 pt (run 45814761757), and so did pressing the middle of the
-    /// track: this tick-marked slider only moves when the knob is grabbed (run 45817668878's recording). So grab the knob where
-    /// the readout puts it and drag past the track's end, where it stops at the bound.
-    @MainActor private func drag(_ slider: XCUIElement, toNormalizedX x: CGFloat) {
-        guard let padding = Double(paddingReadout.prefix { $0.isNumber }) else {
-            XCTFail("the padding readout says \(paddingReadout), not a number of points")
-            return
+    @MainActor private func relaunch(withPadding padding: Double) {
+        app.terminate()
+        var arguments = app.launchArguments
+        if let key = arguments.firstIndex(of: "-windowWallpaperPadding") {
+            arguments.removeSubrange(key...key + 1)
         }
-        let knob = Self.sliderKnobInset + (slider.frame.width - 2 * Self.sliderKnobInset) * CGFloat(padding / Self.maxPadding)
-        let trackStart = slider.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
-        let target = slider.coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.5))
-        trackStart.withOffset(CGVector(dx: knob, dy: 0)).press(forDuration: 0.1, thenDragTo: target)
+        app.launchArguments = arguments + ["-windowWallpaperPadding", "\(Int(padding))"]
+        app.launch()
     }
 
     @MainActor private var paddingReadout: String {
