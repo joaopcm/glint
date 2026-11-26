@@ -11,6 +11,6 @@ enum CaptureChrome {
     }
 
     static func windowIDs() -> [UInt32] {
-        windows.allObjects.compactMap { $0.windowNumber > 0 ? UInt32($0.windowNumber) : nil }
+        windows.allObjects.compactMap { UInt32(exactly: $0.windowNumber) }
     }
 }
