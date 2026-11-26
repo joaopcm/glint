@@ -34,7 +34,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case resizing(UUID, Annotation.Handle, to: CGPoint)
         case cropping(from: CGPoint, to: CGPoint)
         case restyling(UUID, Annotation.Kind)
-        case highlightingText(TextLayout.Position, Annotation)
+        case highlightingText(from: TextLayout.Position, to: TextLayout.Position, Annotation)
     }
 
     public var tool: Tool = .arrow {
@@ -174,7 +174,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         switch gesture {
         case nil:
             return document.annotations
-        case .drawing(let draft), .highlightingText(_, let draft):
+        case .drawing(let draft), .highlightingText(_, _, let draft):
             return document.annotations + [draft]
         case .moving(let id, let from, let to):
             return document.annotations.map { $0.id == id ? $0.moved(by: CGSize(width: to.x - from.x, height: to.y - from.y)) : $0 }
@@ -423,7 +423,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case .highlighter where wordPosition(at: point) != nil:
             selectedID = nil
             let word = wordPosition(at: point)!
-            gesture = .highlightingText(word, textHighlight(from: word, to: word, id: UUID()))
+            gesture = .highlightingText(from: word, to: word, textHighlight(from: word, to: word, id: UUID()))
         case .arrow, .rectangle, .highlighter, .blur, .pixelate:
             selectedID = nil
             gesture = newAnnotationKind(for: tool).map {
@@ -446,9 +446,9 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case .moving(let id, let from, _): gesture = .moving(id, from: from, to: point)
         case .resizing(let id, let handle, _): gesture = .resizing(id, handle, to: point)
         case .cropping(let from, _): gesture = .cropping(from: from, to: point)
-        case .highlightingText(let start, let draft):
+        case .highlightingText(let start, _, let draft):
             guard let end = document.textLayout?.nearestPosition(to: point) else { return }
-            gesture = .highlightingText(start, textHighlight(from: start, to: end, id: draft.id))
+            gesture = .highlightingText(from: start, to: end, textHighlight(from: start, to: end, id: draft.id))
         case .restyling: return
         }
         needsDisplay = true
@@ -467,9 +467,14 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             guard hypot(draft.end.x - draft.start.x, draft.end.y - draft.start.y) * zoom >= Self.minimumDrag else { return }
             document.add(draft)
             selectedID = draft.id
-        case .highlightingText(_, let draft):
-            document.add(draft)
-            selectedID = draft.id
+        case .highlightingText(let start, let end, let draft):
+            let point = imagePoint(for: event)
+            if start == end, let existing = document.annotations.last(where: { $0.kind == .highlighter && $0.contains(point, tolerance: 0) }) {
+                toggleHighlight(existing)
+            } else {
+                document.add(draft)
+                selectedID = draft.id
+            }
         case .moving(let id, let from, let to):
             document.move(id, by: CGSize(width: to.x - from.x, height: to.y - from.y))
         case .resizing(let id, let handle, let to):
@@ -477,6 +482,16 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case .cropping(let from, let to):
             guard hypot(to.x - from.x, to.y - from.y) * zoom >= Self.minimumDrag, let crop = displayedCrop else { return }
             document.setCrop(crop)
+        }
+    }
+
+    /// A click on a highlight in the picker's colour erases it; in any other colour, recolours it.
+    private func toggleHighlight(_ highlight: Annotation) {
+        if highlight.color == color {
+            document.delete(highlight.id)
+        } else {
+            document.setColor(highlight.id, color)
+            selectedID = highlight.id
         }
     }
 

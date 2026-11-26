@@ -30,6 +30,30 @@ struct TextHighlightCanvasTests {
         #expect(harness.document.annotations.map(\.color) == [green])
     }
 
+    @Test func clickOnHighlightOfTheSameColorErasesIt() {
+        let harness = HighlighterHarness(layout: threeLines)
+        harness.drag(from: CGPoint(x: 60, y: 10), to: CGPoint(x: 10, y: 70))
+        harness.drag(from: CGPoint(x: 10, y: 40), to: CGPoint(x: 10, y: 40))
+        #expect(harness.document.annotations.isEmpty)
+    }
+
+    @Test func clickOnHighlightOfAnotherColorRecolorsIt() {
+        let harness = HighlighterHarness(layout: threeLines)
+        harness.drag(from: CGPoint(x: 60, y: 10), to: CGPoint(x: 10, y: 70))
+        let blue = AnnotationColor(redByte: 0, greenByte: 0, blueByte: 255)
+        harness.canvas.color = blue
+        harness.drag(from: CGPoint(x: 10, y: 40), to: CGPoint(x: 10, y: 40))
+        #expect(harness.document.annotations.map(\.color) == [blue])
+        #expect(harness.document.annotations.map(\.lines.count) == [3])
+    }
+
+    @Test func dragOverAHighlightStacksANewOne() {
+        let harness = HighlighterHarness(layout: threeLines)
+        harness.drag(from: CGPoint(x: 60, y: 10), to: CGPoint(x: 10, y: 70))
+        harness.drag(from: CGPoint(x: 10, y: 40), to: CGPoint(x: 60, y: 40))
+        #expect(harness.document.annotations.count == 2)
+    }
+
     @Test func highlighterIsRecolorable() {
         #expect(Annotation.Kind.highlighter.usesColor)
     }
