@@ -158,7 +158,7 @@ final class AppState {
         explainingPickerPromptOnFirstUse { await self.textCapture.run() }
     }
 
-    /// The record hotkeys skip the panel and record with its last choices; the menu opens it.
+    /// The record hotkeys and their menu items skip the panel and record with its last choices; Record Screen… opens it.
     func record(_ mode: RecordingMode) {
         recordingPanel.close()
         explainingPickerPromptOnFirstUse { await self.coordinator.toggleRecording(mode) }
