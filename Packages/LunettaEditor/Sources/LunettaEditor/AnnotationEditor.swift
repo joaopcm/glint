@@ -48,6 +48,7 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     private static let chromeMargin: CGFloat = 16
     private static let imageMargin: CGFloat = 24
     private static let captionGap: CGFloat = 8
+    private static let dockSpacing: CGFloat = 8
     private static let captionFadeOut: TimeInterval = 0.2
     private static let captionFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
     private static let easeOut = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
@@ -177,26 +178,23 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         captionHost.alphaValue = 0
         captionHost.isHidden = true
 
+        // One dock in the middle: capture cards sit in a screen corner above every window, so a Save button in the
+        // corner of a screen-sized editor ended up under the card (UI test run 45724644945).
+        let dock = NSStackView(views: [history, tools, saving])
+        dock.spacing = Self.dockSpacing
+
         let content = NSView()
-        for view in [canvas, history, tools, saving, captionHost] as [NSView] {
+        for view in [canvas, dock, captionHost] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
         }
-        let centered = tools.centerXAnchor.constraint(equalTo: content.centerXAnchor)
-        centered.priority = .defaultHigh // a narrow window slides the tools aside rather than under Undo or Save
         NSLayoutConstraint.activate([
             canvas.topAnchor.constraint(equalTo: content.topAnchor),
             canvas.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             canvas.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             canvas.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            centered,
-            tools.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Self.chromeMargin),
-            history.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Self.chromeMargin),
-            history.centerYAnchor.constraint(equalTo: tools.centerYAnchor),
-            saving.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Self.chromeMargin),
-            saving.centerYAnchor.constraint(equalTo: tools.centerYAnchor),
-            tools.leadingAnchor.constraint(greaterThanOrEqualTo: history.trailingAnchor, constant: Self.chromeMargin),
-            tools.trailingAnchor.constraint(lessThanOrEqualTo: saving.leadingAnchor, constant: -Self.chromeMargin),
+            dock.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            dock.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Self.chromeMargin),
             capsule.leadingAnchor.constraint(equalTo: captionHost.leadingAnchor),
             capsule.trailingAnchor.constraint(equalTo: captionHost.trailingAnchor),
             capsule.topAnchor.constraint(equalTo: captionHost.topAnchor),
