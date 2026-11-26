@@ -60,6 +60,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     let document: AnnotationDocument
     private let pixelsPerPoint: CGFloat
     private let lineWidth: CGFloat
+    private let arrowLineWidth: CGFloat
     private let textLineHeight: CGFloat
     private var gesture: Gesture?
     private var textField: NSTextField?
@@ -68,6 +69,8 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     private var textFieldLineHeight: CGFloat = 0
 
     private static let handleDiameter: CGFloat = 10
+    private static let arrowHandleDiameter: CGFloat = 14
+    private static let haloWidth: CGFloat = 8
     private static let hitTolerance: CGFloat = 6
     // Same as ThumbnailView.dragThreshold: a click with a slight jitter draws nothing.
     private static let minimumDrag: CGFloat = 4
@@ -76,6 +79,8 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         self.document = document
         self.pixelsPerPoint = pixelsPerPoint
         lineWidth = 3 * pixelsPerPoint
+        // About half the cursor's width, measured against the cursor in the reference arrow the redesign copies.
+        arrowLineWidth = 6 * pixelsPerPoint
         textLineHeight = 28 * pixelsPerPoint
         super.init(frame: .zero)
         setAccessibilityElement(true)
@@ -190,6 +195,9 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         context.setShadow(offset: CGSize(width: 0, height: -6), blur: 24, color: NSColor.black.withAlphaComponent(0.35).cgColor)
         context.draw(document.base, in: CGRect(origin: .zero, size: imageSize))
         context.restoreGState()
+        if let selected = annotations.first(where: { $0.id == selectedID }), selected.kind == .arrow {
+            drawHalo(behind: selected, in: context)
+        }
         let visibleAnnotations = editingTextID == nil ? annotations : annotations.filter { $0.id != editingTextID }
         AnnotationRenderer.draw(visibleAnnotations, over: document.base, inFlippedContext: context, cache: document.renderCache)
         context.restoreGState()
@@ -208,20 +216,29 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         }
     }
 
+    private func drawHalo(behind arrow: Annotation, in context: CGContext) {
+        context.saveGState()
+        context.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.45).cgColor)
+        context.setLineWidth(arrow.lineWidth + Self.haloWidth / zoom)
+        context.setLineCap(.round)
+        context.addPath(arrow.curve)
+        context.strokePath()
+        context.restoreGState()
+    }
+
     private func drawSelection(of annotation: Annotation) {
-        if annotation.kind != .arrow {
-            let outline = NSBezierPath(rect: CGRect(origin: viewPoint(annotation.bounds.origin), size: CGSize(
-                width: annotation.bounds.width * zoom, height: annotation.bounds.height * zoom
-            )))
-            outline.lineWidth = 1
-            NSColor.controlAccentColor.setStroke()
-            outline.stroke()
-        }
+        guard annotation.kind != .arrow else { return drawArrowHandles(of: annotation) }
+        let outline = NSBezierPath(rect: CGRect(origin: viewPoint(annotation.bounds.origin), size: CGSize(
+            width: annotation.bounds.width * zoom, height: annotation.bounds.height * zoom
+        )))
+        outline.lineWidth = 1
+        NSColor.controlAccentColor.setStroke()
+        outline.stroke()
         let lift = NSShadow()
         lift.shadowColor = NSColor.black.withAlphaComponent(0.3)
         lift.shadowBlurRadius = 2
         lift.shadowOffset = NSSize(width: 0, height: -1)
-        for handle in Annotation.Handle.allCases {
+        for handle in annotation.handles {
             let center = viewPoint(annotation.point(of: handle))
             let radius = Self.handleDiameter / 2
             let dot = NSBezierPath(ovalIn: CGRect(x: center.x - radius, y: center.y - radius, width: Self.handleDiameter, height: Self.handleDiameter))
@@ -232,6 +249,19 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             NSGraphicsContext.restoreGraphicsState()
             NSColor.controlAccentColor.setStroke()
             dot.lineWidth = 1.5
+            dot.stroke()
+        }
+    }
+
+    private func drawArrowHandles(of arrow: Annotation) {
+        for handle in arrow.handles {
+            let center = viewPoint(arrow.point(of: handle))
+            let radius = Self.arrowHandleDiameter / 2
+            let dot = NSBezierPath(ovalIn: CGRect(x: center.x - radius, y: center.y - radius, width: 2 * radius, height: 2 * radius))
+            (handle == .bend ? NSColor(cgColor: AnnotationRenderer.ink)! : NSColor.controlAccentColor).setFill()
+            dot.fill()
+            NSColor.white.setStroke()
+            dot.lineWidth = 2
             dot.stroke()
         }
     }
@@ -271,7 +301,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         guard imageRect.contains(convert(windowPoint, from: nil)) else { return .arrow }
         let point = imagePoint(atWindowPoint: windowPoint)
         if let selectedID, let selected = document.annotation(selectedID),
-           Annotation.Handle.allCases.contains(where: { isNear(selected.point(of: $0), point) }) {
+           selected.handles.contains(where: { isNear(selected.point(of: $0), point) }) {
             return .crosshair
         }
         switch tool {
@@ -296,7 +326,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             return beginTextEditing(hit)
         }
         if let selectedID, let selected = document.annotation(selectedID),
-           let handle = Annotation.Handle.allCases.first(where: { isNear(selected.point(of: $0), point) }) {
+           let handle = selected.handles.first(where: { isNear(selected.point(of: $0), point) }) {
             gesture = .resizing(selectedID, handle, to: point)
             return
         }
@@ -312,7 +342,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             gesture = .cropping(from: point, to: point)
         case .arrow, .rectangle, .highlighter, .blur, .pixelate:
             selectedID = nil
-            gesture = tool.kind.map { .drawing(Annotation(kind: $0, start: point, end: point, lineWidth: lineWidth)) }
+            gesture = tool.kind.map { .drawing(Annotation(kind: $0, start: point, end: point, lineWidth: $0 == .arrow ? arrowLineWidth : lineWidth)) }
         }
     }
 

@@ -11,8 +11,8 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         case pixelate
     }
 
-    public enum Handle: CaseIterable, Sendable {
-        case start, end
+    public enum Handle: Sendable {
+        case start, end, bend
     }
 
     public let id: UUID
@@ -20,27 +20,61 @@ public struct Annotation: Identifiable, Equatable, Sendable {
     public var start: CGPoint
     public var end: CGPoint
     public var lineWidth: CGFloat
+    /// The point an arrow's curve passes through halfway along; nil draws it straight.
+    public var bend: CGPoint?
 
-    public init(id: UUID = UUID(), kind: Kind, start: CGPoint, end: CGPoint, lineWidth: CGFloat) {
+    public init(id: UUID = UUID(), kind: Kind, start: CGPoint, end: CGPoint, lineWidth: CGFloat, bend: CGPoint? = nil) {
         self.id = id
         self.kind = kind
         self.start = start
         self.end = end
         self.lineWidth = lineWidth
+        self.bend = bend
     }
 
     public var bounds: CGRect {
         CGRect(x: min(start.x, end.x), y: min(start.y, end.y), width: abs(end.x - start.x), height: abs(end.y - start.y))
     }
 
+    public var handles: [Handle] {
+        kind == .arrow ? [.start, .end, .bend] : [.start, .end]
+    }
+
     public func point(of handle: Handle) -> CGPoint {
-        handle == .start ? start : end
+        switch handle {
+        case .start: start
+        case .end: end
+        case .bend: bend ?? CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+        }
+    }
+
+    /// The quadratic Bézier control point that makes the curve pass through `point(of: .bend)` at its midpoint.
+    public var curveControl: CGPoint {
+        let through = point(of: .bend)
+        return CGPoint(x: 2 * through.x - (start.x + end.x) / 2, y: 2 * through.y - (start.y + end.y) / 2)
+    }
+
+    public var curve: CGPath {
+        let path = CGMutablePath()
+        path.move(to: start)
+        path.addQuadCurve(to: end, control: curveControl)
+        return path
+    }
+
+    func curvePoint(at t: CGFloat) -> CGPoint {
+        let control = curveControl
+        let u = 1 - t
+        return CGPoint(
+            x: u * u * start.x + 2 * u * t * control.x + t * t * end.x,
+            y: u * u * start.y + 2 * u * t * control.y + t * t * end.y
+        )
     }
 
     public func moved(by delta: CGSize) -> Annotation {
         var moved = self
         moved.start = CGPoint(x: start.x + delta.width, y: start.y + delta.height)
         moved.end = CGPoint(x: end.x + delta.width, y: end.y + delta.height)
+        moved.bend = bend.map { CGPoint(x: $0.x + delta.width, y: $0.y + delta.height) }
         return moved
     }
 
@@ -49,6 +83,7 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         switch handle {
         case .start: resized.start = point
         case .end: resized.end = point
+        case .bend: resized.bend = point
         }
         return resized
     }
@@ -56,11 +91,16 @@ public struct Annotation: Identifiable, Equatable, Sendable {
     public func contains(_ point: CGPoint, tolerance: CGFloat) -> Bool {
         switch kind {
         case .arrow:
-            return distance(from: point, toSegment: start, end) <= lineWidth / 2 + tolerance
+            let samples = (0...Self.curveSamples).map { curvePoint(at: CGFloat($0) / CGFloat(Self.curveSamples)) }
+            let nearest = zip(samples, samples.dropFirst()).map { distance(from: point, toSegment: $0, $1) }.min() ?? .infinity
+            return nearest <= lineWidth / 2 + tolerance
         case .rectangle, .text, .highlighter, .blur, .pixelate:
             return bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
         }
     }
+
+    /// 32 chords stay within ~0.1% of the curve's length from it: far under the hit tolerance.
+    private static let curveSamples = 32
 
     private func distance(from p: CGPoint, toSegment a: CGPoint, _ b: CGPoint) -> CGFloat {
         let dx = b.x - a.x, dy = b.y - a.y
