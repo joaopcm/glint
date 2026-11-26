@@ -63,3 +63,39 @@ private let area = CGRect(x: 100, y: 200, width: 400, height: 300)
     let toolbarAbove = CGRect(x: 200, y: 512, width: 200, height: 32)
     #expect(StageGeometry.noticeFrame(size: size, toolbar: toolbarAbove, region: area, visible: screen, gap: 8).minY == 552)
 }
+
+private let toolbarSize = CGSize(width: 300, height: 32)
+
+@Test func belowTheAreaTheToolbarHugsItAndLabelsAndNoticeGoFurtherDown() throws {
+    let chrome = StageGeometry.chrome(toolbar: toolbarSize, labelHeight: 22, notice: CGSize(width: 340, height: 80), region: area, visible: screen, gap: 12)
+    #expect(chrome.toolbar.maxY == area.minY - 12)
+    #expect(chrome.labelLane.maxY == chrome.toolbar.minY - StageGeometry.labelGap)
+    let notice = try #require(chrome.notice)
+    #expect(notice.maxY == chrome.labelLane.minY - 8)
+    for frame in [chrome.toolbar, chrome.labelLane, notice] {
+        #expect(!frame.intersects(area), "\(frame) covers the area")
+    }
+}
+
+@Test func aboveTheAreaTheLabelLaneIsAboveTheToolbar() {
+    let low = CGRect(x: 100, y: 30, width: 400, height: 300)
+    let chrome = StageGeometry.chrome(toolbar: toolbarSize, labelHeight: 22, notice: nil, region: low, visible: screen, gap: 12)
+    #expect(chrome.toolbar.minY == low.maxY + 12)
+    #expect(chrome.labelLane.minY == chrome.toolbar.maxY + StageGeometry.labelGap)
+    #expect(!chrome.labelLane.intersects(low))
+    #expect(chrome.notice == nil)
+}
+
+@Test func roomForTheLabelLaneDecidesWhetherTheToolbarFitsBelow() {
+    let tightBelow = CGRect(x: 100, y: 60, width: 400, height: 300)
+    let chrome = StageGeometry.chrome(toolbar: toolbarSize, labelHeight: 22, notice: nil, region: tightBelow, visible: screen, gap: 12)
+    #expect(chrome.toolbar.minY > tightBelow.maxY, "32 pt toolbar fits in the 48 pt below, but not with its 28 pt label lane")
+}
+
+@Test func aLabelCentersOverItsButtonButStaysInTheLane() {
+    let lane = CGRect(x: 12, y: 100, width: 1488, height: 22)
+    let size = CGSize(width: 90, height: 22)
+    #expect(StageGeometry.labelFrame(size: size, over: 400, in: lane) == CGRect(x: 355, y: 100, width: 90, height: 22))
+    #expect(StageGeometry.labelFrame(size: size, over: 20, in: lane).minX == 12)
+    #expect(StageGeometry.labelFrame(size: size, over: 1505, in: lane).maxX == 1500)
+}

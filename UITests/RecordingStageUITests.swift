@@ -6,16 +6,29 @@ final class RecordingStageUITests: LunettaUITestCase {
     /// The stage saves to Lunetta's real defaults; each test starts Lunetta from the first-run choices.
     override var extraLaunchEnvironment: [String: String] { ["LUNETTA_UI_TEST_FRESH_RECORDING_CHOICES": "1"] }
 
-    @MainActor func testTheShortcutStagesTheAreaToResizeThenRecordsItWithTheToolbarsChoices() async throws {
+    /// The resize starts on the corner where the move left it; had the move gone to the app underneath, that press
+    /// would land outside the area and draw a 60 × 40 pt one instead.
+    @MainActor func testTheShortcutStagesTheAreaToMoveAndResizeThenRecordsItWithTheToolbarsChoices() async throws {
         press(.recordScreen)
         waitForOverlay(after: .recordScreen)
         let topLeft = selectRecordingArea()
         XCTAssertTrue(stage.waitForExistence(timeout: Self.captureTimeout), "no stage after picking an area with \(Hotkey.recordScreen.rawValue)")
         XCTAssertFalse(stopRecordingButton.exists, "recording started before Record")
 
-        let corner = CGPoint(x: topLeft.x + 200, y: topLeft.y + 150)
+        let middle = CGPoint(x: topLeft.x + 100, y: topLeft.y + 75)
+        screenPoint(middle).press(forDuration: 0.1, thenDragTo: screenPoint(CGPoint(x: middle.x + 40, y: middle.y + 30)))
+        let corner = CGPoint(x: topLeft.x + 240, y: topLeft.y + 180)
         screenPoint(corner).press(forDuration: 0.1, thenDragTo: screenPoint(CGPoint(x: corner.x + 60, y: corner.y + 40)))
-        center(of: stageControl(AccessibilityID.recordingStageSystemAudio)).click()
+        let staged = CGRect(x: topLeft.x + 40, y: topLeft.y + 30, width: 260, height: 190)
+
+        let systemAudio = stageControl(AccessibilityID.recordingStageSystemAudio)
+        center(of: systemAudio).hover()
+        let label = app.descendants(matching: .any).matching(identifier: AccessibilityID.recordingStageActionLabel).firstMatch
+        XCTAssertTrue(label.waitForExistence(timeout: Self.captureTimeout), "hovering System Audio showed no label")
+        XCTAssertEqual(label.value as? String, "System Audio")
+        XCTAssertFalse(label.frame.intersects(staged), "the label at \(label.frame) covers the area at \(staged)")
+        keepScreenshot(named: "stage with a hover label")
+        center(of: systemAudio).click()
         center(of: stageControl(AccessibilityID.recordingStageClicks)).click()
         center(of: stageControl(AccessibilityID.recordingStageRecord)).click()
 
@@ -49,6 +62,10 @@ final class RecordingStageUITests: LunettaUITestCase {
         XCTAssertTrue(explanation.waitForExistence(timeout: Self.captureTimeout), "the stage didn't say Show Pressed Keys needs Input Monitoring")
         XCTAssertTrue(app.buttons["Open Input Monitoring Settings"].exists, "the stage names Input Monitoring but offers no way to open it")
         XCTAssertFalse(record.isEnabled, "Record stayed enabled although the keys wouldn't show in the recording")
+        let notice = stageControl(AccessibilityID.recordingStageNotice)
+        XCTAssertTrue(notice.frame.contains(explanation.frame), "the message at \(explanation.frame) runs out of its card at \(notice.frame)")
+        XCTAssertTrue(pointerScreen.frame.height >= notice.frame.maxY && notice.frame.minY >= 0, "the notice at \(notice.frame) is off screen")
+        keepScreenshot(named: "stage with the Input Monitoring notice")
 
         center(of: stageControl(AccessibilityID.recordingStageCancel)).click()
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: stage)
