@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import XCTest
 
@@ -20,6 +21,13 @@ final class RecordingStageUITests: LunettaUITestCase {
         let corner = CGPoint(x: topLeft.x + 240, y: topLeft.y + 180)
         screenPoint(corner).press(forDuration: 0.1, thenDragTo: screenPoint(CGPoint(x: corner.x + 60, y: corner.y + 40)))
         let staged = CGRect(x: topLeft.x + 40, y: topLeft.y + 30, width: 260, height: 190)
+
+        let input = stageControl(AccessibilityID.recordingStageInput)
+        XCTAssertEqual(input.label, "Input: System Default", "the input button doesn't say which input records")
+        let record = stageControl(AccessibilityID.recordingStageRecord)
+        let titleWidth = ("Record" as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]).width
+        XCTAssertGreaterThanOrEqual(record.frame.width, titleWidth + 13 + 2 * 10,
+                                    "Record is \(record.frame.width) pt wide, too narrow for its title, its 13 pt symbol and 10 pt of padding a side")
 
         let systemAudio = stageControl(AccessibilityID.recordingStageSystemAudio)
         center(of: systemAudio).hover()

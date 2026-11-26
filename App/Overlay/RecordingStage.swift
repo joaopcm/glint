@@ -165,7 +165,17 @@ private final class RecordingStageView: NSView {
 
     private lazy var systemAudioButton = toggle("speaker.wave.2.fill", "System Audio", AccessibilityID.recordingStageSystemAudio, #selector(toggleSystemAudio(_:)))
     private lazy var microphoneButton = toggle("mic.fill", "Microphone", AccessibilityID.recordingStageMicrophone, #selector(toggleMicrophone(_:)))
-    private lazy var inputButton = button("chevron.down", "Input", AccessibilityID.recordingStageInput, #selector(chooseInput(_:)))
+    /// The chosen input's name, then the up-and-down chevron macOS puts on every pop-up button.
+    private lazy var inputButton: GlassButton = {
+        let chevron = NSImage(systemSymbolName: "chevron.up.chevron.down", accessibilityDescription: nil)!
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))!
+        let button = GlassButton(title: "System Default", image: chevron, target: self, action: #selector(chooseInput(_:)))
+        button.imagePosition = .imageTrailing
+        (button.cell as? NSButtonCell)?.lineBreakMode = .byTruncatingTail
+        button.setAccessibilityIdentifier(AccessibilityID.recordingStageInput)
+        return button
+    }()
+    private var inputWidth: NSLayoutConstraint?
     private lazy var keysButton = toggle("keyboard", "Show Pressed Keys", AccessibilityID.recordingStagePressedKeys, #selector(toggleKeys(_:)))
     private lazy var clicksButton = toggle("cursorarrow.click.2", "Highlight Clicks", AccessibilityID.recordingStageClicks, #selector(toggleClicks(_:)))
     private lazy var recordButton: GlassButton = {
@@ -180,7 +190,7 @@ private final class RecordingStageView: NSView {
     private lazy var toolbar = Glass.toolbar([
         systemAudioButton, microphoneButton, inputButton, Glass.divider(), keysButton, clicksButton, Glass.divider(), recordButton, cancelButton,
     ])
-    private var notice: (card: NSView, content: NSView)?
+    private var notice: NSView?
     private var chrome: StageChrome?
     private let actionLabel = NSTextField(labelWithString: "")
     private lazy var actionLabelCapsule = Glass.capsule(holding: actionLabel)
@@ -232,6 +242,12 @@ private final class RecordingStageView: NSView {
 
         toolbar.wantsLayer = true
         addSubview(toolbar)
+        // `Glass.toolbar` fixes a titled button's width to its title at creation; the input's name changes.
+        inputButton.constraints.filter { $0.firstAttribute == .width && $0.secondItem == nil && type(of: $0) == NSLayoutConstraint.self }
+            .forEach { $0.isActive = false }
+        let inputWidth = inputButton.widthAnchor.constraint(equalToConstant: 0)
+        inputWidth.isActive = true
+        self.inputWidth = inputWidth
         actionLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
         actionLabel.textColor = .labelColor
         actionLabel.setAccessibilityIdentifier(AccessibilityID.recordingStageActionLabel)
@@ -250,7 +266,7 @@ private final class RecordingStageView: NSView {
 
     override func accessibilityChildren() -> [Any]? {
         let label: [NSView] = actionLabelCapsule.isHidden ? [] : [actionLabelCapsule]
-        return NSAccessibility.unignoredChildren(from: [toolbar] + (notice.map { [$0.card] } ?? []) + label)
+        return NSAccessibility.unignoredChildren(from: [toolbar] + (notice.map { [$0] } ?? []) + label)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -281,11 +297,13 @@ private final class RecordingStageView: NSView {
         clicksButton.state = settings.showMouseClicks ? .on : .off
         inputButton.isEnabled = settings.recordMicrophone
         let inputName = settings.recordingInput?.name ?? "System Default"
+        inputButton.title = inputName
         inputButton.setAccessibilityLabel("Input: \(inputName)")
+        inputWidth?.constant = Self.inputButtonWidth(inputButton)
         updateRecordButton()
-        notice?.card.removeFromSuperview()
+        notice?.removeFromSuperview()
         notice = model.problems.isEmpty ? nil : makeNotice(model.problems)
-        if let notice { addSubview(notice.card) }
+        if let notice { addSubview(notice) }
         layoutChrome()
     }
 
@@ -336,7 +354,9 @@ private final class RecordingStageView: NSView {
             item.state = input.id == chosen ? .on : .off
             menu.addItem(item)
         }
+        inputButton.isShowingMenu = true
         _ = menu.popUp(positioning: nil, at: CGPoint(x: 0, y: sender.bounds.maxY + 6), in: sender)
+        inputButton.isShowingMenu = false
     }
 
     @objc private func pickInput(_ item: NSMenuItem) {
@@ -359,7 +379,7 @@ private final class RecordingStageView: NSView {
         onDecide?(nil)
     }
 
-    private func makeNotice(_ problems: [RecordingProblem]) -> (card: NSView, content: NSView) {
+    private func makeNotice(_ problems: [RecordingProblem]) -> NSView {
         let rows = problems.enumerated().map { index, problem -> NSView in
             let icon = NSImageView(image: NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)!)
             icon.contentTintColor = .systemYellow
@@ -395,7 +415,17 @@ private final class RecordingStageView: NSView {
         notice.setAccessibilityElement(true)
         notice.setAccessibilityRole(.group)
         notice.setAccessibilityIdentifier(AccessibilityID.recordingStageNotice)
-        return (notice, stack)
+        return notice
+    }
+
+    /// 140 pt of name is about 22 characters at the toolbar's 13 pt, enough for "MacBook Pro Microphone", the
+    /// built-in input on Apple silicon MacBook Pros. A longer name ends in an ellipsis; the hover label has it whole.
+    private static let inputNameMaxWidth: CGFloat = 140
+
+    private static func inputButtonWidth(_ button: NSButton) -> CGFloat {
+        let full = ceil(button.intrinsicContentSize.width)
+        let chevronAndGap = (button.image?.size.width ?? 0) + 6
+        return min(full, inputNameMaxWidth + chevronAndGap) + 2 * Glass.titlePadding
     }
 
     // MARK: Area
@@ -440,18 +470,16 @@ private final class RecordingStageView: NSView {
 
     private func layoutChrome() {
         let chrome = StageGeometry.chrome(
-            toolbar: toolbar.fittingSize,
+            toolbar: Glass.fittingSize(of: toolbar),
             labelHeight: Glass.capsuleHeight,
-            // The glass measures its content without the stack's insets: the card came out 336 pt wide with the
-            // message running 1 pt past its edge and no right inset (ui-macos run 45848227046). The stack's own size counts them.
-            notice: notice?.content.fittingSize,
+            notice: notice.map { Glass.fittingSize(of: $0) },
             region: area,
             visible: visibleFrame,
             gap: Self.gap
         )
         self.chrome = chrome
         toolbar.frame = local(chrome.toolbar)
-        if let notice, let frame = chrome.notice { notice.card.frame = local(frame) }
+        if let notice, let frame = chrome.notice { notice.frame = local(frame) }
         layoutLabel()
     }
 
@@ -482,7 +510,7 @@ private final class RecordingStageView: NSView {
     // MARK: Pointer and keys
 
     private func isOnChrome(_ localPoint: CGPoint) -> Bool {
-        toolbar.frame.contains(localPoint) || notice?.card.frame.contains(localPoint) == true
+        toolbar.frame.contains(localPoint) || notice?.frame.contains(localPoint) == true
     }
 
     override func mouseDown(with event: NSEvent) {

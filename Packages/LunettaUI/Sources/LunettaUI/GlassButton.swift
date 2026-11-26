@@ -14,10 +14,16 @@ public final class GlassButton: NSButton {
     private var isPressed = false {
         didSet { needsDisplay = true }
     }
+    private var isToggle = false
+    /// Set while a menu this button opened is up, so the button reads as pressed until the menu closes.
+    public var isShowingMenu = false {
+        didSet { needsDisplay = true }
+    }
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
         isBordered = false
+        stopCellHighlight()
         applyTint()
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
@@ -41,8 +47,17 @@ public final class GlassButton: NSButton {
 
     public override func setButtonType(_ type: NSButton.ButtonType) {
         super.setButtonType(type)
+        isToggle = [.pushOnPushOff, .toggle, .onOff, .switch].contains(type)
         // The fill shows the state; the cell's own on-state look would draw over it.
         (cell as? NSButtonCell)?.showsStateBy = []
+        stopCellHighlight()
+        applyTint()
+    }
+
+    /// The cell's own pressed look filled the stage's input button with the accent color while its menu was up,
+    /// under a symbol still tinted for a clear background. The hover and press fills here replace it.
+    private func stopCellHighlight() {
+        (cell as? NSButtonCell)?.highlightsBy = []
     }
 
     public override func mouseEntered(with event: NSEvent) {
@@ -65,18 +80,21 @@ public final class GlassButton: NSButton {
     public override func draw(_ dirtyRect: NSRect) {
         let radius = min(bounds.width, bounds.height) / 2
         let shape = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
-        if state == .on {
+        if isOn {
             NSColor.controlAccentColor.withAlphaComponent(isPressed ? 0.8 : 1).setFill()
             shape.fill()
-        } else if isEnabled, isHovered || isPressed {
-            tint.withAlphaComponent(isPressed ? 0.2 : 0.1).setFill()
+        } else if isEnabled, isHovered || isPressed || isShowingMenu {
+            tint.withAlphaComponent(isPressed || isShowingMenu ? 0.2 : 0.1).setFill()
             shape.fill()
         }
         super.draw(dirtyRect)
     }
 
+    /// Only a toggle shows an on state; a momentary button's state is AppKit's to flip while tracking a click.
+    private var isOn: Bool { isToggle && state == .on }
+
     private func applyTint() {
-        contentTintColor = state == .on ? .white : tint
+        contentTintColor = isOn ? .white : tint
         needsDisplay = true
     }
 }
