@@ -6,14 +6,11 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     public enum Tool: CaseIterable {
         case select, arrow, rectangle, text, highlighter, blur, pixelate, crop
 
-        var kind: Annotation.Kind? {
-            switch self {
-            case .select, .text, .crop: nil
-            case .arrow: .arrow
-            case .rectangle: .rectangle
-            case .highlighter: .highlighter
-            case .blur: .blur
-            case .pixelate: .pixelate
+        init?(obscuring kind: Annotation.Kind) {
+            switch kind {
+            case .blur: self = .blur
+            case .pixelate: self = .pixelate
+            case .arrow, .rectangle, .text, .highlighter: return nil
             }
         }
 
@@ -36,6 +33,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case moving(UUID, from: CGPoint, to: CGPoint)
         case resizing(UUID, Annotation.Handle, to: CGPoint)
         case cropping(from: CGPoint, to: CGPoint)
+        case restyling(UUID, Annotation.Kind)
     }
 
     public var tool: Tool = .arrow {
@@ -48,12 +46,14 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         didSet { needsDisplay = true }
     }
     public var onToolChange: ((Tool) -> Void)?
+    public var onSelectionChange: (() -> Void)?
     public var onSave: (() -> Void)?
     public private(set) var selectedID: UUID? {
         didSet {
             guard selectedID != oldValue else { return }
             needsDisplay = true
             updateAccessibilityValue()
+            onSelectionChange?()
         }
     }
 
@@ -67,6 +67,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     private var editingTextID: UUID?
     private var textFieldOrigin: CGPoint = .zero
     private var textFieldLineHeight: CGFloat = 0
+    private var intensities: [Tool: Double] = [.blur: ObscuringIntensity.standard, .pixelate: ObscuringIntensity.standard]
 
     private static let handleDiameter: CGFloat = 10
     private static let arrowHandleDiameter: CGFloat = 14
@@ -169,6 +170,13 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             return document.annotations.map { $0.id == id ? $0.resized(handle, to: to) : $0 }
         case .cropping:
             return document.annotations
+        case .restyling(let id, let kind):
+            return document.annotations.map { annotation in
+                guard annotation.id == id else { return annotation }
+                var restyled = annotation
+                restyled.kind = kind
+                return restyled
+            }
         }
     }
 
@@ -279,6 +287,57 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         border.stroke()
     }
 
+    // MARK: Intensity
+
+    /// What the intensity slider adjusts: the selected blur or pixelate, else the next one the current tool draws.
+    var intensityTarget: (tool: Tool, level: Double)? {
+        if let selected = selectedObscuring, let size = selected.annotation.kind.obscuringSize {
+            return (selected.tool, ObscuringIntensity.level(of: size, pixelsPerPoint: pixelsPerPoint))
+        }
+        guard let level = intensities[tool] else { return nil }
+        return (tool, level)
+    }
+
+    /// A selected blur or pixelate, unless the current tool is the other one of the two.
+    private var selectedObscuring: (annotation: Annotation, tool: Tool)? {
+        guard let selectedID, let annotation = document.annotation(selectedID),
+              let owner = Tool(obscuring: annotation.kind),
+              intensities[tool] == nil || tool == owner
+        else { return nil }
+        return (annotation, owner)
+    }
+
+    /// While the slider is dragged, only the canvas shows the change; `committing` writes it as one undo step.
+    func setIntensity(_ level: Double, committing: Bool) {
+        guard let target = intensityTarget else { return }
+        intensities[target.tool] = level
+        if let selected = selectedObscuring?.annotation {
+            let size = ObscuringIntensity.size(at: level, pixelsPerPoint: pixelsPerPoint)
+            if committing {
+                gesture = nil
+                document.setObscuringSize(selected.id, size)
+            } else {
+                gesture = .restyling(selected.id, selected.kind.obscuring(size: size))
+            }
+        }
+        needsDisplay = true
+    }
+
+    private func newAnnotationKind(for tool: Tool) -> Annotation.Kind? {
+        switch tool {
+        case .select, .text, .crop: nil
+        case .arrow: .arrow
+        case .rectangle: .rectangle
+        case .highlighter: .highlighter
+        case .blur: .blur(sigma: nextObscuringSize(for: .blur))
+        case .pixelate: .pixelate(block: nextObscuringSize(for: .pixelate))
+        }
+    }
+
+    private func nextObscuringSize(for tool: Tool) -> CGFloat {
+        ObscuringIntensity.size(at: intensities[tool] ?? ObscuringIntensity.standard, pixelsPerPoint: pixelsPerPoint)
+    }
+
     // MARK: Cursor
 
     public override func cursorUpdate(with event: NSEvent) {
@@ -342,7 +401,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             gesture = .cropping(from: point, to: point)
         case .arrow, .rectangle, .highlighter, .blur, .pixelate:
             selectedID = nil
-            gesture = tool.kind.map { .drawing(Annotation(kind: $0, start: point, end: point, lineWidth: $0 == .arrow ? arrowLineWidth : lineWidth)) }
+            gesture = newAnnotationKind(for: tool).map { .drawing(Annotation(kind: $0, start: point, end: point, lineWidth: $0 == .arrow ? arrowLineWidth : lineWidth)) }
         }
     }
 
@@ -354,6 +413,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case .moving(let id, let from, _): gesture = .moving(id, from: from, to: point)
         case .resizing(let id, let handle, _): gesture = .resizing(id, handle, to: point)
         case .cropping(let from, _): gesture = .cropping(from: from, to: point)
+        case .restyling: return
         }
         needsDisplay = true
     }
@@ -365,7 +425,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             cursor(atWindowPoint: event.locationInWindow).set()
         }
         switch gesture {
-        case nil:
+        case nil, .restyling:
             return
         case .drawing(let draft):
             guard hypot(draft.end.x - draft.start.x, draft.end.y - draft.start.y) * zoom >= Self.minimumDrag else { return }

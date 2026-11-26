@@ -126,23 +126,16 @@ public enum AnnotationRenderer {
             drawArrow(annotation, in: context)
         case .text(let text):
             drawText(text, in: annotation.bounds, context: context)
-        case .blur:
-            let sigma = obscuringSize(annotation)
+        case .blur(let sigma):
             obscure(annotation, of: base, isBlur: true, size: sigma, cache: cache, in: context) { region in
                 blurred(base, region, sigma: sigma, cache: cache)
             }
-        case .pixelate:
+        case .pixelate(let block):
             context.interpolationQuality = .none
-            let block = obscuringSize(annotation)
             obscure(annotation, of: base, isBlur: false, size: block, cache: cache, in: context) { region in
-                pixelated(base, region, block: block)
+                pixelated(base, region, block: max(block, 1))
             }
         }
-    }
-
-    // 4 strokes is 12 pt: just under the 13 pt system font (`NSFont.systemFontSize`), so a glyph turns into one smear or one block.
-    private static func obscuringSize(_ annotation: Annotation) -> CGFloat {
-        annotation.lineWidth * 4
     }
 
     private static let imageContext = CIContext(options: [.cacheIntermediates: false])

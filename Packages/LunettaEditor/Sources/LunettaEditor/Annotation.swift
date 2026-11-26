@@ -7,8 +7,25 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         case rectangle
         case text(String)
         case highlighter
-        case blur
-        case pixelate
+        case blur(sigma: CGFloat)
+        case pixelate(block: CGFloat)
+
+        /// The blur's sigma or the pixelate's block side, in image pixels; nil for the tools that draw ink.
+        public var obscuringSize: CGFloat? {
+            switch self {
+            case .blur(let sigma): sigma
+            case .pixelate(let block): block
+            case .arrow, .rectangle, .text, .highlighter: nil
+            }
+        }
+
+        func obscuring(size: CGFloat) -> Kind {
+            switch self {
+            case .blur: .blur(sigma: size)
+            case .pixelate: .pixelate(block: size)
+            case .arrow, .rectangle, .text, .highlighter: self
+            }
+        }
     }
 
     public enum Handle: Sendable {
