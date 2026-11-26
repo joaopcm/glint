@@ -1,4 +1,6 @@
 import CoreGraphics
+import Foundation
+import ImageIO
 import Testing
 @testable import LunettaEditor
 
@@ -54,5 +56,27 @@ struct TextLayoutTests {
 
     @Test func emptyLayoutHasNoPositions() {
         #expect(TextLayout(lines: []).nearestPosition(to: .zero) == nil)
+    }
+}
+
+func twoLinesFixture() throws -> CGImage {
+    let url = try #require(Bundle.module.url(forResource: "two-lines", withExtension: "png", subdirectory: "Fixtures"))
+    let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
+    return try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+}
+
+struct TextLayoutRecognitionTests {
+    @Test func recognizesTwoLinesOfWords() async throws {
+        let image = try twoLinesFixture()
+        let layout = await TextLayout.recognize(in: image)
+        let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        #expect(layout.lines.map(\.count) == [4, 5])
+        #expect(layout.lines[0][0].minY < layout.lines[1][0].minY)
+        #expect(layout.lines.joined().allSatisfy { bounds.contains($0) })
+        #expect(layout.lines[0][0].maxX < layout.lines[0][1].minX)
+    }
+
+    @Test func blankImageHasNoLines() async {
+        #expect(await TextLayout.recognize(in: solidImage(width: 200, height: 100)).lines.isEmpty)
     }
 }

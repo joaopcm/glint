@@ -8,6 +8,6 @@ let package = Package(
     dependencies: [.package(path: "../LunettaUI")],
     targets: [
         .target(name: "LunettaEditor", dependencies: ["LunettaUI"]),
-        .testTarget(name: "LunettaEditorTests", dependencies: ["LunettaEditor"]),
+        .testTarget(name: "LunettaEditorTests", dependencies: ["LunettaEditor"], resources: [.copy("Fixtures")]),
     ]
 )

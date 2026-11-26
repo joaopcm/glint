@@ -1,4 +1,6 @@
 import CoreGraphics
+import Foundation
+import Vision
 
 /// Word boxes in image pixels, top-left origin: one array per line in reading order, words left to right.
 public struct TextLayout: Equatable, Sendable {
@@ -18,6 +20,30 @@ public struct TextLayout: Equatable, Sendable {
 
     public init(lines: [[CGRect]]) {
         self.lines = lines
+    }
+
+    /// Best effort: a Vision failure reads as no text, and the highlighter falls back to a free rectangle.
+    public static func recognize(in image: CGImage) async -> TextLayout {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.automaticallyDetectsLanguage = true
+        guard (try? VNImageRequestHandler(cgImage: image).perform([request])) != nil else { return TextLayout(lines: []) }
+        let size = CGSize(width: image.width, height: image.height)
+        let lines = (request.results ?? []).compactMap { observation -> [CGRect]? in
+            guard let text = observation.topCandidates(1).first else { return nil }
+            var words: [CGRect] = []
+            text.string.enumerateSubstrings(in: text.string.startIndex..., options: .byWords) { _, range, _, _ in
+                guard let box = try? text.boundingBox(for: range)?.boundingBox else { return }
+                words.append(CGRect(
+                    x: box.minX * size.width,
+                    y: (1 - box.maxY) * size.height,
+                    width: box.width * size.width,
+                    height: box.height * size.height
+                ))
+            }
+            return words.isEmpty ? nil : words
+        }
+        return TextLayout(lines: lines)
     }
 
     func position(at point: CGPoint, pad: CGFloat) -> Position? {
