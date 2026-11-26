@@ -33,7 +33,8 @@ private func solidTIFF() throws -> Data {
     ))
     context.setFillColor(CGColor(red: 1, green: 0.2, blue: 0.1, alpha: 1))
     context.fill(CGRect(x: 0, y: 0, width: 200, height: 200))
-    return try #require(NSBitmapImageRep(cgImage: try #require(context.makeImage())).tiffRepresentation)
+    let image = try #require(context.makeImage())
+    return try #require(NSBitmapImageRep(cgImage: image).tiffRepresentation)
 }
 
 private let writeThreeBytes: @Sendable (URL) async throws -> CompressionResult? = { url in
