@@ -24,9 +24,42 @@ import Testing
     #expect(RecordingGeometry.evenPixelRegion(of: CGRect(x: 0, y: 0, width: 1, height: 300), scale: 1) == nil)
 }
 
-@Test func borderSurroundsTheRegionWithoutCoveringIt() {
-    let region = CGRect(x: 100, y: 200, width: 300, height: 150)
-    let border = RecordingGeometry.borderFrame(around: region, lineWidth: 2)
-    #expect(border == CGRect(x: 98, y: 198, width: 304, height: 154))
-    #expect(border.insetBy(dx: 2, dy: 2) == region)
+private let screen = CGRect(x: 0, y: 0, width: 1512, height: 944)
+private let bar = CGSize(width: 220, height: 64)
+
+@Test func controlsSitCenteredUnderTheRegion() {
+    let frame = RecordingGeometry.controlBarFrame(size: bar, region: CGRect(x: 400, y: 300, width: 600, height: 400), visible: screen, gap: 12)
+    #expect(frame == CGRect(x: 590, y: 224, width: 220, height: 64))
+}
+
+@Test func controlsMoveAboveARegionThatReachesTheBottom() {
+    let frame = RecordingGeometry.controlBarFrame(size: bar, region: CGRect(x: 400, y: 20, width: 600, height: 400), visible: screen, gap: 12)
+    #expect(frame.minY == 432)
+}
+
+@Test func controlsGoInsideTheBottomOfAFullScreenRegion() {
+    let frame = RecordingGeometry.controlBarFrame(size: bar, region: screen, visible: screen, gap: 12)
+    #expect(frame.minY == 12)
+    #expect(frame.midX == screen.midX)
+}
+
+@Test func controlsStayOnScreenUnderARegionAtTheEdge() {
+    let frame = RecordingGeometry.controlBarFrame(size: bar, region: CGRect(x: 1400, y: 300, width: 100, height: 100), visible: screen, gap: 12)
+    #expect(frame.maxX == screen.maxX - 12)
+}
+
+@Test func controlsFollowAScreenThatIsNotAtTheOrigin() {
+    let left = CGRect(x: -1920, y: -200, width: 1920, height: 1055)
+    let frame = RecordingGeometry.controlBarFrame(size: bar, region: CGRect(x: -1000, y: 300, width: 200, height: 200), visible: left, gap: 12)
+    #expect(frame == CGRect(x: -1010, y: 224, width: 220, height: 64))
+}
+
+@Test func countdownSitsInTheMiddleOfTheRegion() {
+    let center = RecordingGeometry.countdownCenter(size: CGSize(width: 120, height: 160), region: CGRect(x: 100, y: 100, width: 400, height: 200), visible: screen)
+    #expect(center == CGPoint(x: 300, y: 200))
+}
+
+@Test func countdownStaysOnScreenForATinyRegionInTheCorner() {
+    let center = RecordingGeometry.countdownCenter(size: CGSize(width: 120, height: 160), region: CGRect(x: 0, y: 0, width: 40, height: 40), visible: screen)
+    #expect(center == CGPoint(x: 60, y: 80))
 }

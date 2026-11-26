@@ -27,6 +27,25 @@ protocol Capturing: Sendable {
 
 protocol Recording: Sendable {
     func startRecording(_ target: RecordingTarget, to url: URL, options: RecordingOptions) async throws -> any ActiveRecording
+    func join(_ parts: [URL], into url: URL) async throws
+}
+
+struct RecordingStatus: Equatable {
+    let region: CGRect
+    /// Area recordings only: a window recording follows its window around, and a fixed cut-out would not.
+    let dimsOutside: Bool
+    var clock = RecordingClock()
+}
+
+enum RecordingEnd: Equatable {
+    case saved, discarded, failed
+}
+
+enum RecordingEvent: Equatable {
+    case started(RecordingStatus)
+    case paused(RecordingStatus)
+    case resumed(RecordingStatus)
+    case ended(RecordingEnd)
 }
 
 enum MicrophoneStatus {
@@ -94,6 +113,50 @@ enum CoordinatorError: LocalizedError {
     }
 }
 
+/// One recording from the first frame to the saved file: a part per stretch between pauses.
+@MainActor
+private final class RecordingSession {
+    struct Segment {
+        let recording: any ActiveRecording
+        let url: URL
+        let end: Task<(any Error)?, Never>
+    }
+
+    let target: RecordingTarget
+    let options: RecordingOptions
+    let url: URL
+    let partsFolder = FileManager.default.temporaryDirectory.appending(path: "Lunetta-recording-\(UUID().uuidString)")
+    var status: RecordingStatus
+    var parts: [URL] = []
+    var segment: Segment?
+    var isEnding = false
+    private var partCount = 0
+    private var queue: Task<Void, Never>?
+
+    init(target: RecordingTarget, options: RecordingOptions, url: URL, status: RecordingStatus) {
+        self.target = target
+        self.options = options
+        self.url = url
+        self.status = status
+    }
+
+    func nextPartURL() -> URL {
+        partCount += 1
+        return partsFolder.appending(path: "part-\(partCount).mp4")
+    }
+
+    /// Pause, resume, stop and discard run one at a time, in the order they came in.
+    func serially(_ work: @escaping @MainActor () async -> Void) async {
+        let previous = queue
+        let next = Task {
+            await previous?.value
+            await work()
+        }
+        queue = next
+        await next.value
+    }
+}
+
 @MainActor
 final class CaptureCoordinator {
     private let capturer: any Capturing
@@ -109,11 +172,12 @@ final class CaptureCoordinator {
     private let writePNG: @Sendable (CGImage, URL) async throws -> Data
     private let playShutterSound: @MainActor () -> Void
     private let onSaved: @MainActor (URL, _ thumbnail: CGImage?) -> Void
-    private let onRecordingChange: @MainActor (_ region: CGRect?) -> Void
+    private let onRecordingEvent: @MainActor (RecordingEvent) -> Void
+    private let countDown: @MainActor (RecordingStatus) async -> Bool
     private var isRunning = false
     private var delivery: Task<Void, Never>?
-    private var recording: (any ActiveRecording)?
-    private var recordingEnd: Task<Void, Never>?
+    private var session: RecordingSession?
+    private var countdown: Task<Bool, Never>?
 
     init(
         capturer: any Capturing,
@@ -129,7 +193,8 @@ final class CaptureCoordinator {
         writePNG: @escaping @Sendable (CGImage, URL) async throws -> Data = CaptureCoordinator.writePNG,
         playShutterSound: @escaping @MainActor () -> Void = {},
         onSaved: @escaping @MainActor (URL, _ thumbnail: CGImage?) -> Void = { _, _ in },
-        onRecordingChange: @escaping @MainActor (_ region: CGRect?) -> Void = { _ in }
+        onRecordingEvent: @escaping @MainActor (RecordingEvent) -> Void = { _ in },
+        countDown: @escaping @MainActor (RecordingStatus) async -> Bool = { _ in true }
     ) {
         self.capturer = capturer
         self.recorder = recorder
@@ -144,7 +209,8 @@ final class CaptureCoordinator {
         self.writePNG = writePNG
         self.playShutterSound = playShutterSound
         self.onSaved = onSaved
-        self.onRecordingChange = onRecordingChange
+        self.onRecordingEvent = onRecordingEvent
+        self.countDown = countDown
     }
 
     /// Only taking the image blocks the next capture (#99); deliveries queue so each one names its file after the ones before it are on disk.
@@ -181,16 +247,24 @@ final class CaptureCoordinator {
         }
     }
 
-    /// The record hotkeys and the menu items toggle: while a recording runs, they stop it.
+    /// The record hotkeys and the menu items toggle: during the countdown they cancel it, while recording they stop.
     func toggleRecording(_ mode: RecordingMode) async {
-        guard recording == nil else { return await stopRecording() }
+        if let countdown {
+            countdown.cancel()
+            return
+        }
+        guard session == nil else { return await stopRecording() }
         guard !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
+        var selected = false
         do {
             guard await capturer.hasPermission() else { throw CaptureError.permissionDenied }
             if settings.recordMicrophone, microphone.status != .authorized { throw CoordinatorError.microphoneDeniedForRecording }
             guard let (target, region) = try await selectRecordingTarget(mode) else { return }
+            selected = true
+            var status = RecordingStatus(region: region, dimsOutside: mode == .area)
+            guard await countDownIfOn(status) else { return }
             let url = nextFileURL(ext: "mp4")
             let options = RecordingOptions(
                 codec: settings.recordingCodec,
@@ -198,12 +272,23 @@ final class CaptureCoordinator {
                 microphone: settings.recordMicrophone
             )
             let active = try await recorder.startRecording(target, to: url, options: options)
-            recording = active
-            onRecordingChange(region)
-            recordingEnd = Task { await self.awaitRecordingEnd(active, at: url) }
+            status.clock.start(at: now())
+            let session = RecordingSession(target: target, options: options, url: url, status: status)
+            self.session = session
+            attach(active, writingTo: url, in: session)
+            onRecordingEvent(.started(status))
         } catch {
+            if selected { onRecordingEvent(.ended(.failed)) }
             present(error, failure: "Lunetta couldn't start the recording")
         }
+    }
+
+    private func countDownIfOn(_ status: RecordingStatus) async -> Bool {
+        guard settings.recordingCountdown else { return true }
+        let counting = Task { await countDown(status) }
+        countdown = counting
+        defer { countdown = nil }
+        return await counting.value
     }
 
     /// The permission prompt only comes up when the toggle turns on; a refusal leaves the toggle off and says how to fix it.
@@ -222,25 +307,139 @@ final class CaptureCoordinator {
     }
 
     func stopRecording() async {
-        guard let recording, let recordingEnd else { return }
-        await recording.stop()
-        await recordingEnd.value
+        guard let session, !session.isEnding else { return }
+        await end(session)
     }
 
-    private func awaitRecordingEnd(_ active: any ActiveRecording, at url: URL) async {
-        var failure: (any Error)?
-        do {
-            try await active.finished()
-        } catch {
-            failure = error
+    func togglePause() async {
+        guard let session, !session.isEnding else { return }
+        await session.serially { [self] in
+            guard !session.isEnding else { return }
+            if session.segment == nil {
+                await resume(session)
+            } else {
+                await pause(session)
+            }
         }
-        recording = nil
-        recordingEnd = nil
-        onRecordingChange(nil)
-        if fileExists(url) { onSaved(url, nil) }
-        guard let failure else { return }
-        let stoppedEarly = if case .recordingStoppedEarly = failure as? CaptureError { true } else { false }
-        present(failure, failure: stoppedEarly ? "Lunetta's recording stopped early" : "Lunetta couldn't finish the recording")
+    }
+
+    func discardRecording() async {
+        guard let session, !session.isEnding else { return }
+        beginEnding(session, as: .discarded)
+        await session.serially { [self] in
+            _ = await endSegment(of: session)
+            var failure: (any Error)?
+            for file in Set(session.parts + [session.url]) where fileExists(file) {
+                do {
+                    try FileManager.default.removeItem(at: file)
+                } catch {
+                    failure = failure ?? error
+                }
+            }
+            try? FileManager.default.removeItem(at: session.partsFolder)
+            if self.session === session { self.session = nil }
+            if let failure { present(failure, failure: "Lunetta couldn't discard the recording") }
+        }
+    }
+
+    /// The segment watcher ends the whole recording when its stream stops without being asked, like when the recorded window closes.
+    private func attach(_ recording: any ActiveRecording, writingTo url: URL, in session: RecordingSession) {
+        let finished = Task<(any Error)?, Never> {
+            do {
+                try await recording.finished()
+                return nil
+            } catch {
+                return error
+            }
+        }
+        session.segment = RecordingSession.Segment(recording: recording, url: url, end: finished)
+        Task {
+            _ = await finished.value
+            guard session.segment?.url == url, !session.isEnding else { return }
+            await self.end(session)
+        }
+    }
+
+    /// The clock stops on the click; the file catches up while the stream winds down.
+    private func pause(_ session: RecordingSession) async {
+        session.status.clock.pause(at: now())
+        onRecordingEvent(.paused(session.status))
+        guard let failure = await endSegment(of: session) else { return }
+        beginEnding(session, as: .saved)
+        await finish(session, failure: failure)
+    }
+
+    private func resume(_ session: RecordingSession) async {
+        let url = session.nextPartURL()
+        do {
+            try FileManager.default.createDirectory(at: session.partsFolder, withIntermediateDirectories: true)
+            let active = try await recorder.startRecording(session.target, to: url, options: session.options)
+            session.status.clock.start(at: now())
+            attach(active, writingTo: url, in: session)
+            guard !session.isEnding else { return }
+            onRecordingEvent(.resumed(session.status))
+        } catch {
+            beginEnding(session, as: .saved)
+            await finish(session, failure: error)
+        }
+    }
+
+    private func end(_ session: RecordingSession) async {
+        beginEnding(session, as: .saved)
+        await session.serially { [self] in await finish(session, failure: nil) }
+    }
+
+    /// The controls go away on the click; joining the parts and handing over the file follow.
+    private func beginEnding(_ session: RecordingSession, as end: RecordingEnd) {
+        session.isEnding = true
+        onRecordingEvent(.ended(end))
+    }
+
+    private func finish(_ session: RecordingSession, failure: (any Error)?) async {
+        let segmentFailure = await endSegment(of: session)
+        var problem = failure ?? segmentFailure
+        do {
+            try await assemble(session)
+        } catch {
+            problem = problem ?? error
+        }
+        if self.session === session { self.session = nil }
+        if fileExists(session.url) { onSaved(session.url, nil) }
+        guard let problem else { return }
+        let stoppedEarly = if case .recordingStoppedEarly = problem as? CaptureError { true } else { false }
+        present(problem, failure: stoppedEarly ? "Lunetta's recording stopped early" : "Lunetta couldn't finish the recording")
+    }
+
+    private func endSegment(of session: RecordingSession) async -> (any Error)? {
+        guard let segment = session.segment else { return nil }
+        session.segment = nil
+        session.status.clock.pause(at: now())
+        await segment.recording.stop()
+        let failure = await segment.end.value
+        if fileExists(segment.url) { session.parts.append(segment.url) }
+        return failure
+    }
+
+    /// The first part is recorded straight into the final file. Later parts get joined into it, after the first part
+    /// moves aside so the joined file can take its name; when the join fails, the first part goes back.
+    private func assemble(_ session: RecordingSession) async throws {
+        defer { try? FileManager.default.removeItem(at: session.partsFolder) }
+        var parts = session.parts
+        guard parts != [session.url], !parts.isEmpty else { return }
+        if parts.count == 1 {
+            return try FileManager.default.moveItem(at: parts[0], to: session.url)
+        }
+        if parts[0] == session.url {
+            let first = session.partsFolder.appending(path: "part-0.mp4")
+            try FileManager.default.moveItem(at: session.url, to: first)
+            parts[0] = first
+        }
+        do {
+            try await recorder.join(parts, into: session.url)
+        } catch {
+            if !fileExists(session.url) { try? FileManager.default.moveItem(at: parts[0], to: session.url) }
+            throw error
+        }
     }
 
     private func selectRecordingTarget(_ mode: RecordingMode) async throws -> (RecordingTarget, region: CGRect)? {

@@ -34,6 +34,8 @@ public final class LunettaSettings {
         static let recordingCodec = "recordingCodec"
         static let recordSystemAudio = "recordSystemAudio"
         static let recordMicrophone = "recordMicrophone"
+        static let recordingCountdown = "recordingCountdown"
+        static let recordingSounds = "recordingSounds"
         static let bucketEndpoint = "bucketEndpoint"
         static let bucketRegion = "bucketRegion"
         static let bucketName = "bucketName"
@@ -192,6 +194,24 @@ public final class LunettaSettings {
             return store.bool(forKey: Key.recordMicrophone) ?? false
         }
         set { withMutation(keyPath: \.recordMicrophone) { store.set(newValue, forKey: Key.recordMicrophone) } }
+    }
+
+    /// On by default: three seconds to get the pointer and the window ready before the first frame, like CleanShot.
+    public var recordingCountdown: Bool {
+        get {
+            access(keyPath: \.recordingCountdown)
+            return store.bool(forKey: Key.recordingCountdown) ?? true
+        }
+        set { withMutation(keyPath: \.recordingCountdown) { store.set(newValue, forKey: Key.recordingCountdown) } }
+    }
+
+    /// On by default: a recording starts and ends while the user looks at something else, so they hear it.
+    public var recordingSounds: Bool {
+        get {
+            access(keyPath: \.recordingSounds)
+            return store.bool(forKey: Key.recordingSounds) ?? true
+        }
+        set { withMutation(keyPath: \.recordingSounds) { store.set(newValue, forKey: Key.recordingSounds) } }
     }
 
     public var bucketEndpoint: String {

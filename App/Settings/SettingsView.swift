@@ -88,6 +88,8 @@ private struct GeneralSettingsView: View {
                 Text("H.264").tag(VideoCodec.h264)
                 Text("HEVC").tag(VideoCodec.hevc)
             }
+            Toggle("Count down before recording", isOn: $settings.recordingCountdown)
+            Toggle("Play recording sounds", isOn: $settings.recordingSounds)
         }
         .onAppear(perform: openAtLogin.refresh)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in openAtLogin.refresh() }

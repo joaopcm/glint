@@ -42,7 +42,7 @@ final class AppState {
     private var coordinator: CaptureCoordinator!
     private var textCapture: TextCapture!
     private var thumbnail: ThumbnailPresenter!
-    private let recordingIndicator = RecordingIndicator()
+    private lazy var recordingHUD = RecordingHUD(settings: settings)
     private let shutterSound = ShutterSound()
 
     init() {
@@ -78,10 +78,13 @@ final class AppState {
             onSaved: { [weak self] url, precomputedThumbnail in
                 self?.thumbnail.show(url, precomputedThumbnail: precomputedThumbnail)
             },
-            onRecordingChange: { [recordingIndicator] region in recordingIndicator.update(region: region) }
+            onRecordingEvent: { [weak self] event in self?.recordingHUD.handle(event) },
+            countDown: { [weak self] status in await self?.recordingHUD.countDown(status) ?? true }
         )
         self.coordinator = coordinator
-        recordingIndicator.onStop = { Task { await coordinator.stopRecording() } }
+        recordingHUD.onStop = { Task { await coordinator.stopRecording() } }
+        recordingHUD.onTogglePause = { Task { await coordinator.togglePause() } }
+        recordingHUD.onDiscard = { Task { await coordinator.discardRecording() } }
         textCapture = TextCapture(
             captureImage: { await coordinator.captureImage(.area) },
             alerts: NSAlertPresenter(),
