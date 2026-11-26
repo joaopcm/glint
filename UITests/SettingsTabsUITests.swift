@@ -62,13 +62,13 @@ final class SettingsTabsUITests: LunettaUITestCase {
         XCTAssertTrue(slider.waitForExistence(timeout: Self.captureTimeout), "the Capture tab has no padding slider")
         XCTAssertTrue(slider.isEnabled, "the padding slider is disabled with -windowCaptureWallpaper YES")
 
-        slider.adjust(toNormalizedSliderPosition: 0)
+        drag(slider, toNormalizedX: -0.2)
         let none = waitForWindowShare(near: 1)
-        XCTAssertEqual(none, 1, accuracy: Self.ratioTolerance, "at 0 pt the sample window should fill the preview, it takes \(none) of its width")
+        XCTAssertEqual(none, 1, accuracy: Self.ratioTolerance, "at 0 pt the sample window should fill the preview, it takes \(none) of its width; the slider reads \(paddingReadout)")
 
-        slider.adjust(toNormalizedSliderPosition: 1)
+        drag(slider, toNormalizedX: 1.2)
         let widest = waitForWindowShare(near: 1000 / 1512)
-        XCTAssertEqual(widest, 1000 / 1512, accuracy: Self.ratioTolerance, "at 256 pt a 1000 pt window is 1000/1512 of the capture's width, the preview shows \(widest)")
+        XCTAssertEqual(widest, 1000 / 1512, accuracy: Self.ratioTolerance, "at 256 pt a 1000 pt window is 1000/1512 of the capture's width, the preview shows \(widest); the slider reads \(paddingReadout)")
     }
 
     @MainActor func testSoundsTabListsEverySoundWithAPlayButton() {
@@ -78,6 +78,19 @@ final class SettingsTabsUITests: LunettaUITestCase {
             XCTAssertTrue(play.waitForExistence(timeout: Self.captureTimeout), "the Sounds tab has no play button for \(sound)")
             XCTAssertTrue(play.isEnabled, "the play button for \(sound) is disabled")
         }
+    }
+
+    /// `adjust(toNormalizedSliderPosition:)` left the SwiftUI slider at its 64 pt default (run 45814761757), so drag it like a
+    /// pointer would, past the track's end so the knob stops at the bound.
+    @MainActor private func drag(_ slider: XCUIElement, toNormalizedX x: CGFloat) {
+        let start = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let target = slider.coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.5))
+        start.press(forDuration: 0.1, thenDragTo: target)
+    }
+
+    @MainActor private var paddingReadout: String {
+        let readout = element(AccessibilityID.wallpaperPaddingValue)
+        return readout.exists ? "\(readout.value ?? readout.label)" : "nothing"
     }
 
     @MainActor private func tabButton(_ title: String) -> XCUIElement {

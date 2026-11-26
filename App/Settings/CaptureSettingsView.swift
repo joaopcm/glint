@@ -32,6 +32,7 @@ struct CaptureSettingsView: View {
                                 .monospacedDigit()
                                 .foregroundStyle(.secondary)
                                 .frame(width: 48, alignment: .trailing)
+                                .accessibilityIdentifier(AccessibilityID.wallpaperPaddingValue)
                         }
                     }
                     WallpaperPaddingPreviewView(padding: settings.windowWallpaperPadding)
