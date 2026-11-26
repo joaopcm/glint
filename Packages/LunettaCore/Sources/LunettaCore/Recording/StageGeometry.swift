@@ -53,8 +53,9 @@ public enum StageGeometry {
     }
 
     /// The area while the pointer is at `pointer`, kept inside `bounds`. Dragging a grip past the opposite edge flips
-    /// the area instead of stopping it, like the first drag did.
-    public static func rect(for drag: StageDrag, pointer: CGPoint, bounds: CGRect) -> CGRect {
+    /// the area instead of stopping it, like the first drag did. `keepingAspectRatio` (⇧) makes a grip scale the area
+    /// instead of stretching it.
+    public static func rect(for drag: StageDrag, pointer: CGPoint, bounds: CGRect, keepingAspectRatio: Bool = false) -> CGRect {
         let clamped = CGPoint(x: min(max(pointer.x, bounds.minX), bounds.maxX), y: min(max(pointer.y, bounds.minY), bounds.maxY))
         switch drag {
         case .draw(let start):
@@ -63,6 +64,8 @@ public enum StageGeometry {
             let x = min(max(start.minX + pointer.x - grab.x, bounds.minX), bounds.maxX - start.width)
             let y = min(max(start.minY + pointer.y - grab.y, bounds.minY), bounds.maxY - start.height)
             return CGRect(x: x, y: y, width: start.width, height: start.height)
+        case .resize(let handle, let start) where keepingAspectRatio && start.width > 0 && start.height > 0:
+            return scaled(start, by: handle, pointer: clamped, bounds: bounds)
         case .resize(let handle, let start):
             let anchor = point(of: opposite(handle), on: start)
             switch handle {
@@ -141,6 +144,39 @@ public enum StageGeometry {
         case .bottomLeft: .topRight
         case .left: .right
         }
+    }
+
+    /// Scales `start` from the grip opposite `handle` by whichever axis the pointer pulled further, as Figma and Keynote
+    /// do. A corner grows away from the opposite corner; an edge grows away from the opposite edge and keeps the other
+    /// axis centered. The scale stops where the area would leave `bounds`.
+    private static func scaled(_ start: CGRect, by handle: StageHandle, pointer: CGPoint, bounds: CGRect) -> CGRect {
+        let anchor = point(of: opposite(handle), on: start)
+        let grip = point(of: handle, on: start)
+        let movesX = grip.x != anchor.x
+        let movesY = grip.y != anchor.y
+        let dx = pointer.x - anchor.x
+        let dy = pointer.y - anchor.y
+        let growsRight = (dx == 0 ? grip.x - anchor.x : dx) >= 0
+        let growsUp = (dy == 0 ? grip.y - anchor.y : dy) >= 0
+
+        let wanted = max(movesX ? abs(dx) / start.width : 0, movesY ? abs(dy) / start.height : 0)
+        let roomX = if movesX {
+            growsRight ? bounds.maxX - anchor.x : anchor.x - bounds.minX
+        } else {
+            2 * min(start.midX - bounds.minX, bounds.maxX - start.midX)
+        }
+        let roomY = if movesY {
+            growsUp ? bounds.maxY - anchor.y : anchor.y - bounds.minY
+        } else {
+            2 * min(start.midY - bounds.minY, bounds.maxY - start.midY)
+        }
+        let scale = min(wanted, roomX / start.width, roomY / start.height)
+
+        let width = start.width * scale
+        let height = start.height * scale
+        let x = movesX ? (growsRight ? anchor.x : anchor.x - width) : start.midX - width / 2
+        let y = movesY ? (growsUp ? anchor.y : anchor.y - height) : start.midY - height / 2
+        return CGRect(x: x, y: y, width: width, height: height)
     }
 
     private static func spanning(_ a: CGPoint, _ b: CGPoint) -> CGRect {
