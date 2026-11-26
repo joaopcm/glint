@@ -35,9 +35,13 @@ private func fileSize(_ url: URL) throws -> Int {
 
 /// 200 colors and a fully transparent one, scattered in 2 × 2 blocks so the RGBA original can't compress them away.
 private func writeFewColorScreenshot(width: Int, height: Int) throws -> URL {
-    let palette: [[UInt8]] = (0..<200).map { [UInt8($0), UInt8(255 - $0), UInt8($0 * 7 % 256), 255] } + [[0, 0, 0, 0]]
+    var palette: [[UInt8]] = (0..<200).map { (entry: Int) -> [UInt8] in [UInt8(entry), UInt8(255 - entry), UInt8(entry * 7 % 256), 255] }
+    palette.append([0, 0, 0, 0])
     return try writeScreenshot(width: width, height: height) { x, y in
-        palette[Int(UInt32(truncatingIfNeeded: (x / 2) &* 73_856_093 ^ (y / 2) &* 19_349_663) % UInt32(palette.count))]
+        let column: Int = (x / 2) &* 73_856_093
+        let row: Int = (y / 2) &* 19_349_663
+        let hash = UInt32(truncatingIfNeeded: column ^ row)
+        return palette[Int(hash % UInt32(palette.count))]
     }
 }
 
@@ -59,7 +63,8 @@ private func writeFewColorScreenshot(width: Int, height: Int) throws -> URL {
 
 @Test func aScreenshotOfManyColorsKeepsAPaletteThatStaysClose() async throws {
     let url = try writeScreenshot(width: 320, height: 240) { x, y in
-        [UInt8(x * 255 / 319), UInt8(y * 255 / 239), UInt8(100 + (x ^ y) & 15), 255]
+        let noise: Int = (x ^ y) & 15
+        return [UInt8(x * 255 / 319), UInt8(y * 255 / 239), UInt8(100 + noise), 255]
     }
     defer { try? FileManager.default.removeItem(at: url) }
     let before = try pixels(at: url)

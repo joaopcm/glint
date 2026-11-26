@@ -62,8 +62,11 @@ private func channelError(_ a: UInt32, _ b: UInt32) -> Int {
 func indexedPNGRoundTripsThroughItsChunks(paletteSize: Int) throws {
     let width = 13 // not a multiple of 8, so packed rows end part way through a byte
     let height = 5
-    let palette = (0..<paletteSize).map { UInt32($0) << 24 | 0x0020_4000 | UInt32($0 == 1 ? 0x80 : 0xFF) }
-    let indices = (0..<width * height).map { UInt8($0 * 7 % paletteSize) }
+    let palette: [UInt32] = (0..<paletteSize).map { entry in
+        let alpha: UInt32 = entry == 1 ? 0x80 : 0xFF
+        return UInt32(entry) << 24 | 0x0020_4000 | alpha
+    }
+    let indices: [UInt8] = (0..<width * height).map { pixel in UInt8(pixel * 7 % paletteSize) }
     let image = PalettedImage(width: width, height: height, palette: palette, indices: indices)
 
     let decoded = try DecodedPNG(IndexedPNG.encode(image, profile: .sRGB, deflate: storedDeflate))
@@ -130,7 +133,12 @@ private struct DecodedPNG {
             case "IHDR":
                 (width, height, depth, colorType) = (Int(Self.uint32(body, 0)), Int(Self.uint32(body, 4)), Int(body[8]), body[9])
             case "PLTE":
-                palette = stride(from: 0, to: body.count, by: 3).map { UInt32(body[$0]) << 24 | UInt32(body[$0 + 1]) << 16 | UInt32(body[$0 + 2]) << 8 }
+                palette = stride(from: 0, to: body.count, by: 3).map { (offset: Int) -> UInt32 in
+                    let red = UInt32(body[offset]) << 24
+                    let green = UInt32(body[offset + 1]) << 16
+                    let blue = UInt32(body[offset + 2]) << 8
+                    return red | green | blue
+                }
             case "tRNS":
                 transparency = body
             case "iCCP":
