@@ -123,6 +123,9 @@ private final class StagePanel: NSPanel {
         backgroundColor = .clear
         hasShadow = false
         hidesOnDeactivate = false
+        // A transparent window lets clicks through its clear pixels unless this is set explicitly. The area is the
+        // one clear part of the stage, so without it a drag meant to move the area went to the app underneath.
+        ignoresMouseEvents = false
         acceptsMouseMovedEvents = true
         animationBehavior = .none
         isReleasedWhenClosed = false
@@ -136,7 +139,9 @@ private final class StagePanel: NSPanel {
 
 private final class RecordingStageView: NSView {
     private static let gap: CGFloat = 12
-    private static let noticeWidth: CGFloat = 300
+    /// About 50 characters a line at the 11 pt notice font, inside the 45 to 75 a line that reads comfortably
+    /// (Bringhurst, The Elements of Typographic Style, 2.1.2).
+    private static let noticeTextWidth: CGFloat = 300
     private static let handleDiameter: CGFloat = 9
     private static let sizeFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
 
@@ -167,7 +172,7 @@ private final class RecordingStageView: NSView {
         let button = GlassButton(title: "Record", image: Self.symbol("record.circle.fill", "Record"), target: self, action: #selector(record))
         button.imagePosition = .imageLeading
         button.tint = .systemRed
-        button.toolTip = "Record (Return)"
+        button.setAccessibilityLabel("Record (Return)")
         button.setAccessibilityIdentifier(AccessibilityID.recordingStageRecord)
         return button
     }()
@@ -176,6 +181,10 @@ private final class RecordingStageView: NSView {
         systemAudioButton, microphoneButton, inputButton, Glass.divider(), keysButton, clicksButton, Glass.divider(), recordButton, cancelButton,
     ])
     private var notice: NSView?
+    private var chrome: StageChrome?
+    private let actionLabel = NSTextField(labelWithString: "")
+    private lazy var actionLabelCapsule = Glass.capsule(holding: actionLabel)
+    private var hoveredButton: GlassButton?
 
     init(screen: NSScreen, display: DisplayInfo, area: CGRect, model: RecordingStageModel) {
         screenFrame = screen.frame
@@ -223,6 +232,14 @@ private final class RecordingStageView: NSView {
 
         toolbar.wantsLayer = true
         addSubview(toolbar)
+        actionLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        actionLabel.textColor = .labelColor
+        actionLabel.setAccessibilityIdentifier(AccessibilityID.recordingStageActionLabel)
+        actionLabelCapsule.isHidden = true
+        addSubview(actionLabelCapsule)
+        for button in [systemAudioButton, microphoneButton, inputButton, keysButton, clicksButton, recordButton, cancelButton] {
+            button.onHoverChange = { [weak self] button, hovered in self?.hover(button, hovered) }
+        }
         layoutArea()
     }
 
@@ -232,7 +249,8 @@ private final class RecordingStageView: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     override func accessibilityChildren() -> [Any]? {
-        NSAccessibility.unignoredChildren(from: [toolbar] + (notice.map { [$0] } ?? []))
+        let label: [NSView] = actionLabelCapsule.isHidden ? [] : [actionLabelCapsule]
+        return NSAccessibility.unignoredChildren(from: [toolbar] + (notice.map { [$0] } ?? []) + label)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -263,7 +281,6 @@ private final class RecordingStageView: NSView {
         clicksButton.state = settings.showMouseClicks ? .on : .off
         inputButton.isEnabled = settings.recordMicrophone
         let inputName = settings.recordingInput?.name ?? "System Default"
-        inputButton.toolTip = "Input: \(inputName)"
         inputButton.setAccessibilityLabel("Input: \(inputName)")
         updateRecordButton()
         notice?.removeFromSuperview()
@@ -350,7 +367,9 @@ private final class RecordingStageView: NSView {
             let message = NSTextField(wrappingLabelWithString: problem.localizedDescription)
             message.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
             message.textColor = .labelColor
-            message.preferredMaxLayoutWidth = Self.noticeWidth
+            message.preferredMaxLayoutWidth = Self.noticeTextWidth
+            // Without a set width the glass sized itself to the label's one-line fit and cut the message off.
+            message.widthAnchor.constraint(equalToConstant: Self.noticeTextWidth).isActive = true
             var column: [NSView] = [message]
             if let fix = problem.fix {
                 let button = NSButton(title: fix.rawValue, target: self, action: #selector(applyFix(_:)))
@@ -420,12 +439,42 @@ private final class RecordingStageView: NSView {
     }
 
     private func layoutChrome() {
-        let toolbarFrame = RecordingGeometry.controlBarFrame(size: toolbar.fittingSize, region: area, visible: visibleFrame, gap: Self.gap)
-        toolbar.frame = local(toolbarFrame)
-        guard let notice else { return }
-        let size = notice.fittingSize
-        let frame = StageGeometry.noticeFrame(size: size, toolbar: toolbarFrame, region: area, visible: visibleFrame, gap: 8)
-        notice.frame = local(frame)
+        let chrome = StageGeometry.chrome(
+            toolbar: toolbar.fittingSize,
+            labelHeight: Glass.capsuleHeight,
+            notice: notice?.fittingSize,
+            region: area,
+            visible: visibleFrame,
+            gap: Self.gap
+        )
+        self.chrome = chrome
+        toolbar.frame = local(chrome.toolbar)
+        if let notice, let frame = chrome.notice { notice.frame = local(frame) }
+        layoutLabel()
+    }
+
+    // MARK: Hover labels
+
+    private func hover(_ button: GlassButton, _ hovered: Bool) {
+        if hovered {
+            hoveredButton = button
+        } else if hoveredButton === button {
+            hoveredButton = nil
+        }
+        layoutLabel()
+    }
+
+    private func layoutLabel() {
+        guard let button = hoveredButton, let chrome, let text = button.accessibilityLabel(), !text.isEmpty else {
+            actionLabelCapsule.isHidden = true
+            return
+        }
+        actionLabel.stringValue = text
+        let textWidth = ceil((text as NSString).size(withAttributes: [.font: actionLabel.font!]).width)
+        let size = CGSize(width: textWidth + 16, height: Glass.capsuleHeight)
+        let buttonMidX = button.convert(button.bounds, to: self).midX + screenFrame.minX
+        actionLabelCapsule.frame = local(StageGeometry.labelFrame(size: size, over: buttonMidX, in: chrome.labelLane))
+        actionLabelCapsule.isHidden = false
     }
 
     // MARK: Pointer and keys
@@ -535,7 +584,6 @@ private final class RecordingStageView: NSView {
     private func button(_ symbol: String, _ label: String, _ id: String, _ action: Selector) -> GlassButton {
         let button = GlassButton(image: Self.symbol(symbol, label), target: self, action: action)
         button.imagePosition = .imageOnly
-        button.toolTip = label
         button.setAccessibilityLabel(label)
         button.setAccessibilityIdentifier(id)
         return button

@@ -25,6 +25,7 @@ enum AccessibilityID {
     static let recordingStagePressedKeys = "lunetta.recordingStage.pressedKeys"
     static let recordingStageClicks = "lunetta.recordingStage.clicks"
     static let recordingStageNotice = "lunetta.recordingStage.notice"
+    static let recordingStageActionLabel = "lunetta.recordingStage.actionLabel"
     static let recordingStageRecord = "lunetta.recordingStage.record"
     static let recordingStageCancel = "lunetta.recordingStage.cancel"
     static let pressedKeys = "lunetta.pressedKeys"

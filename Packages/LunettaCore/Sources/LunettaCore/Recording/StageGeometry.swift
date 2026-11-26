@@ -15,6 +15,12 @@ public enum StageDrag: Equatable, Sendable {
     case draw(from: CGPoint)
 }
 
+public struct StageChrome: Equatable, Sendable {
+    public let toolbar: CGRect
+    public let labelLane: CGRect
+    public let notice: CGRect?
+}
+
 public enum StageGeometry {
     /// Half of a toolbar button's 28 pt side (`Glass.buttonSide`), so a grip is as easy to hit as a button.
     public static let handleHitRadius: CGFloat = 14
@@ -73,6 +79,40 @@ public enum StageGeometry {
     /// Arrow keys nudge the area without letting it leave `bounds`.
     public static func nudge(_ area: CGRect, by offset: CGPoint, in bounds: CGRect) -> CGRect {
         rect(for: .move(from: area, grab: .zero), pointer: offset, bounds: bounds)
+    }
+
+    /// The gap between the toolbar and a hover label, the same as over the recording controls.
+    public static let labelGap: CGFloat = 6
+
+    /// Places the toolbar, the lane its hover labels show in, and a problem notice. The toolbar sits next to the area,
+    /// the lane on its far side, and the notice past the lane, so neither a label nor the notice covers the area. Room
+    /// for the lane is kept whether or not a label shows, so hovering never moves the toolbar.
+    public static func chrome(
+        toolbar size: CGSize,
+        labelHeight: CGFloat,
+        notice noticeSize: CGSize?,
+        region: CGRect,
+        visible: CGRect,
+        gap: CGFloat
+    ) -> StageChrome {
+        let laneHeight = labelHeight + labelGap
+        let block = RecordingGeometry.controlBarFrame(
+            size: CGSize(width: size.width, height: size.height + laneHeight), region: region, visible: visible, gap: gap
+        )
+        let belowRegion = block.midY < region.midY
+        let toolbar = CGRect(x: block.minX, y: belowRegion ? block.maxY - size.height : block.minY, width: size.width, height: size.height)
+        let laneY = belowRegion ? block.minY : toolbar.maxY + labelGap
+        let lane = CGRect(x: visible.minX + gap, y: laneY, width: visible.width - 2 * gap, height: labelHeight)
+        let notice = noticeSize.map {
+            noticeFrame(size: $0, toolbar: CGRect(x: toolbar.minX, y: block.minY, width: toolbar.width, height: block.height), region: region, visible: visible, gap: 8)
+        }
+        return StageChrome(toolbar: toolbar, labelLane: lane, notice: notice)
+    }
+
+    /// A hover label centered over its button, slid along the lane to stay on screen.
+    public static func labelFrame(size: CGSize, over buttonMidX: CGFloat, in lane: CGRect) -> CGRect {
+        let x = min(max(buttonMidX - size.width / 2, lane.minX), lane.maxX - size.width)
+        return CGRect(x: x, y: lane.minY, width: size.width, height: size.height)
     }
 
     /// Where a problem notice sits: on the far side of the toolbar from the area, so it never covers what's recorded,
