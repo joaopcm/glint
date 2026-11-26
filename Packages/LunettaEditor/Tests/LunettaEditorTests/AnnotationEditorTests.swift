@@ -12,7 +12,11 @@ struct AnnotationEditorTests {
 
     /// A missing symbol crashes the editor on open: the buttons force-unwrap their images.
     @Test func everyButtonSymbolExists() {
-        let symbols = AnnotationEditor.toolGroups.flatMap { $0 }.map(\.symbol) + [AnnotationEditor.undoSymbol, AnnotationEditor.redoSymbol]
+        let symbols = AnnotationEditor.toolGroups.flatMap { $0 }.map(\.symbol) + [
+            AnnotationEditor.undoSymbol,
+            AnnotationEditor.redoSymbol,
+            ColorPickerButton.chevronSymbol,
+        ]
         for symbol in symbols {
             #expect(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil, "no SF Symbol named \(symbol)")
         }

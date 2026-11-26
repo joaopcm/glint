@@ -10,6 +10,13 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         case blur(sigma: CGFloat)
         case pixelate(block: CGFloat)
 
+        public var usesColor: Bool {
+            switch self {
+            case .arrow, .rectangle, .text: true
+            case .highlighter, .blur, .pixelate: false
+            }
+        }
+
         /// The blur's sigma or the pixelate's block side, in image pixels; nil for the tools that draw ink.
         public var obscuringSize: CGFloat? {
             switch self {
@@ -37,15 +44,25 @@ public struct Annotation: Identifiable, Equatable, Sendable {
     public var start: CGPoint
     public var end: CGPoint
     public var lineWidth: CGFloat
+    public var color: AnnotationColor
     /// The point an arrow's curve passes through halfway along; nil draws it straight.
     public var bend: CGPoint?
 
-    public init(id: UUID = UUID(), kind: Kind, start: CGPoint, end: CGPoint, lineWidth: CGFloat, bend: CGPoint? = nil) {
+    public init(
+        id: UUID = UUID(),
+        kind: Kind,
+        start: CGPoint,
+        end: CGPoint,
+        lineWidth: CGFloat,
+        color: AnnotationColor = .red,
+        bend: CGPoint? = nil
+    ) {
         self.id = id
         self.kind = kind
         self.start = start
         self.end = end
         self.lineWidth = lineWidth
+        self.color = color
         self.bend = bend
     }
 
@@ -103,6 +120,12 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         case .bend: resized.bend = point
         }
         return resized
+    }
+
+    public func recolored(_ color: AnnotationColor) -> Annotation {
+        var recolored = self
+        recolored.color = color
+        return recolored
     }
 
     public func contains(_ point: CGPoint, tolerance: CGFloat) -> Bool {

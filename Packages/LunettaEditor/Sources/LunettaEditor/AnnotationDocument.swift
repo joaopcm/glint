@@ -9,6 +9,7 @@ public final class AnnotationDocument {
     public let undoManager = UndoManager()
     public var onChange: (() -> Void)?
     let renderCache: AnnotationRenderCache
+    private var coalescedColorID: UUID?
 
     public init(base: CGImage) {
         self.base = base
@@ -37,11 +38,22 @@ public final class AnnotationDocument {
         update(id, actionName: "Resize") { $0.resized(handle, to: point) }
     }
 
+    public func setColor(_ id: UUID, _ color: AnnotationColor, coalescing: Bool = false) {
+        guard let current = annotation(id), current.kind.usesColor, current.color != color else { return }
+        if coalescing, coalescedColorID == id, !undoManager.isUndoing, !undoManager.isRedoing {
+            annotations = annotations.map { $0.id == id ? $0.recolored(color) : $0 }
+            onChange?()
+            return
+        }
+        update(id, actionName: "Change Color") { $0.recolored(color) }
+        coalescedColorID = id
+    }
+
     public func setText(_ id: UUID, _ text: String) {
         update(id, actionName: "Edit Text") { annotation in
             guard case .text(let previous) = annotation.kind else { return annotation }
             let lineHeight = annotation.bounds.height / CGFloat(AnnotationRenderer.lineCount(previous))
-            return .text(text, at: annotation.bounds.origin, lineHeight: lineHeight, id: annotation.id)
+            return .text(text, at: annotation.bounds.origin, lineHeight: lineHeight, color: annotation.color, id: annotation.id)
         }
     }
 
@@ -76,6 +88,7 @@ public final class AnnotationDocument {
     private func commit(_ newAnnotations: [Annotation], crop newCrop: CGRect?, actionName: String) {
         let (oldAnnotations, oldCrop) = (annotations, crop)
         guard newAnnotations != oldAnnotations || newCrop != oldCrop else { return }
+        coalescedColorID = nil
         let isUndoOrRedo = undoManager.isUndoing || undoManager.isRedoing
         if !isUndoOrRedo { undoManager.beginUndoGrouping() }
         undoManager.registerUndo(withTarget: self) { document in

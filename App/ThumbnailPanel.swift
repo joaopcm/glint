@@ -443,6 +443,7 @@ final class ThumbnailPresenter {
                 document,
                 savingTo: url,
                 on: item.screen,
+                settings: settings,
                 onSaved: { [weak self] savedImage in self?.items.first { $0.url == url }?.reloadThumbnail(from: savedImage) },
                 onClose: { [weak self] in
                     self?.editors[url] = nil
