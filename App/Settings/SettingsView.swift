@@ -62,6 +62,7 @@ private struct GeneralSettingsView: View {
                 }
             }
             Toggle("Copy to clipboard after capture", isOn: $settings.copyToClipboardAfterCapture)
+            Toggle("Play sound on capture", isOn: $settings.playSoundOnCapture)
             Picker("Thumbnail corner", selection: $settings.overlayCorner) {
                 Text("Bottom left").tag(OverlayCorner.bottomLeft)
                 Text("Bottom right").tag(OverlayCorner.bottomRight)

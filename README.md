@@ -4,7 +4,7 @@ Open source screenshot and screen recording app for macOS.
 
 ## Features
 
-- Capture an area (`⇧⌘2`), a window (`⌃⇧⌘2`) or the full screen (`⇧⌘1`) to a PNG in your save folder
+- Capture an area (`⇧⌘2`), a window (`⌃⇧⌘2`) or the full screen (`⇧⌘1`) to a PNG in your save folder, with the macOS shutter sound (off in Settings)
 - Capture Text (`⌥⇧⌘2`): drag over any text on screen and it goes to the clipboard as plain text. Recognition runs on-device, and nothing is saved to disk
 - Record an area (`⌥⇧⌘5`) or a window (`⌃⌥⇧⌘5`) to an MP4 (H.264, or HEVC in Settings). A 3 s countdown comes first (Esc cancels it, a click on it starts right away), and everything outside a recorded area dims. While recording, floating controls pause, resume, stop and discard, and the menu bar shows the recorded time; click it or press the shortcut again to stop. None of it shows up in the recording. Countdown and sounds can be turned off in Settings. System audio and microphone are separate toggles in the menu, both off by default
 - Quick-access thumbnail after each capture: copy, upload, save as, annotate, pin or drag it out

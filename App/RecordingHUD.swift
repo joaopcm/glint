@@ -660,7 +660,7 @@ final class RecordingSounds {
         case discard = "RecordingDiscard"
     }
 
-    private static let log = Logger(subsystem: "com.joaopcm.lunetta", category: "sounds")
+    private static let log = Logger(subsystem: "com.joaopcm.lunetta", category: "sound")
     private let settings: LunettaSettings
     private var loaded: [Cue: NSSound] = [:]
 

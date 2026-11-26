@@ -84,6 +84,8 @@ class LunettaUITestCase: XCTestCase {
             "-overlayCorner", overlayCorner,
             "-thumbnailWidth", "240",
             "-showMagnifierWhileSelecting", showsMagnifier ? "YES" : "NO",
+            "-playSoundOnCapture", "NO",
+            "-recordingSounds", "NO",
         ] + (pickerPromptExplained ? ["-pickerPromptExplained", "YES"] : []) + defaultShortcutArguments + extraLaunchArguments
         app.launchEnvironment = extraLaunchEnvironment
         app.launch()
