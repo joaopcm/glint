@@ -34,6 +34,11 @@ public final class LunettaSettings {
         static let recordingCodec = "recordingCodec"
         static let recordSystemAudio = "recordSystemAudio"
         static let recordMicrophone = "recordMicrophone"
+        static let recordingInputID = "recordingInputID"
+        static let recordingInputName = "recordingInputName"
+        static let showPressedKeys = "showPressedKeys"
+        static let showMouseClicks = "showMouseClicks"
+        static let recordingMode = "recordingMode"
         static let recordingCountdown = "recordingCountdown"
         static let recordingSounds = "recordingSounds"
         static let bucketEndpoint = "bucketEndpoint"
@@ -194,6 +199,57 @@ public final class LunettaSettings {
             return store.bool(forKey: Key.recordMicrophone) ?? false
         }
         set { withMutation(keyPath: \.recordMicrophone) { store.set(newValue, forKey: Key.recordMicrophone) } }
+    }
+
+    /// nil records the system default input. The name stays with the ID so a missing input can still be named.
+    public var recordingInput: AudioInput? {
+        get {
+            access(keyPath: \.recordingInput)
+            guard let id = store.string(forKey: Key.recordingInputID), !id.isEmpty else { return nil }
+            return AudioInput(id: id, name: store.string(forKey: Key.recordingInputName) ?? id)
+        }
+        set {
+            withMutation(keyPath: \.recordingInput) {
+                store.set(newValue?.id, forKey: Key.recordingInputID)
+                store.set(newValue?.name, forKey: Key.recordingInputName)
+            }
+        }
+    }
+
+    /// Off by default: showing keys needs Input Monitoring, and typed text ends up in the video.
+    public var showPressedKeys: Bool {
+        get {
+            access(keyPath: \.showPressedKeys)
+            return store.bool(forKey: Key.showPressedKeys) ?? false
+        }
+        set { withMutation(keyPath: \.showPressedKeys) { store.set(newValue, forKey: Key.showPressedKeys) } }
+    }
+
+    public var showMouseClicks: Bool {
+        get {
+            access(keyPath: \.showMouseClicks)
+            return store.bool(forKey: Key.showMouseClicks) ?? false
+        }
+        set { withMutation(keyPath: \.showMouseClicks) { store.set(newValue, forKey: Key.showMouseClicks) } }
+    }
+
+    /// What the recording panel opens on: the last mode recorded from it.
+    public var recordingMode: RecordingMode {
+        get {
+            access(keyPath: \.recordingMode)
+            return store.string(forKey: Key.recordingMode).flatMap(RecordingMode.init(rawValue:)) ?? .area
+        }
+        set { withMutation(keyPath: \.recordingMode) { store.set(newValue.rawValue, forKey: Key.recordingMode) } }
+    }
+
+    public var recordingChoices: RecordingChoices {
+        RecordingChoices(
+            systemAudio: recordSystemAudio,
+            microphone: recordMicrophone,
+            input: recordingInput,
+            showsKeys: showPressedKeys,
+            showsClicks: showMouseClicks
+        )
     }
 
     /// On by default: three seconds to get the pointer and the window ready before the first frame, like CleanShot.

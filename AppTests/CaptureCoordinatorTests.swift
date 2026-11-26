@@ -169,13 +169,15 @@ private final class FakeCountdown {
 @MainActor
 private final class FakeMicrophone: MicrophoneAccess {
     var status: MicrophoneStatus
+    var inputs: [AudioInput]
     let grants: Bool
     private(set) var requestCount = 0
     private(set) var settingsOpened = 0
 
-    init(_ status: MicrophoneStatus = .authorized, grants: Bool = true) {
+    init(_ status: MicrophoneStatus = .authorized, grants: Bool = true, inputs: [AudioInput] = []) {
         self.status = status
         self.grants = grants
+        self.inputs = inputs
     }
 
     func requestAccess() async -> Bool {
@@ -187,6 +189,27 @@ private final class FakeMicrophone: MicrophoneAccess {
     func openSettings() {
         settingsOpened += 1
     }
+}
+
+@MainActor
+private final class FakeKeystrokes: KeystrokeShowing {
+    static let windowID: UInt32 = 777
+    var isAllowed: Bool
+    private(set) var shownOver: [CGRect] = []
+    private(set) var hideCount = 0
+    private(set) var settingsOpened = 0
+
+    init(allowed: Bool = true) { isAllowed = allowed }
+
+    func show(over region: CGRect) throws -> UInt32 {
+        guard isAllowed else { throw RecordingProblem.inputMonitoringDenied }
+        shownOver.append(region)
+        return Self.windowID
+    }
+
+    func hide() { hideCount += 1 }
+
+    func openSettings() { settingsOpened += 1 }
 }
 
 @MainActor
@@ -242,6 +265,7 @@ private struct Harness {
     let selector: FakeSelector
     let settings: LunettaSettings
     let microphone: FakeMicrophone
+    let keystrokes: FakeKeystrokes
     let countdown = FakeCountdown()
     let coordinator: CaptureCoordinator
 
@@ -249,6 +273,7 @@ private struct Harness {
         capturer: FakeCapturer = FakeCapturer(),
         recorder: FakeRecorder = FakeRecorder(),
         microphone: FakeMicrophone = FakeMicrophone(),
+        keystrokes: FakeKeystrokes = FakeKeystrokes(),
         selection: SelectionResult,
         pointer: CGPoint = .zero,
         createFolder: Bool = true,
@@ -258,6 +283,9 @@ private struct Harness {
         codec: VideoCodec = .h264,
         systemAudio: Bool = false,
         recordMicrophone: Bool = false,
+        input: AudioInput? = nil,
+        showsKeys: Bool = false,
+        showsClicks: Bool = false,
         countsDown: Bool = false,
         soundOn: Bool = true,
         now: @escaping () -> Date = { recordingStart },
@@ -279,15 +307,20 @@ private struct Harness {
         settings.recordingCodec = codec
         settings.recordSystemAudio = systemAudio
         settings.recordMicrophone = recordMicrophone
+        settings.recordingInput = input
+        settings.showPressedKeys = showsKeys
+        settings.showMouseClicks = showsClicks
         settings.recordingCountdown = countsDown
         settings.playSoundOnCapture = soundOn
         self.settings = settings
         self.microphone = microphone
+        self.keystrokes = keystrokes
         selector = FakeSelector(selection)
         coordinator = CaptureCoordinator(
             capturer: capturer,
             recorder: recorder,
             microphone: microphone,
+            keystrokes: keystrokes,
             selector: selector,
             alerts: alerts,
             settings: settings,
@@ -1110,56 +1143,251 @@ func recordingAsksForExactlyTheAudioStreamsThatAreOn(systemAudio: Bool, micropho
     await harness.coordinator.stopRecording()
 }
 
+private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
+
+@MainActor @Test func theChosenInputAndClickHighlightsReachTheRecorder() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(
+        recorder: recorder,
+        microphone: FakeMicrophone(inputs: [deskMic]),
+        selection: .area(recordedArea),
+        recordMicrophone: true,
+        input: deskMic,
+        showsClicks: true
+    )
+    await harness.coordinator.toggleRecording(.area)
+    let options = try #require(await recorder.starts.first?.options)
+    #expect(options == RecordingOptions(codec: .h264, systemAudio: false, microphone: true, microphoneID: "usb-1", showsClicks: true))
+    await harness.coordinator.stopRecording()
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func aChosenInputIsIgnoredWhileTheMicrophoneIsOff() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), input: deskMic)
+    await harness.coordinator.toggleRecording(.area)
+    let options = try #require(await recorder.starts.first?.options)
+    #expect(options.microphoneID == nil)
+    #expect(!options.microphone)
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func pressedKeysShowOverTheAreaStayInTheRecordingAndGoWhenItEnds() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), showsKeys: true)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.keystrokes.shownOver == [recordedArea])
+    #expect(await recorder.starts.first?.options.keptWindowIDs == [FakeKeystrokes.windowID])
+    #expect(harness.keystrokes.hideCount == 0)
+    await harness.coordinator.togglePause()
+    await harness.coordinator.togglePause()
+    #expect(await recorder.starts.map { $0.options.keptWindowIDs } == [[FakeKeystrokes.windowID], [FakeKeystrokes.windowID]])
+    #expect(harness.keystrokes.hideCount == 0)
+    await harness.coordinator.stopRecording()
+    #expect(harness.keystrokes.hideCount == 1)
+}
+
+@MainActor @Test func withoutPressedKeysNoOverlayShowsOrStaysInTheRecording() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea))
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.keystrokes.shownOver.isEmpty)
+    #expect(await recorder.starts.first?.options.keptWindowIDs == [])
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func cancellingTheCountdownTakesThePressedKeysDown() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), showsKeys: true, countsDown: true)
+    harness.countdown.proceeds = false
+    await harness.coordinator.toggleRecording(.area)
+    #expect(await recorder.starts.isEmpty)
+    #expect(harness.keystrokes.hideCount == 1)
+}
+
+@MainActor @Test func aRecordingThatCantStartTakesThePressedKeysDown() async throws {
+    let failure = CaptureError.overlayUnavailable(FakeKeystrokes.windowID)
+    let harness = try Harness(recorder: FakeRecorder(startFailure: failure), selection: .area(recordedArea), showsKeys: true)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.keystrokes.hideCount == 1)
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.message == failure.localizedDescription)
+}
+
+@MainActor @Test func inputMonitoringRevokedAfterTheCheckFailsLoudlyOnceTheAreaIsPicked() async throws {
+    let recorder = FakeRecorder()
+    let keystrokes = FakeKeystrokes()
+    var events: [RecordingEvent] = []
+    let harness = try Harness(
+        recorder: recorder,
+        keystrokes: keystrokes,
+        selection: .area(recordedArea),
+        showsKeys: true,
+        onRecordingEvent: { events.append($0) }
+    )
+    harness.selector.whileSelecting = { keystrokes.isAllowed = false }
+    await harness.coordinator.toggleRecording(.area)
+    #expect(await recorder.starts.isEmpty)
+    #expect(events == [.ended(.failed)])
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.message.contains("Input Monitoring"))
+    #expect(alert.buttons == [.openInputMonitoringSettings, .ok])
+}
+
+@MainActor private func alertBlockingTheRecording(_ harness: Harness, mode: RecordingMode = .area, recorder: FakeRecorder) async throws -> CaptureAlert {
+    await harness.coordinator.toggleRecording(mode)
+    #expect(harness.selector.selectionCount == 0, "the overlay came up although the recording couldn't start")
+    #expect(await recorder.starts.isEmpty)
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.title == "Lunetta couldn't start the recording")
+    return alert
+}
+
 @MainActor @Test func microphoneOnWithoutPermissionAlertsBeforeAnyOverlayAndRecordsNothing() async throws {
     let recorder = FakeRecorder()
     let harness = try Harness(recorder: recorder, microphone: FakeMicrophone(.denied), selection: .area(recordedArea), recordMicrophone: true)
-    await harness.coordinator.toggleRecording(.area)
-    #expect(harness.selector.selectionCount == 0)
-    #expect(await recorder.starts.isEmpty)
-    let alert = try #require(harness.alerts.presented.first)
-    #expect(alert.message == CoordinatorError.microphoneDeniedForRecording.localizedDescription)
+    let alert = try await alertBlockingTheRecording(harness, recorder: recorder)
+    #expect(alert.message == RecordingProblem.microphoneDenied.localizedDescription)
     #expect(alert.message.contains("System Settings > Privacy & Security > Microphone"))
     #expect(alert.buttons == [.openMicrophoneSettings, .ok])
 }
 
-@MainActor @Test func turningTheMicrophoneOnWithPermissionNeverPrompts() async throws {
-    let harness = try Harness(microphone: FakeMicrophone(.authorized), selection: .cancelled)
-    await harness.coordinator.setRecordMicrophone(true)
-    #expect(harness.settings.recordMicrophone)
-    #expect(harness.microphone.requestCount == 0)
-    #expect(harness.alerts.presented.isEmpty)
+@MainActor @Test func microphoneOnBeforeMacOSAskedOffersToAsk() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, microphone: FakeMicrophone(.notDetermined), selection: .area(recordedArea), recordMicrophone: true)
+    let alert = try await alertBlockingTheRecording(harness, recorder: recorder)
+    #expect(alert.message == RecordingProblem.microphoneNotAllowedYet.localizedDescription)
+    #expect(alert.buttons == [.allowMicrophone, .ok])
 }
 
-@MainActor @Test func turningTheMicrophoneOnAsksOnceAndKeepsItOnWhenGranted() async throws {
-    let harness = try Harness(microphone: FakeMicrophone(.notDetermined, grants: true), selection: .cancelled)
-    await harness.coordinator.setRecordMicrophone(true)
-    #expect(harness.settings.recordMicrophone)
+@MainActor @Test func aChosenInputThatIsUnpluggedIsNamedAndNothingRecords() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, microphone: FakeMicrophone(inputs: []), selection: .area(recordedArea), recordMicrophone: true, input: deskMic)
+    let alert = try await alertBlockingTheRecording(harness, recorder: recorder)
+    #expect(alert.message.contains("\"Desk Mic\" isn't connected"))
+    #expect(alert.buttons == [.ok])
+}
+
+@MainActor @Test func pressedKeysWithoutInputMonitoringPointToItsSettings() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, keystrokes: FakeKeystrokes(allowed: false), selection: .area(recordedArea), showsKeys: true)
+    let alert = try await alertBlockingTheRecording(harness, recorder: recorder)
+    #expect(alert.message.contains("System Settings > Privacy & Security > Input Monitoring"))
+    #expect(alert.buttons == [.openInputMonitoringSettings, .ok])
+    #expect(harness.keystrokes.shownOver.isEmpty)
+}
+
+@MainActor @Test func pressedKeysBlockAWindowRecordingAndSayWhy() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .window(42), showsKeys: true)
+    let alert = try await alertBlockingTheRecording(harness, mode: .window, recorder: recorder)
+    #expect(alert.message == RecordingProblem.keysNeedArea.localizedDescription)
+    #expect(harness.coordinator.recordingProblems(for: .area).isEmpty)
+}
+
+@MainActor @Test func theAlertButtonsDoWhatTheySay() async throws {
+    let asking = try Harness(microphone: FakeMicrophone(.notDetermined), selection: .area(recordedArea), recordMicrophone: true)
+    asking.alerts.answer = .allowMicrophone
+    await asking.coordinator.toggleRecording(.area)
+    #expect(await eventually { asking.microphone.requestCount == 1 })
+
+    let denied = try Harness(microphone: FakeMicrophone(.denied), selection: .area(recordedArea), recordMicrophone: true)
+    denied.alerts.answer = .openMicrophoneSettings
+    await denied.coordinator.toggleRecording(.area)
+    #expect(denied.microphone.settingsOpened == 1)
+
+    let keys = try Harness(keystrokes: FakeKeystrokes(allowed: false), selection: .area(recordedArea), showsKeys: true)
+    keys.alerts.answer = .openInputMonitoringSettings
+    await keys.coordinator.toggleRecording(.area)
+    #expect(keys.keystrokes.settingsOpened == 1)
+}
+
+@MainActor @Test func thePanelsFixesAskOrOpenTheRightSettings() async throws {
+    let harness = try Harness(microphone: FakeMicrophone(.notDetermined), selection: .cancelled)
+    await harness.coordinator.fix(.allowMicrophone)
     #expect(harness.microphone.requestCount == 1)
-    #expect(harness.alerts.presented.isEmpty)
-}
-
-@MainActor @Test(arguments: [MicrophoneStatus.notDetermined, .denied])
-func aRefusedMicrophoneLeavesTheToggleOffAndSaysWhatToDo(status: MicrophoneStatus) async throws {
-    let harness = try Harness(microphone: FakeMicrophone(status, grants: false), selection: .cancelled)
-    await harness.coordinator.setRecordMicrophone(true)
-    #expect(!harness.settings.recordMicrophone)
-    #expect(harness.microphone.requestCount == (status == .notDetermined ? 1 : 0))
-    let alert = try #require(harness.alerts.presented.first)
-    #expect(alert.title == "Lunetta can't record the microphone")
-    #expect(alert.message == CoordinatorError.microphoneDenied.localizedDescription)
-    #expect(alert.buttons == [.openMicrophoneSettings, .ok])
-}
-
-@MainActor @Test func turningTheMicrophoneOffNeverPrompts() async throws {
-    let harness = try Harness(microphone: FakeMicrophone(.notDetermined), selection: .cancelled, recordMicrophone: true)
-    await harness.coordinator.setRecordMicrophone(false)
-    #expect(!harness.settings.recordMicrophone)
-    #expect(harness.microphone.requestCount == 0)
-}
-
-@MainActor @Test func theMicrophoneAlertButtonOpensTheMicrophonePane() async throws {
-    let harness = try Harness(microphone: FakeMicrophone(.denied), selection: .cancelled)
-    harness.alerts.answer = .openMicrophoneSettings
-    await harness.coordinator.setRecordMicrophone(true)
+    await harness.coordinator.fix(.openMicrophoneSettings)
     #expect(harness.microphone.settingsOpened == 1)
+    await harness.coordinator.fix(.openInputMonitoringSettings)
+    #expect(harness.keystrokes.settingsOpened == 1)
+}
+
+@MainActor @Test func thePanelSeesEveryProblemTheCurrentChoicesHave() async throws {
+    let harness = try Harness(
+        microphone: FakeMicrophone(.denied, inputs: []),
+        keystrokes: FakeKeystrokes(allowed: false),
+        selection: .cancelled,
+        recordMicrophone: true,
+        input: deskMic,
+        showsKeys: true
+    )
+    #expect(harness.coordinator.recordingProblems(for: .window) == [.microphoneDenied, .inputMissing(deskMic), .keysNeedArea, .inputMonitoringDenied])
+}
+
+@MainActor @Test func losingTheChosenInputEndsTheRecordingKeepsTheFileAndNamesTheInput() async throws {
+    var handed: [URL] = []
+    var events: [RecordingEvent] = []
+    let harness = try Harness(
+        microphone: FakeMicrophone(inputs: [deskMic]),
+        selection: .area(recordedArea),
+        recordMicrophone: true,
+        input: deskMic,
+        onSaved: { handed.append($0) },
+        onRecordingEvent: { events.append($0) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.inputDisconnected(id: deskMic.id)
+    #expect(events.map(name) == ["started", "ended(saved)"])
+    let saved = try #require(handed.first)
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.title == "Lunetta's recording stopped early")
+    #expect(alert.message == InputDisconnected.message(input: deskMic, savedTo: saved.path))
+}
+
+@MainActor @Test func losingAnInputTheRecordingDoesntUseChangesNothing() async throws {
+    var events: [RecordingEvent] = []
+    let harness = try Harness(
+        microphone: FakeMicrophone(inputs: [deskMic]),
+        selection: .area(recordedArea),
+        recordMicrophone: true,
+        input: deskMic,
+        onRecordingEvent: { events.append($0) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.inputDisconnected(id: "another-mic")
+    #expect(events.map(name) == ["started"])
+
+    var defaultEvents: [RecordingEvent] = []
+    let followsDefault = try Harness(selection: .area(recordedArea), recordMicrophone: true, onRecordingEvent: { defaultEvents.append($0) })
+    await followsDefault.coordinator.toggleRecording(.area)
+    await followsDefault.coordinator.inputDisconnected(id: deskMic.id)
+    #expect(defaultEvents.map(name) == ["started"])
+    await harness.coordinator.stopRecording()
+    await followsDefault.coordinator.stopRecording()
+    #expect(harness.alerts.presented.isEmpty && followsDefault.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func startOverBringsThePressedKeysBackAndKeepsTheChosenInput() async throws {
+    let recorder = FakeRecorder()
+    var events: [RecordingEvent] = []
+    let harness = try Harness(
+        recorder: recorder,
+        microphone: FakeMicrophone(inputs: [deskMic]),
+        selection: .area(recordedArea),
+        recordMicrophone: true,
+        input: deskMic,
+        showsKeys: true,
+        onRecordingEvent: { events.append($0) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.startOverRecording()
+    #expect(harness.keystrokes.shownOver == [recordedArea, recordedArea])
+    #expect(harness.keystrokes.hideCount == 1, "the discarded recording should take its keys down once, and the new one keep them up")
+    let options = await recorder.starts.map { $0.options }
+    #expect(options.count == 2)
+    #expect(options.last?.keptWindowIDs == [FakeKeystrokes.windowID])
+    #expect(options.last?.microphoneID == deskMic.id)
+    await harness.coordinator.inputDisconnected(id: deskMic.id)
+    #expect(events.last == .ended(.saved))
+    #expect(harness.alerts.presented.first?.message.contains("\"Desk Mic\" was disconnected") == true)
 }

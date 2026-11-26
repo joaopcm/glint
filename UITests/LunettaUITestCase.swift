@@ -42,6 +42,9 @@ class LunettaUITestCase: XCTestCase {
     var pickerPromptExplained: Bool { true }
     var extraLaunchEnvironment: [String: String] { [:] }
     var pinnedHotkeys: [Hotkey] { Hotkey.allCases }
+    /// The recording panel saves its choices to Lunetta's real defaults; pinning them off keeps a panel test that
+    /// failed before cleaning up from turning on, say, Show Pressed Keys for every test after it (run 45816994479).
+    var pinsRecordingChoices: Bool { true }
 
     @MainActor private(set) var app: XCUIApplication!
     @MainActor private(set) var finder: XCUIApplication!
@@ -86,7 +89,7 @@ class LunettaUITestCase: XCTestCase {
             "-showMagnifierWhileSelecting", showsMagnifier ? "YES" : "NO",
             "-playSoundOnCapture", "NO",
             "-recordingSounds", "NO",
-        ] + (pickerPromptExplained ? ["-pickerPromptExplained", "YES"] : []) + defaultShortcutArguments + extraLaunchArguments
+        ] + (pickerPromptExplained ? ["-pickerPromptExplained", "YES"] : []) + defaultShortcutArguments + recordingChoiceArguments + extraLaunchArguments
         app.launchEnvironment = extraLaunchEnvironment
         app.launch()
         finder.activate()
@@ -103,6 +106,16 @@ class LunettaUITestCase: XCTestCase {
             let shortcut = hotkey.shortcut
             return ["-KeyboardShortcuts_\(shortcut.name)", #""{\"carbonKeyCode\":\#(shortcut.key),\"carbonModifiers\":\#(shortcut.carbonModifiers)}""#]
         }
+    }
+
+    /// A key the subclass already passes is left to it.
+    private var recordingChoiceArguments: [String] {
+        guard pinsRecordingChoices else { return [] }
+        let off: KeyValuePairs<String, String> = [
+            "recordSystemAudio": "NO", "recordMicrophone": "NO", "recordingInputID": "", "showPressedKeys": "NO",
+            "showMouseClicks": "NO", "recordingMode": "area",
+        ]
+        return off.filter { !extraLaunchArguments.contains("-\($0.key)") }.flatMap { ["-\($0.key)", $0.value] }
     }
 
     override func tearDownWithError() throws {
