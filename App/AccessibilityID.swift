@@ -29,6 +29,14 @@ enum AccessibilityID {
     static let recordingPanelRecord = "lunetta.recordingPanel.record"
     static let recordingPanelCancel = "lunetta.recordingPanel.cancel"
     static let pressedKeys = "lunetta.pressedKeys"
+    static let recordingFormat = "lunetta.recordingFormat"
+    static let wallpaperPaddingSlider = "lunetta.wallpaperPaddingSlider"
+    static let wallpaperPaddingValue = "lunetta.wallpaperPaddingValue"
+    static let wallpaperPaddingPreview = "lunetta.wallpaperPaddingPreview"
+    static let wallpaperPaddingPreviewWindow = "lunetta.wallpaperPaddingPreviewWindow"
+    static let wallpaperPreviewFallback = "lunetta.wallpaperPreviewFallback"
 
     static func connectionStep(_ step: String) -> String { "lunetta.connectionStep.\(step)" }
+    static func thumbnailCorner(_ corner: String) -> String { "lunetta.thumbnailCorner.\(corner)" }
+    static func soundPreview(_ sound: String) -> String { "lunetta.soundPreview.\(sound)" }
 }

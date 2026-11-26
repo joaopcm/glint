@@ -3,6 +3,13 @@ import LunettaCore
 import KeyboardShortcuts
 import SwiftUI
 
+enum SettingsLayout {
+    /// Every tab shares one width so the window doesn't jump sideways between tabs. 480 pt held the old 4 tabs;
+    /// 560 pt gives 7 toolbar tabs room without a » overflow menu (SettingsTabsUITests clicks each one) and a padding
+    /// preview big enough to judge.
+    static let width: CGFloat = 560
+}
+
 struct SettingsView: View {
     let settings: LunettaSettings
     let bucket: BucketAccess
@@ -14,6 +21,15 @@ struct SettingsView: View {
             GeneralSettingsView(settings: settings)
                 .fitsSettingsWindowOnScreen(maxHeight: maxContentHeight)
                 .tabItem { Label("General", systemImage: "gearshape") }
+            CaptureSettingsView(settings: settings)
+                .fitsSettingsWindowOnScreen(maxHeight: maxContentHeight)
+                .tabItem { Label("Capture", systemImage: "camera.viewfinder") }
+            RecordingSettingsView(settings: settings)
+                .fitsSettingsWindowOnScreen(maxHeight: maxContentHeight)
+                .tabItem { Label("Recording", systemImage: "record.circle") }
+            SoundsSettingsView(settings: settings)
+                .fitsSettingsWindowOnScreen(maxHeight: maxContentHeight)
+                .tabItem { Label("Sounds", systemImage: "speaker.wave.2") }
             ShortcutsSettingsView()
                 .fitsSettingsWindowOnScreen(maxHeight: maxContentHeight)
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
@@ -52,49 +68,30 @@ private struct GeneralSettingsView: View {
                         .textSelection(.enabled)
                 }
             }
-            LabeledContent("Save folder") {
-                HStack {
-                    Text(settings.saveFolder.path)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                    Button("Choose…", action: chooseFolder)
-                }
-            }
-            Toggle("Copy to clipboard after capture", isOn: $settings.copyToClipboardAfterCapture)
-            Toggle("Play sound on capture", isOn: $settings.playSoundOnCapture)
-            Picker("Thumbnail corner", selection: $settings.overlayCorner) {
-                Text("Bottom left").tag(OverlayCorner.bottomLeft)
-                Text("Bottom right").tag(OverlayCorner.bottomRight)
-            }
-            Toggle("Hide thumbnail after a few seconds", isOn: $settings.overlayAutoDismiss)
-            Toggle("Freeze screen while selecting", isOn: $settings.freezeScreenWhileSelecting)
-            Toggle("Show magnifier while selecting", isOn: $settings.showMagnifierWhileSelecting)
-            Toggle("Wallpaper behind window captures", isOn: $settings.windowCaptureWallpaper)
-            LabeledContent("Wallpaper padding") {
-                HStack {
-                    Slider(value: $settings.windowWallpaperPadding, in: LunettaSettings.windowWallpaperPaddingRange, step: 8) {
-                        Text("Wallpaper padding")
+            Section("After capture") {
+                LabeledContent("Save folder") {
+                    HStack {
+                        Text(settings.saveFolder.path)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                        Button("Choose…", action: chooseFolder)
                     }
-                    .labelsHidden()
-                    Text("\(Int(settings.windowWallpaperPadding)) pt")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .frame(width: 48, alignment: .trailing)
+                }
+                Toggle("Copy to clipboard after capture", isOn: $settings.copyToClipboardAfterCapture)
+            }
+            Section("Quick Access") {
+                ThumbnailCornerPicker(corner: $settings.overlayCorner)
+                Toggle(isOn: $settings.overlayAutoDismiss) {
+                    Text("Hide thumbnail after a few seconds")
+                    Text("Off keeps each thumbnail on screen until you close it.")
                 }
             }
-            .disabled(!settings.windowCaptureWallpaper)
-            Picker("Recording format", selection: $settings.recordingCodec) {
-                Text("H.264").tag(VideoCodec.h264)
-                Text("HEVC").tag(VideoCodec.hevc)
-            }
-            Toggle("Count down before recording", isOn: $settings.recordingCountdown)
-            Toggle("Play recording sounds", isOn: $settings.recordingSounds)
         }
         .onAppear(perform: openAtLogin.refresh)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in openAtLogin.refresh() }
         .formStyle(.grouped)
-        .frame(width: 480)
+        .frame(width: SettingsLayout.width)
     }
 
     private func chooseFolder() {
@@ -107,6 +104,26 @@ private struct GeneralSettingsView: View {
         panel.prompt = "Choose"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         settings.saveFolder = url
+    }
+}
+
+private struct RecordingSettingsView: View {
+    @Bindable var settings: LunettaSettings
+
+    var body: some View {
+        Form {
+            Picker("Recording format", selection: $settings.recordingCodec) {
+                Text("H.264").tag(VideoCodec.h264)
+                Text("HEVC").tag(VideoCodec.hevc)
+            }
+            .accessibilityIdentifier(AccessibilityID.recordingFormat)
+            Toggle(isOn: $settings.recordingCountdown) {
+                Text("Count down before recording")
+                Text("Counts down \(RecordingHUD.countdownSeconds) seconds over the area before the first frame.")
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: SettingsLayout.width)
     }
 }
 
@@ -139,6 +156,6 @@ private struct ShortcutsSettingsView: View {
         }
         .onAppear(perform: shortcuts.reload)
         .formStyle(.grouped)
-        .frame(width: 480)
+        .frame(width: SettingsLayout.width)
     }
 }

@@ -24,7 +24,7 @@ struct UploadHistoryView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 480)
+        .frame(width: SettingsLayout.width)
         .frame(idealHeight: 360)
     }
 
