@@ -78,7 +78,7 @@ struct UploadSettingsView: View {
                 }
             }
             .formStyle(.grouped)
-            .frame(width: 480)
+            .frame(width: SettingsLayout.width)
             .onChange(of: bucket.connectionTest.isRunning) { _, isRunning in
                 guard let result = bucket.connectionTest.result else { return }
                 let target = isRunning
