@@ -51,10 +51,11 @@ final class SettingsTabsUITests: LunettaUITestCase {
         openSettingsTab("Capture")
         let canvas = element(AccessibilityID.wallpaperPaddingPreview)
         XCTAssertTrue(canvas.waitForExistence(timeout: Self.captureTimeout), "the Capture tab has no padding preview")
-        let readWallpaper = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "your wallpaper"), object: canvas)
+        // SwiftUI leaves AXValue empty on this "Other" element (run 45811845542), so the label says what's behind the window.
+        let readWallpaper = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Padding preview on your wallpaper"), object: canvas)
         if XCTWaiter.wait(for: [readWallpaper], timeout: Self.captureTimeout) != .completed {
             let fallback = element(AccessibilityID.wallpaperPreviewFallback)
-            XCTFail("the preview shows \(canvas.value ?? "nothing") instead of the wallpaper: \(fallback.exists ? fallback.label : "no reason shown")")
+            XCTFail("the preview reads \"\(canvas.label)\" instead of showing the wallpaper: \(fallback.exists ? fallback.label : "no reason shown")")
         }
 
         let slider = app.sliders.matching(identifier: AccessibilityID.wallpaperPaddingSlider).firstMatch
