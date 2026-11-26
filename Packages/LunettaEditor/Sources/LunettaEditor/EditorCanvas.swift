@@ -123,7 +123,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         return max(fit, .leastNormalMagnitude)
     }
 
-    private var imageRect: CGRect {
+    var imageRect: CGRect {
         let size = CGSize(width: imageSize.width * zoom, height: imageSize.height * zoom)
         let available = availableRect
         return CGRect(x: available.midX - size.width / 2, y: available.midY - size.height / 2, width: size.width, height: size.height)

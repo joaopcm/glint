@@ -60,12 +60,12 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     private let document: AnnotationDocument
     private let save: (CGImage) throws -> Void
     private let onClose: () -> Void
-    private var toolButtons: [EditorCanvas.Tool: GlassButton] = [:]
+    private(set) var toolButtons: [EditorCanvas.Tool: GlassButton] = [:]
     private var undoButton: GlassButton!
     private var redoButton: GlassButton!
     private var toolsBar: NSView!
     private let captionLabel = NSTextField(labelWithString: "")
-    private let captionHost = ClickThroughView()
+    let captionHost = ClickThroughView()
     private var captionCenter: NSLayoutConstraint?
     private var captions: [ObjectIdentifier: NSAttributedString] = [:]
     private var hoveredButton: GlassButton?
@@ -128,10 +128,12 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     // MARK: Layout
 
     private static var canvasInsets: NSEdgeInsets {
-        NSEdgeInsets(
+        let dockTop = chromeMargin + Glass.toolbarHeight
+        let captionTop = dockTop + captionGap + Glass.capsuleHeight
+        return NSEdgeInsets(
             top: titlebarHeight + imageMargin / 2,
             left: imageMargin,
-            bottom: 2 * chromeMargin + Glass.toolbarHeight,
+            bottom: captionTop + captionGap,
             right: imageMargin
         )
     }
@@ -359,6 +361,6 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     }
 }
 
-private final class ClickThroughView: NSView {
+final class ClickThroughView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
