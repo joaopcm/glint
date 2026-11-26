@@ -11,6 +11,7 @@ class LunettaUITestCase: XCTestCase {
         case text = "text ⌥⇧⌘2"
         case recordArea = "record area ⌥⇧⌘5"
         case recordWindow = "record window ⌃⌥⇧⌘5"
+        case recordScreen = "record screen ⌥⇧⌘6"
 
         var shortcut: (name: String, key: Int, carbonModifiers: Int, flags: CGEventFlags) {
             switch self {
@@ -20,6 +21,7 @@ class LunettaUITestCase: XCTestCase {
             case .text: ("captureText", kVK_ANSI_2, optionKey | cmdKey | shiftKey, [.maskAlternate, .maskCommand, .maskShift])
             case .recordArea: ("recordArea", kVK_ANSI_5, optionKey | cmdKey | shiftKey, [.maskAlternate, .maskCommand, .maskShift])
             case .recordWindow: ("recordWindow", kVK_ANSI_5, controlKey | optionKey | cmdKey | shiftKey, [.maskControl, .maskAlternate, .maskCommand, .maskShift])
+            case .recordScreen: ("recordScreen", kVK_ANSI_6, optionKey | cmdKey | shiftKey, [.maskAlternate, .maskCommand, .maskShift])
             }
         }
     }
@@ -42,7 +44,7 @@ class LunettaUITestCase: XCTestCase {
     var pickerPromptExplained: Bool { true }
     var extraLaunchEnvironment: [String: String] { [:] }
     var pinnedHotkeys: [Hotkey] { Hotkey.allCases }
-    /// The recording panel saves its choices to Lunetta's real defaults; pinning them off keeps a panel test that
+    /// The recording stage saves its choices to Lunetta's real defaults; pinning them off keeps a panel test that
     /// failed before cleaning up from turning on, say, Show Pressed Keys for every test after it (run 45816994479).
     var pinsRecordingChoices: Bool { true }
 
@@ -113,7 +115,7 @@ class LunettaUITestCase: XCTestCase {
         guard pinsRecordingChoices else { return [] }
         let off: KeyValuePairs<String, String> = [
             "recordSystemAudio": "NO", "recordMicrophone": "NO", "recordingInputID": "", "showPressedKeys": "NO",
-            "showMouseClicks": "NO", "recordingMode": "area",
+            "showMouseClicks": "NO",
         ]
         return off.filter { !extraLaunchArguments.contains("-\($0.key)") }.flatMap { ["-\($0.key)", $0.value] }
     }

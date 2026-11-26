@@ -62,6 +62,12 @@ protocol KeystrokeShowing {
     func openSettings()
 }
 
+@MainActor
+protocol RecordingStaging {
+    /// Shows `region` to move, resize and record with the panel's choices; nil when the user drops it.
+    func stage(_ region: CGRect, on display: DisplayInfo) async -> CGRect?
+}
+
 protocol ActiveRecording: Sendable {
     func stop() async
     func finished() async throws
@@ -177,6 +183,7 @@ final class CaptureCoordinator {
     private let recorder: any Recording
     private let microphone: any MicrophoneAccess
     private let keystrokes: any KeystrokeShowing
+    private let stager: any RecordingStaging
     private let selector: any Selecting
     private let alerts: any AlertPresenting
     private let settings: LunettaSettings
@@ -199,6 +206,7 @@ final class CaptureCoordinator {
         recorder: any Recording,
         microphone: any MicrophoneAccess,
         keystrokes: any KeystrokeShowing,
+        stager: any RecordingStaging,
         selector: any Selecting,
         alerts: any AlertPresenting,
         settings: LunettaSettings,
@@ -216,6 +224,7 @@ final class CaptureCoordinator {
         self.recorder = recorder
         self.microphone = microphone
         self.keystrokes = keystrokes
+        self.stager = stager
         self.selector = selector
         self.alerts = alerts
         self.settings = settings
@@ -265,9 +274,9 @@ final class CaptureCoordinator {
         }
     }
 
-    /// The record hotkeys toggle: during the countdown they cancel it, while recording they stop. The panel's Record button
-    /// comes here too, with the same checks, so both start from the same choices.
-    func toggleRecording(_ mode: RecordingMode) async {
+    /// The record hotkeys toggle: during the countdown they cancel it, while recording they stop. `staged` puts the picked
+    /// area on the stage first, where the choices are set and any missing permission is shown instead of alerted.
+    func toggleRecording(_ mode: RecordingMode, staged: Bool = false) async {
         if let countdown {
             countdown.cancel()
             return
@@ -281,9 +290,14 @@ final class CaptureCoordinator {
         defer { if showsKeys, session == nil { keystrokes.hide() } }
         do {
             guard await capturer.hasPermission() else { throw CaptureError.permissionDenied }
-            if let problem = recordingProblems(for: mode).first { throw problem }
+            if !staged, let problem = recordingProblems(for: mode).first { throw problem }
+            guard var (target, region) = try await selectRecordingTarget(mode) else { return }
+            if staged, case .area(_, let display) = target {
+                guard let area = await stager.stage(region, on: display) else { return }
+                (target, region) = (.area(area, on: display), area)
+                if let problem = recordingProblems(for: mode).first { throw problem }
+            }
             let choices = settings.recordingChoices
-            guard let (target, region) = try await selectRecordingTarget(mode) else { return }
             selected = true
             let input = choices.microphone ? choices.input : nil
             var options = RecordingOptions(

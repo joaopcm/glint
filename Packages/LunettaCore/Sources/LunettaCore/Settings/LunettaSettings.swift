@@ -38,7 +38,6 @@ public final class LunettaSettings {
         static let recordingInputName = "recordingInputName"
         static let showPressedKeys = "showPressedKeys"
         static let showMouseClicks = "showMouseClicks"
-        static let recordingMode = "recordingMode"
         static let recordingCountdown = "recordingCountdown"
         static let recordingSounds = "recordingSounds"
         static let bucketEndpoint = "bucketEndpoint"
@@ -231,15 +230,6 @@ public final class LunettaSettings {
             return store.bool(forKey: Key.showMouseClicks) ?? false
         }
         set { withMutation(keyPath: \.showMouseClicks) { store.set(newValue, forKey: Key.showMouseClicks) } }
-    }
-
-    /// What the recording panel opens on: the last mode recorded from it.
-    public var recordingMode: RecordingMode {
-        get {
-            access(keyPath: \.recordingMode)
-            return store.string(forKey: Key.recordingMode).flatMap(RecordingMode.init(rawValue:)) ?? .area
-        }
-        set { withMutation(keyPath: \.recordingMode) { store.set(newValue.rawValue, forKey: Key.recordingMode) } }
     }
 
     public var recordingChoices: RecordingChoices {

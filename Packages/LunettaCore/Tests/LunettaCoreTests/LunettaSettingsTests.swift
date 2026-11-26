@@ -126,7 +126,6 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(changeIsSeen(\.recordingInput, becomes: AudioInput(id: "usb-1", name: "Desk Mic")))
     #expect(changeIsSeen(\.showPressedKeys, becomes: true))
     #expect(changeIsSeen(\.showMouseClicks, becomes: true))
-    #expect(changeIsSeen(\.recordingMode, becomes: .window))
 }
 
 @MainActor @Test func countdownAndSoundsDefaultOnAndAreRemembered() {
@@ -197,18 +196,15 @@ private final class ChangeFlag: @unchecked Sendable {
     let store = MemoryStore()
     let first = LunettaSettings(store: store, defaultSaveFolder: desktop)
     #expect(first.recordingChoices == RecordingChoices(systemAudio: false, microphone: false, input: nil, showsKeys: false, showsClicks: false))
-    #expect(first.recordingMode == .area)
     first.recordSystemAudio = true
     first.recordMicrophone = true
     first.recordingInput = AudioInput(id: "usb-1", name: "Desk Mic")
     first.showPressedKeys = true
     first.showMouseClicks = true
-    first.recordingMode = .window
     let next = LunettaSettings(store: store, defaultSaveFolder: desktop)
     #expect(next.recordingChoices == RecordingChoices(
         systemAudio: true, microphone: true, input: AudioInput(id: "usb-1", name: "Desk Mic"), showsKeys: true, showsClicks: true
     ))
-    #expect(next.recordingMode == .window)
 }
 
 @MainActor @Test func choosingTheSystemDefaultInputForgetsTheSavedOne() {
@@ -224,10 +220,4 @@ private final class ChangeFlag: @unchecked Sendable {
     let store = MemoryStore()
     store.set("usb-1", forKey: "recordingInputID")
     #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).recordingInput == AudioInput(id: "usb-1", name: "usb-1"))
-}
-
-@MainActor @Test func unknownRecordingModeFallsBackToArea() {
-    let store = MemoryStore()
-    store.set("fullScreen", forKey: "recordingMode")
-    #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).recordingMode == .area)
 }
