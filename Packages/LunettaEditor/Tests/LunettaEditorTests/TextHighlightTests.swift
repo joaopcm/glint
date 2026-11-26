@@ -49,4 +49,12 @@ struct TextHighlightTests {
         let tint = pixels.rgb(x: 20, y: 20)
         #expect(tint.b > 250 && tint.r < 200 && tint.g < 200)
     }
+
+    @Test func textHighlightLinesHaveRoundedCorners() throws {
+        let pixels = Pixels(try #require(AnnotationRenderer.flatten(solidImage(width: 200, height: 100), [.textHighlight([r(10, 10, 50, 20)])])))
+        #expect(pixels.isWhite(x: 10, y: 10))
+        #expect(pixels.isWhite(x: 59, y: 29))
+        #expect(!pixels.isWhite(x: 35, y: 10))
+        #expect(!pixels.isWhite(x: 10, y: 20))
+    }
 }

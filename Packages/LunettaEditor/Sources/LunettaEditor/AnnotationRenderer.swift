@@ -41,6 +41,8 @@ final class AnnotationRenderCache {
 @MainActor
 public enum AnnotationRenderer {
     static let highlightAlpha: CGFloat = 0.45
+    /// Round enough to read as a marker stroke, square enough to keep one-letter words legible.
+    static let highlightCornerRatio: CGFloat = 0.3
     private static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
     private static let boldLineHeightRatio: CGFloat = {
         let reference: CGFloat = 100
@@ -119,7 +121,17 @@ public enum AnnotationRenderer {
         case .highlighter:
             context.setBlendMode(.multiply)
             context.setFillColor(annotation.color.cgColor.copy(alpha: highlightAlpha)!)
-            context.fill(annotation.lines.isEmpty ? [annotation.bounds] : annotation.lines)
+            if annotation.lines.isEmpty {
+                context.fill(annotation.bounds)
+            } else {
+                let path = CGMutablePath()
+                for line in annotation.lines {
+                    let radius = line.height * highlightCornerRatio
+                    path.addRoundedRect(in: line, cornerWidth: radius, cornerHeight: radius)
+                }
+                context.addPath(path)
+                context.fillPath()
+            }
         case .arrow:
             drawArrow(annotation, in: context)
         case .text(let text):
