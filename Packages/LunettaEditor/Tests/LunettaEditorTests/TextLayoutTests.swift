@@ -54,6 +54,15 @@ struct TextLayoutTests {
         #expect(threeLines.nearestPosition(to: CGPoint(x: 200, y: 5)) == Position(line: 0, word: 2))
     }
 
+    @Test func sideBySideLinesPickTheOneUnderThePointer() {
+        let sidebarAndBody = TextLayout(lines: [
+            [r(0, 0, 40, 20)],
+            [r(100, 0, 40, 20), r(150, 0, 40, 20)],
+        ])
+        #expect(sidebarAndBody.nearestPosition(to: CGPoint(x: 160, y: 10)) == Position(line: 1, word: 1))
+        #expect(sidebarAndBody.nearestPosition(to: CGPoint(x: 220, y: 10)) == Position(line: 1, word: 1))
+    }
+
     @Test func emptyLayoutHasNoPositions() {
         #expect(TextLayout(lines: []).nearestPosition(to: .zero) == nil)
     }

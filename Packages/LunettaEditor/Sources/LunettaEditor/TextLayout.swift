@@ -50,10 +50,16 @@ public struct TextLayout: Equatable, Sendable {
         positions.first { word($0).insetBy(dx: -pad, dy: -pad).contains(point) }
     }
 
-    /// The closest line by height wins, then the closest word on it, like extending a text selection past the text.
+    /// The word under the pointer, else the closest line by height (by width when lines share a row, like a sidebar
+    /// beside body text), then the closest word on it, like extending a text selection past the text.
     func nearestPosition(to point: CGPoint) -> Position? {
+        if let hit = position(at: point, pad: 0) { return hit }
         let nonEmpty = lines.indices.filter { !lines[$0].isEmpty }
-        guard let line = nonEmpty.min(by: { gap(point.y, lineSpan($0)) < gap(point.y, lineSpan($1)) }) else { return nil }
+        func distance(_ line: Int) -> (CGFloat, CGFloat) {
+            let span = lineBounds(line)
+            return (gap(point.y, span.minY...span.maxY), gap(point.x, span.minX...span.maxX))
+        }
+        guard let line = nonEmpty.min(by: { distance($0) < distance($1) }) else { return nil }
         let words = lines[line]
         let word = words.indices.min { gap(point.x, words[$0].minX...words[$0].maxX) < gap(point.x, words[$1].minX...words[$1].maxX) }!
         return Position(line: line, word: word)
@@ -79,9 +85,8 @@ public struct TextLayout: Equatable, Sendable {
         lines[position.line][position.word]
     }
 
-    private func lineSpan(_ line: Int) -> ClosedRange<CGFloat> {
-        let union = lines[line].reduce(lines[line][0]) { $0.union($1) }
-        return union.minY...union.maxY
+    private func lineBounds(_ line: Int) -> CGRect {
+        lines[line].reduce(lines[line][0]) { $0.union($1) }
     }
 
     private func gap(_ value: CGFloat, _ span: ClosedRange<CGFloat>) -> CGFloat {
