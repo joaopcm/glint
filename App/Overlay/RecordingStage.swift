@@ -116,6 +116,7 @@ final class RecordingStage: RecordingStaging {
 private final class StagePanel: NSPanel {
     convenience init(screen: NSScreen, view: RecordingStageView) {
         self.init(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        CaptureChrome.mark(self)
         // Under the pop-up menu level, so the input menu opens on top of the stage instead of behind it.
         level = NSWindow.Level(rawValue: NSWindow.Level.popUpMenu.rawValue - 1)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]

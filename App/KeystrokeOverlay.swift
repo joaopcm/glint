@@ -28,7 +28,7 @@ final class KeystrokeOverlay: KeystrokeShowing {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!)
     }
 
-    func show(over region: CGRect) throws -> UInt32 {
+    func show(over region: CGRect) throws {
         hide()
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -43,10 +43,8 @@ final class KeystrokeOverlay: KeystrokeShowing {
         self.tap = tap
         self.source = source
         let panel = makePanel(over: region)
-        // On screen before the recording starts: ScreenCaptureKit only keeps windows it lists, and it lists on-screen ones.
         panel.orderFrontRegardless()
         self.panel = panel
-        return UInt32(panel.windowNumber)
     }
 
     func hide() {

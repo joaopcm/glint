@@ -4,14 +4,20 @@ import LunettaCore
 import ScreenCaptureKit
 
 public struct ScreenCapturer: Sendable {
-    public init() {}
+    /// Lunetta's windows that frame a capture rather than belong in it, like the selection overlay or the recording controls.
+    /// Every other Lunetta window, Settings and the cards included, is captured like any app's.
+    let chromeWindowIDs: @Sendable () async -> [UInt32]
+
+    public init(chromeWindowIDs: @escaping @Sendable () async -> [UInt32] = { [] }) {
+        self.chromeWindowIDs = chromeWindowIDs
+    }
 
     public func captureArea(_ selection: CGRect, displays: [DisplayInfo]) async throws -> CGImage {
         try Self.requirePermission()
         guard let info = DisplayGeometry.display(forSelection: selection, in: displays),
               let sourceRect = DisplayGeometry.sourceRect(for: selection, on: info)
         else { throw CaptureError.emptySelection }
-        let filter = try await Self.filterExcludingLunetta(displayID: info.id)
+        let filter = try await Self.contentFilter(displayID: info.id, hiding: await chromeWindowIDs())
         let size = DisplayGeometry.pixelSize(of: sourceRect, scale: info.scale)
         let configuration = Self.configuration(width: size.width, height: size.height)
         configuration.sourceRect = sourceRect
@@ -20,7 +26,7 @@ public struct ScreenCapturer: Sendable {
 
     public func captureDisplay(_ display: DisplayInfo) async throws -> CGImage {
         try Self.requirePermission()
-        let filter = try await Self.filterExcludingLunetta(displayID: display.id)
+        let filter = try await Self.contentFilter(displayID: display.id, hiding: await chromeWindowIDs())
         let size = DisplayGeometry.pixelSize(of: display.frame, scale: display.scale)
         return try await Self.image(filter: filter, configuration: Self.configuration(width: size.width, height: size.height))
     }
@@ -87,13 +93,11 @@ public struct ScreenCapturer: Sendable {
 
     public func shareableWindows() async throws -> [CapturableWindow] {
         try Self.requirePermission()
-        let ownBundleID = Bundle.main.bundleIdentifier
         async let zOrder = Self.onScreenWindowIDsFrontToBack()
         let content = try await Self.shareableContent()
         let windows = content.windows.compactMap { window -> CapturableWindow? in
             guard window.isOnScreen,
                   window.windowLayer == 0,
-                  window.owningApplication?.bundleIdentifier != ownBundleID,
                   !window.frame.isEmpty
             else { return nil }
             return CapturableWindow(id: window.windowID, frame: window.frame)
@@ -121,21 +125,13 @@ public struct ScreenCapturer: Sendable {
         guard CapturePermission.isGranted() else { throw CaptureError.permissionDenied }
     }
 
-    /// `keeping` names Lunetta windows to leave in; one that macOS doesn't list fails rather than going missing from the image.
-    static func filterExcludingLunetta(displayID: UInt32, keeping keptWindowIDs: [UInt32] = []) async throws -> sending SCContentFilter {
+    static func contentFilter(displayID: UInt32, hiding hiddenWindowIDs: [UInt32]) async throws -> sending SCContentFilter {
         let content = try await shareableContent()
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
             throw CaptureError.displayNotFound(displayID)
         }
-        let kept = content.windows.filter { keptWindowIDs.contains($0.windowID) }
-        if let missing = keptWindowIDs.first(where: { id in !kept.contains { $0.windowID == id } }) {
-            throw CaptureError.overlayUnavailable(missing)
-        }
-        let ownBundleID = Bundle.main.bundleIdentifier
-        guard let lunetta = content.applications.first(where: { $0.bundleIdentifier == ownBundleID }) else {
-            return SCContentFilter(display: display, excludingWindows: [])
-        }
-        return SCContentFilter(display: display, excludingApplications: [lunetta], exceptingWindows: kept)
+        let hidden = content.windows.filter { hiddenWindowIDs.contains($0.windowID) }
+        return SCContentFilter(display: display, excludingWindows: hidden)
     }
 
     private static func configuration(width: Int, height: Int) -> SCStreamConfiguration {

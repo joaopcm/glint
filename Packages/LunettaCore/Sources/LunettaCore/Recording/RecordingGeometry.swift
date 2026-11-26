@@ -17,8 +17,8 @@ public enum RecordingGeometry {
     }
 
     /// Where the recording controls sit, in AppKit coordinates (y up): centered under the recorded region, above it
-    /// when there is no room below, and along its bottom edge when it fills the screen. Lunetta's own windows stay out
-    /// of every recording, so the last case covers nothing in the file, only on screen.
+    /// when there is no room below, and along its bottom edge when it fills the screen. The controls are capture chrome,
+    /// which stays out of every recording, so the last case covers nothing in the file, only on screen.
     public static func controlBarFrame(size: CGSize, region: CGRect, visible: CGRect, gap: CGFloat) -> CGRect {
         let below = region.minY - gap - size.height
         let above = region.maxY + gap

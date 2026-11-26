@@ -159,7 +159,7 @@ final class QuickAccessUITests: LunettaUITestCase {
                       "the column did not fold back within \(Self.foldBackTimeout) s")
     }
 
-    @MainActor func testThumbnailsNeverInCaptures() throws {
+    @MainActor func testCardsAndSettingsShowInCapturesLikeAnyAppsWindows() throws {
         moveAwayFromCards()
         press(.fullScreen)
         let withoutCards = waitForPNGs(count: 1, after: .fullScreen)[0]
@@ -167,21 +167,26 @@ final class QuickAccessUITests: LunettaUITestCase {
         let before = waitForPNGs(count: 2, after: .fullScreen)
         XCTAssertTrue(waitUntil(cards, count: 2), "expected 2 cards, found \(cards.count)")
         let cardFrames = cards.allElementsBoundByIndex.map { settledFrame(of: $0) }
+        openSettingsTab("General")
+        let settings = app.windows.containing(NSPredicate(format: "title == 'General' OR label == 'General'")).firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: Self.captureTimeout), "Settings did not open")
+        let settingsFrame = settledFrame(of: settings)
+        moveAwayFromCards()
         press(.fullScreen)
         let withCards = try XCTUnwrap(waitForPNGs(count: 3, after: .fullScreen).first { !before.contains($0) })
 
         let region = cardFrames.reduce(CGRect.null) { $0.union($1) }
-        let changed = try changedFraction(withoutCards, withCards, in: region)
-        XCTAssertLessThan(changed, Self.cardsInCaptureThreshold, "\(Int(changed * 100))% of the thumbnail area differs: the cards are in the capture")
+        let cardsChanged = try changedFraction(withoutCards, withCards, in: region)
+        XCTAssertGreaterThan(cardsChanged, Self.cardsInCaptureThreshold, "only \(Int(cardsChanged * 100))% of the thumbnail area differs: the cards are missing from the capture")
+        let settingsChanged = try changedFraction(withoutCards, withCards, in: settingsFrame)
+        XCTAssertGreaterThan(settingsChanged, Self.cardsInCaptureThreshold, "only \(Int(settingsChanged * 100))% of the Settings area differs: Settings is missing from the capture")
 
         press(.window)
         waitForOverlay(after: .window)
-        let onCard = point(onOverlayAt: CGVector(dx: region.midX - overlay.frame.minX, dy: region.midY - overlay.frame.minY))
-        onCard.hover()
-        onCard.click()
-        assertPNGCount(3)
-        pressEscape()
-        assertOverlayClosed(after: .window)
+        let onSettings = point(onOverlayAt: CGVector(dx: settingsFrame.midX - overlay.frame.minX, dy: settingsFrame.midY - overlay.frame.minY))
+        onSettings.hover()
+        onSettings.click()
+        waitForPNGs(count: 4, after: .window)
     }
 
     @MainActor private func openEditor(from card: XCUIElement) {

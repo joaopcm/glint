@@ -55,6 +55,7 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     private static let intensitySliderWidth: CGFloat = 88
     private static let intensityInset: CGFloat = 6
     private static let captionFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+    private static let zoomFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
     private static let easeOut = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
     private static let titlebarHeight = NSWindow.frameRect(forContentRect: .zero, styleMask: [.titled]).height
     // Open dock (history 70 + color 52 + tools with slider 377 + save 58 + 3×8 gaps = 581 pt) + 2×16 margins = 613 pt.
@@ -82,6 +83,9 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     private let intensityHost = NSView()
     private var intensityHostWidth: NSLayoutConstraint!
     private(set) var isIntensityOpen = false
+    let zoomSlider = NSSlider()
+    let zoomButton = NSButton(title: "", target: nil, action: nil)
+    private(set) var zoomControl: NSView!
     private let captionLabel = NSTextField(labelWithString: "")
     let captionHost = ClickThroughView()
     private var captionCenter: NSLayoutConstraint?
@@ -132,6 +136,7 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
             self?.syncColorUI()
         }
         canvas.onSave = { [weak self] in self?.saveAndClose() }
+        canvas.onZoomChange = { [weak self] in self?.updateZoomControl() }
         document.onChange = { [weak self] in
             self?.canvas.documentChanged()
             self?.updateUndoButtons()
@@ -145,6 +150,7 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         updateUndoButtons()
         syncColorUI()
         sizeWindow(pixelsPerPoint: pixelsPerPoint)
+        updateZoomControl()
     }
 
     public func show(on screen: NSScreen?) {
@@ -230,10 +236,14 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         dock.spacing = Self.dockSpacing
         self.dock = dock
 
+        // In the titlebar's empty trailing end: the bottom row is the dock's, and the canvas insets keep the titlebar clear of the image.
+        let zoom = makeZoomControl()
+        zoomControl = zoom
+
         let content = NSView()
         dockCenter = dock.centerXAnchor.constraint(equalTo: content.centerXAnchor)
         dockCenter.priority = .defaultHigh // the edges win, so an open intensity slider never pushes the dock off a narrow window
-        for view in [canvas, dock, captionHost] as [NSView] {
+        for view in [canvas, dock, captionHost, zoom] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
         }
@@ -255,8 +265,51 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
             captionHost.bottomAnchor.constraint(equalTo: tools.topAnchor, constant: -Self.captionGap),
             captionHost.leadingAnchor.constraint(greaterThanOrEqualTo: content.leadingAnchor, constant: Self.chromeMargin),
             captionHost.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -Self.chromeMargin),
+            zoom.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Self.chromeMargin),
+            zoom.centerYAnchor.constraint(equalTo: content.topAnchor, constant: Self.titlebarHeight / 2),
         ])
         return content
+    }
+
+    /// A slider for the zoom and the zoom as a percentage, which fits the capture back in the window when clicked.
+    private func makeZoomControl() -> NSView {
+        zoomSlider.minValue = 0
+        zoomSlider.maxValue = 1
+        zoomSlider.isContinuous = true
+        zoomSlider.controlSize = .mini
+        zoomSlider.refusesFirstResponder = true
+        zoomSlider.target = self
+        zoomSlider.action = #selector(zoomSliderChanged)
+        zoomSlider.setAccessibilityLabel("Zoom")
+        zoomSlider.toolTip = "Zoom  ⌘ scroll or pinch"
+
+        zoomButton.isBordered = false
+        zoomButton.refusesFirstResponder = true
+        zoomButton.target = self
+        zoomButton.action = #selector(zoomToFit)
+        zoomButton.setAccessibilityLabel("Fit to window")
+        zoomButton.toolTip = "Fit to window"
+        let widestPercent = NSAttributedString(
+            string: Self.percentText(Int(EditorCanvas.maximumZoom * 100)),
+            attributes: [.font: Self.zoomFont]
+        ).size().width
+
+        let row = NSStackView(views: [zoomSlider, zoomButton])
+        row.spacing = Self.intensityInset
+        NSLayoutConstraint.activate([
+            zoomSlider.widthAnchor.constraint(equalToConstant: Self.intensitySliderWidth),
+            zoomButton.widthAnchor.constraint(equalToConstant: ceil(widestPercent)),
+        ])
+        let capsule = Glass.capsule(holding: row, blending: .withinWindow)
+        NSLayoutConstraint.activate([
+            capsule.widthAnchor.constraint(equalTo: row.widthAnchor, constant: 2 * Glass.titlePadding),
+            capsule.heightAnchor.constraint(equalToConstant: Glass.capsuleHeight),
+        ])
+        return capsule
+    }
+
+    private static func percentText(_ percent: Int) -> String {
+        "\(percent)%"
     }
 
     private func iconButton(_ symbol: String, _ label: String, shortcut: String, _ action: Selector) -> GlassButton {
@@ -606,6 +659,25 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     @objc private func intensityChanged() {
         canvas.setIntensity(intensitySlider.doubleValue, committing: !intensitySlider.isTracking)
         updateCaption()
+    }
+
+    private func updateZoomControl() {
+        zoomSlider.doubleValue = canvas.zoomPosition
+        let percent = Self.percentText(canvas.zoomPercent)
+        zoomSlider.setAccessibilityValueDescription(percent)
+        zoomButton.isEnabled = canvas.magnification > 1
+        zoomButton.attributedTitle = NSAttributedString(string: percent, attributes: [
+            .font: Self.zoomFont,
+            .foregroundColor: zoomButton.isEnabled ? NSColor.labelColor : NSColor.secondaryLabelColor,
+        ])
+    }
+
+    @objc func zoomSliderChanged() {
+        canvas.zoomPosition = zoomSlider.doubleValue
+    }
+
+    @objc func zoomToFit() {
+        canvas.setMagnification(1)
     }
 
     private func updateUndoButtons() {
