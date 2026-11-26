@@ -1,6 +1,7 @@
 import AppKit
 import KeyboardShortcuts
 import LunettaCore
+import LunettaUI
 import os
 
 /// Everything on screen around a recording: the dim outside the recorded area, the countdown, the floating controls
@@ -289,7 +290,7 @@ private final class DimView: NSView {
 private final class CountdownView: NSView {
     private static let disc: CGFloat = 112
     private static let ringWidth: CGFloat = 3
-    private static let hintHeight: CGFloat = 22
+    private static let hintHeight = Glass.capsuleHeight
     private static let hintGap: CGFloat = 10
     private static let width: CGFloat = 230
 
@@ -434,7 +435,7 @@ private final class RecordingControlsView: NSView {
     /// "Click again to discard" is 4 words, about 1 s at the 238 wpm adult silent reading rate (Brysbaert 2019,
     /// doi:10.1016/j.jml.2019.104047); 3 s leaves time to read it and click again.
     private static let discardConfirmation: Duration = .seconds(3)
-    private static let labelHeight: CGFloat = 22
+    private static let labelHeight = Glass.capsuleHeight
     private static let labelGap: CGFloat = 6
 
     var onTogglePause: (() -> Void)?
@@ -449,7 +450,7 @@ private final class RecordingControlsView: NSView {
     private let actionLabel = NSTextField(labelWithString: "")
     private lazy var actionLabelCapsule = Glass.capsule(holding: actionLabel)
     private var actionLabelCenter: NSLayoutConstraint?
-    private var hoveredButton: CardButton?
+    private var hoveredButton: GlassButton?
     private var discardDisarm: Task<Void, Never>?
     private var isPaused = false
 
@@ -465,14 +466,10 @@ private final class RecordingControlsView: NSView {
         time.setAccessibilityIdentifier(AccessibilityID.recordingTime)
         let clock = NSStackView(views: [dot, time])
         clock.spacing = 6
-        clock.edgeInsets = NSEdgeInsets(top: 0, left: 6, bottom: 0, right: 4)
-        let divider = NSView()
-        divider.wantsLayer = true
-        divider.layer?.backgroundColor = NSColor.separatorColor.cgColor
-        divider.translatesAutoresizingMaskIntoConstraints = false
-        stopButton.contentTintColor = .systemRed
+        clock.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
+        stopButton.tint = .systemRed
 
-        let bar = Glass.toolbar([clock, pauseButton, stopButton, divider, discardButton])
+        let bar = Glass.toolbar([clock, pauseButton, stopButton, Glass.divider(), discardButton])
         bar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(bar)
 
@@ -488,8 +485,6 @@ private final class RecordingControlsView: NSView {
             dot.heightAnchor.constraint(equalToConstant: 8),
             // Wide enough for "00:00", so the bar keeps its width for the first hour.
             time.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.textWidth("00:00", font: time.font!)),
-            divider.widthAnchor.constraint(equalToConstant: 1),
-            divider.heightAnchor.constraint(equalToConstant: 16),
             bar.leadingAnchor.constraint(equalTo: leadingAnchor),
             bar.trailingAnchor.constraint(equalTo: trailingAnchor),
             bar.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -535,17 +530,15 @@ private final class RecordingControlsView: NSView {
             .withSymbolConfiguration(.init(pointSize: 13, weight: .medium))!
     }
 
-    private func button(_ symbol: String, _ label: String, _ id: String, _ action: Selector) -> CardButton {
-        let button = CardButton(image: Self.symbol(symbol, label), target: self, action: action)
-        button.isBordered = false
+    private func button(_ symbol: String, _ label: String, _ id: String, _ action: Selector) -> GlassButton {
+        let button = GlassButton(image: Self.symbol(symbol, label), target: self, action: action)
         button.imagePosition = .imageOnly
-        button.contentTintColor = .labelColor
         button.setAccessibilityLabel(label)
         button.setAccessibilityIdentifier(id)
         return button
     }
 
-    private func hover(_ button: CardButton, _ hovered: Bool) {
+    private func hover(_ button: GlassButton, _ hovered: Bool) {
         guard hovered else {
             if hoveredButton === button { hoveredButton = nil }
             if hoveredButton == nil { actionLabelCapsule.isHidden = true }
@@ -583,7 +576,7 @@ private final class RecordingControlsView: NSView {
             return
         }
         discardButton.image = Self.symbol("trash.fill", "Discard")
-        discardButton.contentTintColor = .systemRed
+        discardButton.tint = .systemRed
         showLabel("Click again to discard", over: discardButton)
         discardDisarm = Task { [weak self] in
             try? await Task.sleep(for: Self.discardConfirmation)
@@ -595,7 +588,7 @@ private final class RecordingControlsView: NSView {
     private func disarmDiscard() {
         discardDisarm = nil
         discardButton.image = Self.symbol("trash", "Discard")
-        discardButton.contentTintColor = .labelColor
+        discardButton.tint = .labelColor
         if hoveredButton === discardButton {
             showLabel("Discard", over: discardButton)
         } else if hoveredButton == nil {

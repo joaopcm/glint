@@ -1,17 +1,24 @@
 import AppKit
 import CoreGraphics
+import LunettaUI
 import Testing
 @testable import Lunetta
 
 @MainActor @Test func closeButtonGlassIsACircleAndTheActionBarACapsule() {
-    let close = Glass.toolbar([NSButton()])
-    let bar = Glass.toolbar((0..<5).map { _ in NSButton() })
+    let close = Glass.toolbar([iconButton()])
+    let bar = Glass.toolbar((0..<5).map { _ in iconButton() })
     close.layoutSubtreeIfNeeded()
     bar.layoutSubtreeIfNeeded()
 
     #expect(close.fittingSize == CGSize(width: 32, height: 32))
     #expect(bar.fittingSize.height == 32)
     #expect(bar.fittingSize.width > 32)
+}
+
+@MainActor private func iconButton() -> NSButton {
+    let button = NSButton()
+    button.imagePosition = .imageOnly
+    return button
 }
 
 @MainActor @Test func marginIsTwentyFourPoints() {

@@ -98,7 +98,7 @@ final class QuickAccessUITests: LunettaUITestCase {
         let (card, png) = captureOneCardAndFile()
         let original = saveFolder.appending(path: "original.bak")
         try FileManager.default.copyItem(at: png, to: original)
-        drawRectangleAndSave(from: card, png: png)
+        drawRectangleAndSave(from: card, png: png, checkingCaptions: true)
 
         let size = pixelSize(of: png)
         let around = CGRect(x: size.width * 0.28, y: size.height * 0.28, width: size.width * 0.34, height: size.height * 0.34).integral
@@ -190,10 +190,19 @@ final class QuickAccessUITests: LunettaUITestCase {
         XCTAssertTrue(editorCanvas.waitForExistence(timeout: Self.captureTimeout), "Annotate opened no editor")
     }
 
-    @MainActor private func drawRectangleAndSave(from card: XCUIElement, png: URL) {
+    @MainActor private func drawRectangleAndSave(from card: XCUIElement, png: URL, checkingCaptions: Bool = false) {
         openEditor(from: card)
+        if checkingCaptions {
+            center(of: editorCanvas).hover()
+            XCTAssertTrue(editorCaption("Drag to draw an arrow").waitForExistence(timeout: Self.captureTimeout), "a fresh capture showed no hint for the arrow tool")
+            tool("Rectangle").hover()
+            XCTAssertTrue(editorCaption("Rectangle  R").waitForExistence(timeout: Self.captureTimeout), "hovering Rectangle showed no name and shortcut")
+        }
         tool("Rectangle").click()
         imagePoint(0.3, png: png).press(forDuration: 0.1, thenDragTo: imagePoint(0.6, png: png))
+        if checkingCaptions {
+            XCTAssertTrue(waitUntilGone(editorCaption("Drag to draw a rectangle")), "the hint stayed after the first rectangle")
+        }
         center(of: app.buttons["Save"].firstMatch).click()
         XCTAssertTrue(waitUntilGone(editorCanvas), "Save left the editor open")
     }
@@ -206,6 +215,10 @@ final class QuickAccessUITests: LunettaUITestCase {
     @MainActor private func imagePoint(_ fraction: CGFloat, png: URL) -> XCUICoordinate {
         let image = aspectFit(pixelSize(of: png), in: editorCanvas.frame)
         return screenPoint(CGPoint(x: image.minX + image.width * fraction, y: image.minY + image.height * fraction))
+    }
+
+    @MainActor private func editorCaption(_ text: String) -> XCUIElement {
+        app.staticTexts.matching(NSPredicate(format: "value == %@", text)).firstMatch
     }
 
     @MainActor private var editorCanvas: XCUIElement {

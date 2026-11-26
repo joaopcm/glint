@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import LunettaCore
 import LunettaEditor
+import LunettaUI
 import ImageIO
 import os
 import QuartzCore
@@ -807,13 +808,12 @@ final class ThumbnailView: NSView, NSDraggingSource {
         }
     }
 
-    private func button(_ symbol: String, _ label: String, _ action: Action) -> CardButton {
+    private func button(_ symbol: String, _ label: String, _ action: Action) -> GlassButton {
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)!
             .withSymbolConfiguration(.init(pointSize: 13, weight: .medium))!
-        let button = CardButton(image: image, target: self, action: #selector(runAction(_:)))
+        let button = GlassButton(image: image, target: self, action: #selector(runAction(_:)))
         button.isBordered = false
         button.imagePosition = .imageOnly
-        button.contentTintColor = .labelColor
         button.tag = action.rawValue
         button.setAccessibilityLabel(label)
         return button
@@ -956,86 +956,6 @@ final class ThumbnailView: NSView, NSDraggingSource {
     }
 }
 
-/// Liquid Glass on macOS 26, with the closest pre-26 material as a fallback (the app still targets macOS 15).
-@MainActor
-enum Glass {
-    static let buttonSide: CGFloat = 28
-    private static let toolbarInset: CGFloat = 2
-
-    static func background(cornerRadius: CGFloat, tint: NSColor? = nil) -> NSView {
-        if #available(macOS 26, *) {
-            let glass = NSGlassEffectView()
-            glass.cornerRadius = cornerRadius
-            glass.tintColor = tint
-            return glass
-        }
-        if let tint {
-            let view = NSView()
-            view.wantsLayer = true
-            view.layer?.backgroundColor = tint.cgColor
-            view.layer?.cornerRadius = cornerRadius
-            return view
-        }
-        let material = NSVisualEffectView()
-        material.material = .hudWindow
-        material.blendingMode = .behindWindow
-        material.state = .active
-        material.wantsLayer = true
-        material.layer?.cornerRadius = cornerRadius
-        material.layer?.cornerCurve = .continuous
-        material.layer?.masksToBounds = true
-        return material
-    }
-
-    static func capsule(holding label: NSView, tint: NSColor? = nil) -> NSView {
-        let content = NSView()
-        label.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-        ])
-        let capsule = background(cornerRadius: 11, tint: tint)
-        setContent(content, of: capsule)
-        return capsule
-    }
-
-    /// A capsule, or a circle around a single button. Buttons get the square hit target; other items keep their own size.
-    /// The glass gets an explicit height: the stack's top and bottom insets don't size it, which left the close button
-    /// 32x28 pt under a 16 pt radius (#91).
-    static func toolbar(_ items: [NSView]) -> NSView {
-        for case let button as NSButton in items {
-            button.widthAnchor.constraint(equalToConstant: buttonSide).isActive = true
-            button.heightAnchor.constraint(equalToConstant: buttonSide).isActive = true
-        }
-        let stack = NSStackView(views: items)
-        stack.spacing = 2
-        let sideInset = items.count > 1 ? 6 : toolbarInset
-        stack.edgeInsets = NSEdgeInsets(top: toolbarInset, left: sideInset, bottom: toolbarInset, right: sideInset)
-        let height = buttonSide + 2 * toolbarInset
-        let background = background(cornerRadius: height / 2)
-        setContent(stack, of: background)
-        background.heightAnchor.constraint(equalToConstant: height).isActive = true
-        return background
-    }
-
-    /// Only a glass view's `contentView` is guaranteed to render inside the glass.
-    private static func setContent(_ content: NSView, of background: NSView) {
-        content.translatesAutoresizingMaskIntoConstraints = false
-        if #available(macOS 26, *), let glass = background as? NSGlassEffectView {
-            glass.contentView = content
-        } else {
-            background.addSubview(content)
-        }
-        NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: background.trailingAnchor),
-            content.topAnchor.constraint(equalTo: background.topAnchor),
-            content.bottomAnchor.constraint(equalTo: background.bottomAnchor),
-        ])
-    }
-}
-
 /// Lets Lunetta set the cursor while another app is active. Lunetta is a menu bar app whose panels never
 /// activate it, and macOS otherwise ignores cursor changes from inactive apps, so the resize cursor
 /// would never show. There is no public API for this.
@@ -1063,56 +983,6 @@ enum BackgroundCursor {
 private extension NSScreen {
     var displayID: UInt32? {
         (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
-    }
-}
-
-/// The tracking area is `.activeAlways`: Lunetta is never the active app while a card is up.
-final class CardButton: NSButton {
-    var onHoverChange: ((CardButton, _ hovered: Bool) -> Void)?
-    private var isHovered = false {
-        didSet { needsDisplay = true }
-    }
-    private var isPressed = false {
-        didSet { needsDisplay = true }
-    }
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    /// Non-activating panels never become key; without this the first click on a button is eaten.
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    /// AppKit's insets are uneven (2.5 top, 1.5 bottom, 0.5 right on macOS 27), which turned the hover circle into an oval.
-    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsetsZero }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        onHoverChange?(self, true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
-        onHoverChange?(self, false)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        isPressed = true
-        display()
-        super.mouseDown(with: event) // tracks the click until mouse up
-        isPressed = false
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        if isEnabled, isHovered || isPressed {
-            NSColor.labelColor.withAlphaComponent(isPressed ? 0.2 : 0.1).setFill()
-            NSBezierPath(ovalIn: bounds).fill()
-        }
-        super.draw(dirtyRect)
     }
 }
 
