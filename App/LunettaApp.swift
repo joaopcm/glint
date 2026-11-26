@@ -158,12 +158,18 @@ private struct MenuContent: View {
 
     var body: some View {
         Button("Capture Area") { state.capture(.area) }
+            .globalKeyboardShortcut(.captureArea)
         Button("Capture Window") { state.capture(.window) }
+            .globalKeyboardShortcut(.captureWindow)
         Button("Capture Full Screen") { state.capture(.fullScreen) }
+            .globalKeyboardShortcut(.captureFullScreen)
         Button("Capture Text") { state.captureText() }
+            .globalKeyboardShortcut(.captureText)
         Divider()
         Button("Record Area") { state.record(.area) }
+            .globalKeyboardShortcut(.recordArea)
         Button("Record Window") { state.record(.window) }
+            .globalKeyboardShortcut(.recordWindow)
         Toggle("Record System Audio", isOn: Bindable(state.settings).recordSystemAudio)
         Toggle("Record Microphone", isOn: Binding(get: { state.settings.recordMicrophone }, set: { state.setRecordMicrophone($0) }))
         Divider()

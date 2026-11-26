@@ -189,6 +189,7 @@ jobs:
       - run: xcodegen generate
       - run: scripts/ci-grant-tcc.sh kTCCServiceScreenCapture com.joaopcm.lunetta com.joaopcm.lunetta.uitests.xctrunner
       - run: scripts/ci-grant-tcc.sh kTCCServicePostEvent com.joaopcm.lunetta.uitests.xctrunner
+      - run: scripts/ci-grant-tcc.sh kTCCServiceAccessibility com.joaopcm.lunetta.uitests.xctrunner
       - run: sudo automationmodetool enable-automationmode-without-authentication
       # The quick-access card faded in place instead of sliding on the runner (recording in run 45611987356, #92),
       # which is what Lunetta does under Reduce Motion.
