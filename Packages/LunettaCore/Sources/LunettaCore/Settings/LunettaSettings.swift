@@ -47,6 +47,7 @@ public final class LunettaSettings {
         static let bucketKeyPrefix = "bucketKeyPrefix"
         static let bucketPublicBaseURL = "bucketPublicBaseURL"
         static let uploadAfterCapture = "uploadAfterCapture"
+        static let compressAfterCapture = "compressAfterCapture"
         static let pickerPromptExplained = "pickerPromptExplained"
     }
 
@@ -315,6 +316,15 @@ public final class LunettaSettings {
             return store.bool(forKey: Key.uploadAfterCapture) ?? false
         }
         set { withMutation(keyPath: \.uploadAfterCapture) { store.set(newValue, forKey: Key.uploadAfterCapture) } }
+    }
+
+    /// Off by default: a compressed screenshot keeps at most 256 colors, so photos in it can band.
+    public var compressAfterCapture: Bool {
+        get {
+            access(keyPath: \.compressAfterCapture)
+            return store.bool(forKey: Key.compressAfterCapture) ?? false
+        }
+        set { withMutation(keyPath: \.compressAfterCapture) { store.set(newValue, forKey: Key.compressAfterCapture) } }
     }
 
     public var pickerPromptExplained: Bool {
