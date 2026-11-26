@@ -41,8 +41,6 @@ final class AnnotationRenderCache {
 @MainActor
 public enum AnnotationRenderer {
     static let highlightAlpha: CGFloat = 0.45
-    /// Round enough to read as a marker stroke, square enough to keep one-letter words legible.
-    static let highlightCornerRatio: CGFloat = 0.3
     private static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
     private static let boldLineHeightRatio: CGFloat = {
         let reference: CGFloat = 100
@@ -111,6 +109,21 @@ public enum AnnotationRenderer {
         return CGSize(width: ceil(size.width), height: ceil(size.height))
     }
 
+    /// Each stroke is painted opaque inside one layer that lands at the highlight's alpha, so where strokes on
+    /// neighbouring lines overlap the tint stays even instead of doubling up.
+    private static func drawBrushStrokes(_ annotation: Annotation, in context: CGContext) {
+        context.setBlendMode(.multiply)
+        context.setAlpha(highlightAlpha)
+        context.beginTransparencyLayer(auxiliaryInfo: nil)
+        context.setFillColor(annotation.color.cgColor)
+        let seed = withUnsafeBytes(of: annotation.id.uuid) { $0.loadUnaligned(as: UInt64.self) }
+        for (index, line) in annotation.lines.enumerated() {
+            context.addPath(BrushStroke.path(in: line, seed: seed &+ UInt64(index)))
+            context.fillPath(using: .evenOdd)
+        }
+        context.endTransparencyLayer()
+    }
+
     private static func draw(_ annotation: Annotation, over base: CGImage, in context: CGContext, cache: AnnotationRenderCache?) {
         switch annotation.kind {
         case .rectangle:
@@ -118,20 +131,12 @@ public enum AnnotationRenderer {
             context.setLineWidth(annotation.lineWidth)
             context.setLineJoin(.round)
             context.stroke(annotation.bounds)
-        case .highlighter:
+        case .highlighter where annotation.lines.isEmpty:
             context.setBlendMode(.multiply)
             context.setFillColor(annotation.color.cgColor.copy(alpha: highlightAlpha)!)
-            if annotation.lines.isEmpty {
-                context.fill(annotation.bounds)
-            } else {
-                let path = CGMutablePath()
-                for line in annotation.lines {
-                    let radius = line.height * highlightCornerRatio
-                    path.addRoundedRect(in: line, cornerWidth: radius, cornerHeight: radius)
-                }
-                context.addPath(path)
-                context.fillPath()
-            }
+            context.fill(annotation.bounds)
+        case .highlighter:
+            drawBrushStrokes(annotation, in: context)
         case .arrow:
             drawArrow(annotation, in: context)
         case .text(let text):
