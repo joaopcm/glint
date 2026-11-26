@@ -46,20 +46,19 @@ final class AppState {
     private lazy var recordingHUD = RecordingHUD(settings: settings)
     private let microphone = SystemMicrophoneAccess()
     private let keystrokes = KeystrokeOverlay()
-    private lazy var recordingPanel = RecordingPanel(
-        model: RecordingPanelModel(
+    private lazy var recordingStage = RecordingStage(
+        model: RecordingStageModel(
             settings: settings,
-            problems: { [unowned self] mode in coordinator.recordingProblems(for: mode) },
+            problems: { [unowned self] in coordinator.recordingProblems(for: .area) },
             inputs: { [microphone] in microphone.inputs },
             fix: { [unowned self] fix in await coordinator.fix(fix) }
-        ),
-        onRecord: { [weak self] mode in self?.record(mode) }
+        )
     )
     private let shutterSound = ShutterSound()
 
     init() {
         #if DEBUG
-        startRecordingPanelOverForUITests()
+        startRecordingChoicesOverForUITests()
         #endif
         thumbnail = ThumbnailPresenter(
             settings: settings,
@@ -84,6 +83,7 @@ final class AppState {
             recorder: capturer,
             microphone: microphone,
             keystrokes: keystrokes,
+            stager: recordingStage,
             selector: SelectionOverlayController(
                 showsMagnifier: { [settings] in settings.showMagnifierWhileSelecting },
                 snapshot: { try await capturer.captureDisplay($0) }
@@ -118,17 +118,18 @@ final class AppState {
         KeyboardShortcuts.onKeyDown(for: .captureText) { [weak self] in self?.captureText() }
         KeyboardShortcuts.onKeyDown(for: .recordArea) { [weak self] in self?.record(.area) }
         KeyboardShortcuts.onKeyDown(for: .recordWindow) { [weak self] in self?.record(.window) }
+        KeyboardShortcuts.onKeyDown(for: .recordScreen) { [weak self] in self?.recordScreen() }
         watchInputs()
     }
 
-    /// A recording's input going away ends it, and the panel's input list follows what's plugged in.
+    /// A recording's input going away ends it, and the stage's input menu follows what's plugged in.
     private func watchInputs() {
         for name in [AVCaptureDevice.wasConnectedNotification, AVCaptureDevice.wasDisconnectedNotification] {
             _ = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
                 let disconnectedID = name == AVCaptureDevice.wasDisconnectedNotification ? (notification.object as? AVCaptureDevice)?.uniqueID : nil
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.recordingPanel.refresh()
+                    self.recordingStage.refresh()
                     if let disconnectedID { Task { await self.coordinator.inputDisconnected(id: disconnectedID) } }
                 }
             }
@@ -136,16 +137,15 @@ final class AppState {
     }
 
     #if DEBUG
-    /// The panel's UI tests start from its first-run choices. They can't clear Lunetta's defaults themselves: the runner
+    /// The stage's UI tests start from its first-run choices. They can't clear Lunetta's defaults themselves: the runner
     /// never saw what Lunetta saved there, through CFPreferences or `defaults` (runs 45816994479, 45822621052).
-    private func startRecordingPanelOverForUITests() {
+    private func startRecordingChoicesOverForUITests() {
         guard ProcessInfo.processInfo.environment["LUNETTA_UI_TEST_FRESH_RECORDING_CHOICES"] != nil else { return }
         settings.recordSystemAudio = false
         settings.recordMicrophone = false
         settings.recordingInput = nil
         settings.showPressedKeys = false
         settings.showMouseClicks = false
-        settings.recordingMode = .area
     }
     #endif
 
@@ -175,14 +175,13 @@ final class AppState {
         explainingPickerPromptOnFirstUse { await self.textCapture.run() }
     }
 
-    /// The record hotkeys and their menu items skip the panel and record with its last choices; Record Screen… opens it.
+    /// Record Area and Record Window skip the stage and record with its last choices.
     func record(_ mode: RecordingMode) {
-        recordingPanel.close()
         explainingPickerPromptOnFirstUse { await self.coordinator.toggleRecording(mode) }
     }
 
-    func openRecordingPanel() {
-        recordingPanel.show()
+    func recordScreen() {
+        explainingPickerPromptOnFirstUse { await self.coordinator.toggleRecording(.area, staged: true) }
     }
 
     /// The toast stays until `work` returns: macOS holds the first ScreenCaptureKit call until the prompt is answered.
@@ -214,7 +213,8 @@ private struct MenuContent: View {
         Button("Capture Text") { state.captureText() }
             .globalKeyboardShortcut(.captureText)
         Divider()
-        Button("Record Screen…") { state.openRecordingPanel() }
+        Button("Record Screen…") { state.recordScreen() }
+            .globalKeyboardShortcut(.recordScreen)
         Button("Record Area") { state.record(.area) }
             .globalKeyboardShortcut(.recordArea)
         Button("Record Window") { state.record(.window) }

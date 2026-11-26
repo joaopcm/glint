@@ -8,6 +8,8 @@ extension KeyboardShortcuts.Name {
     // ⇧⌘3/4/5 belong to macOS's own screenshot and recording tools; ⌥ keeps the 5 mnemonic without taking them.
     static let recordArea = Self("recordArea", default: .init(.five, modifiers: [.option, .command, .shift]))
     static let recordWindow = Self("recordWindow", default: .init(.five, modifiers: [.control, .option, .command, .shift]))
+    /// Next to the record shortcuts on 5; ⇧⌘6 is macOS's own Touch Bar screenshot, so ⌥ stays.
+    static let recordScreen = Self("recordScreen", default: .init(.six, modifiers: [.option, .command, .shift]))
     /// Registered only while the countdown runs, so Esc belongs to the frontmost app the rest of the time.
     static let cancelRecordingCountdown = Self("cancelRecordingCountdown", default: .init(.escape))
 }
@@ -20,5 +22,6 @@ enum LunettaShortcuts {
         ("Capture Text", .captureText),
         ("Record Area", .recordArea),
         ("Record Window", .recordWindow),
+        ("Record Screen…", .recordScreen),
     ]
 }

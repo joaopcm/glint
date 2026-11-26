@@ -213,6 +213,19 @@ private final class FakeKeystrokes: KeystrokeShowing {
 }
 
 @MainActor
+private final class FakeStager: RecordingStaging {
+    var answer: (CGRect) -> CGRect? = { $0 }
+    var whileStaged: (@MainActor () -> Void)?
+    private(set) var staged: [(region: CGRect, display: DisplayInfo)] = []
+
+    func stage(_ region: CGRect, on display: DisplayInfo) async -> CGRect? {
+        staged.append((region, display))
+        whileStaged?()
+        return answer(region)
+    }
+}
+
+@MainActor
 private final class FakeSelector: Selecting {
     let result: SelectionResult
     private(set) var selectionCount = 0
@@ -266,6 +279,7 @@ private struct Harness {
     let settings: LunettaSettings
     let microphone: FakeMicrophone
     let keystrokes: FakeKeystrokes
+    let stager = FakeStager()
     let countdown = FakeCountdown()
     let coordinator: CaptureCoordinator
 
@@ -321,6 +335,7 @@ private struct Harness {
             recorder: recorder,
             microphone: microphone,
             keystrokes: keystrokes,
+            stager: stager,
             selector: selector,
             alerts: alerts,
             settings: settings,
@@ -1397,4 +1412,68 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     await harness.coordinator.inputDisconnected(id: deskMic.id)
     #expect(events.last == .ended(.saved))
     #expect(harness.alerts.presented.first?.message.contains("\"Desk Mic\" was disconnected") == true)
+}
+
+@MainActor @Test func recordScreenRecordsTheAreaAsItWasLeftOnTheStage() async throws {
+    let recorder = FakeRecorder()
+    var events: [RecordingEvent] = []
+    let adjusted = CGRect(x: 120, y: 180, width: 350, height: 200)
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), onRecordingEvent: { events.append($0) })
+    harness.stager.answer = { _ in adjusted }
+    await harness.coordinator.toggleRecording(.area, staged: true)
+    #expect(harness.stager.staged.map(\.region) == [recordedArea])
+    #expect(harness.stager.staged.map(\.display) == [mainDisplay])
+    #expect(await recorder.starts.first?.target == .area(adjusted, on: mainDisplay))
+    #expect(events == [.started(RecordingStatus(region: adjusted, dimsOutside: true, clock: startedClock()))])
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func droppingTheStageRecordsNothingAndSaysNothing() async throws {
+    let recorder = FakeRecorder()
+    var events: [RecordingEvent] = []
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), onRecordingEvent: { events.append($0) })
+    harness.stager.answer = { _ in nil }
+    await harness.coordinator.toggleRecording(.area, staged: true)
+    #expect(await recorder.starts.isEmpty)
+    #expect(events.isEmpty)
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func aMissingPermissionWaitsForTheStageInsteadOfAlertingBeforeIt() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, microphone: FakeMicrophone(.denied), selection: .area(recordedArea), recordMicrophone: true)
+    await harness.coordinator.toggleRecording(.area, staged: true)
+    #expect(harness.stager.staged.count == 1, "the stage is where the problem shows, so it has to come up")
+    #expect(await recorder.starts.isEmpty)
+    let alert = try #require(harness.alerts.presented.first, "a problem still there after the stage must not record silently")
+    #expect(alert.message == RecordingProblem.microphoneDenied.localizedDescription)
+    #expect(alert.buttons == [.openMicrophoneSettings, .ok])
+}
+
+@MainActor @Test func aProblemFixedOnTheStageRecords() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, microphone: FakeMicrophone(.denied), selection: .area(recordedArea), recordMicrophone: true)
+    harness.stager.whileStaged = { harness.settings.recordMicrophone = false }
+    await harness.coordinator.toggleRecording(.area, staged: true)
+    #expect(await recorder.starts.first?.options.microphone == false)
+    #expect(harness.alerts.presented.isEmpty)
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func theRecordShortcutsSkipTheStage() async throws {
+    let harness = try Harness(selection: .area(recordedArea))
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.stager.staged.isEmpty)
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func theRecordScreenShortcutStopsARunningRecording() async throws {
+    let recorder = FakeRecorder()
+    var handed: [URL] = []
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), onSaved: { handed.append($0) })
+    await harness.coordinator.toggleRecording(.area, staged: true)
+    await harness.coordinator.toggleRecording(.area, staged: true)
+    #expect(await recorder.starts.count == 1)
+    #expect(harness.stager.staged.count == 1)
+    #expect(handed.count == 1)
 }

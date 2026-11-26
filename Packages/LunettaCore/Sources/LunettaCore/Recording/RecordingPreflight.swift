@@ -53,15 +53,15 @@ public enum RecordingProblem: Error, LocalizedError, Hashable, Sendable {
     public var errorDescription: String? {
         switch self {
         case .microphoneNotAllowedYet:
-            "Microphone is on, but macOS hasn't asked yet whether Lunetta may use the microphone. Click Allow Microphone and choose Allow, or turn off Microphone in the recording panel."
+            "Microphone is on, but macOS hasn't asked yet whether Lunetta may use the microphone. Click Allow Microphone and choose Allow, or turn off Microphone in the Record Screen… toolbar."
         case .microphoneDenied:
-            "Microphone is on, but Lunetta isn't allowed to use the microphone. Turn on Lunetta in System Settings > Privacy & Security > Microphone, or turn off Microphone in the recording panel."
+            "Microphone is on, but Lunetta isn't allowed to use the microphone. Turn on Lunetta in System Settings > Privacy & Security > Microphone, or turn off Microphone in the Record Screen… toolbar."
         case .inputMissing(let input):
-            "The input \"\(input.name)\" isn't connected. Connect it, or pick another input in the recording panel."
+            "The input \"\(input.name)\" isn't connected. Connect it, or pick another input in the Record Screen… toolbar."
         case .keysNeedArea:
-            "Show Pressed Keys only works in area recordings: a window recording captures that window alone, without the keys Lunetta draws over it. Record an area, or turn off Show Pressed Keys in the recording panel."
+            "Show Pressed Keys only works in area recordings: a window recording captures that window alone, without the keys Lunetta draws over it. Record an area, or turn off Show Pressed Keys in the Record Screen… toolbar."
         case .inputMonitoringDenied:
-            "Show Pressed Keys is on, but Lunetta isn't allowed to read the keyboard. Turn on Lunetta in System Settings > Privacy & Security > Input Monitoring and reopen Lunetta, or turn off Show Pressed Keys in the recording panel."
+            "Show Pressed Keys is on, but Lunetta isn't allowed to read the keyboard. Turn on Lunetta in System Settings > Privacy & Security > Input Monitoring and reopen Lunetta, or turn off Show Pressed Keys in the Record Screen… toolbar."
         }
     }
 
