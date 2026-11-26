@@ -180,7 +180,7 @@ private final class RecordingStageView: NSView {
     private lazy var toolbar = Glass.toolbar([
         systemAudioButton, microphoneButton, inputButton, Glass.divider(), keysButton, clicksButton, Glass.divider(), recordButton, cancelButton,
     ])
-    private var notice: NSView?
+    private var notice: (card: NSView, content: NSView)?
     private var chrome: StageChrome?
     private let actionLabel = NSTextField(labelWithString: "")
     private lazy var actionLabelCapsule = Glass.capsule(holding: actionLabel)
@@ -250,7 +250,7 @@ private final class RecordingStageView: NSView {
 
     override func accessibilityChildren() -> [Any]? {
         let label: [NSView] = actionLabelCapsule.isHidden ? [] : [actionLabelCapsule]
-        return NSAccessibility.unignoredChildren(from: [toolbar] + (notice.map { [$0] } ?? []) + label)
+        return NSAccessibility.unignoredChildren(from: [toolbar] + (notice.map { [$0.card] } ?? []) + label)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -283,9 +283,9 @@ private final class RecordingStageView: NSView {
         let inputName = settings.recordingInput?.name ?? "System Default"
         inputButton.setAccessibilityLabel("Input: \(inputName)")
         updateRecordButton()
-        notice?.removeFromSuperview()
+        notice?.card.removeFromSuperview()
         notice = model.problems.isEmpty ? nil : makeNotice(model.problems)
-        if let notice { addSubview(notice) }
+        if let notice { addSubview(notice.card) }
         layoutChrome()
     }
 
@@ -359,7 +359,7 @@ private final class RecordingStageView: NSView {
         onDecide?(nil)
     }
 
-    private func makeNotice(_ problems: [RecordingProblem]) -> NSView {
+    private func makeNotice(_ problems: [RecordingProblem]) -> (card: NSView, content: NSView) {
         let rows = problems.enumerated().map { index, problem -> NSView in
             let icon = NSImageView(image: NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)!)
             icon.contentTintColor = .systemYellow
@@ -395,7 +395,7 @@ private final class RecordingStageView: NSView {
         notice.setAccessibilityElement(true)
         notice.setAccessibilityRole(.group)
         notice.setAccessibilityIdentifier(AccessibilityID.recordingStageNotice)
-        return notice
+        return (notice, stack)
     }
 
     // MARK: Area
@@ -442,14 +442,16 @@ private final class RecordingStageView: NSView {
         let chrome = StageGeometry.chrome(
             toolbar: toolbar.fittingSize,
             labelHeight: Glass.capsuleHeight,
-            notice: notice?.fittingSize,
+            // The glass measures its content without the stack's insets: the card came out 336 pt wide with the
+            // message running 1 pt past its edge and no right inset (ui-macos run 45848227046). The stack's own size counts them.
+            notice: notice?.content.fittingSize,
             region: area,
             visible: visibleFrame,
             gap: Self.gap
         )
         self.chrome = chrome
         toolbar.frame = local(chrome.toolbar)
-        if let notice, let frame = chrome.notice { notice.frame = local(frame) }
+        if let notice, let frame = chrome.notice { notice.card.frame = local(frame) }
         layoutLabel()
     }
 
@@ -480,7 +482,7 @@ private final class RecordingStageView: NSView {
     // MARK: Pointer and keys
 
     private func isOnChrome(_ localPoint: CGPoint) -> Bool {
-        toolbar.frame.contains(localPoint) || notice?.frame.contains(localPoint) == true
+        toolbar.frame.contains(localPoint) || notice?.card.frame.contains(localPoint) == true
     }
 
     override func mouseDown(with event: NSEvent) {
