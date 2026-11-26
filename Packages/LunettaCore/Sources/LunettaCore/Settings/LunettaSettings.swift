@@ -48,6 +48,7 @@ public final class LunettaSettings {
         static let bucketPublicBaseURL = "bucketPublicBaseURL"
         static let uploadAfterCapture = "uploadAfterCapture"
         static let compressAfterCapture = "compressAfterCapture"
+        static let compressCopiedMedia = "compressCopiedMedia"
         static let pickerPromptExplained = "pickerPromptExplained"
         static let annotationColor = "annotationColor"
     }
@@ -326,6 +327,15 @@ public final class LunettaSettings {
             return store.bool(forKey: Key.compressAfterCapture) ?? false
         }
         set { withMutation(keyPath: \.compressAfterCapture) { store.set(newValue, forKey: Key.compressAfterCapture) } }
+    }
+
+    /// Off by default: it watches everything copied in every app, and swaps copied images for 256-color ones.
+    public var compressCopiedMedia: Bool {
+        get {
+            access(keyPath: \.compressCopiedMedia)
+            return store.bool(forKey: Key.compressCopiedMedia) ?? false
+        }
+        set { withMutation(keyPath: \.compressCopiedMedia) { store.set(newValue, forKey: Key.compressCopiedMedia) } }
     }
 
     public var pickerPromptExplained: Bool {
