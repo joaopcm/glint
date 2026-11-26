@@ -430,10 +430,12 @@ private final class CountdownView: NSView {
 }
 
 /// Elapsed time, pause or resume, stop and discard in one glass capsule, styled like the quick-access card's toolbar.
-/// Discard asks for a second click, so a slip next to Stop never throws a recording away.
+/// Discard asks for a second click, so a slip next to Stop never throws a recording away. It stays armed while the
+/// pointer rests on it and disarms once the pointer has been away for `discardConfirmation`.
 private final class RecordingControlsView: NSView {
+    private static let armedDiscardLabel = "Click again to discard"
     /// "Click again to discard" is 4 words, about 1 s at the 238 wpm adult silent reading rate (Brysbaert 2019,
-    /// doi:10.1016/j.jml.2019.104047); 3 s leaves time to read it and click again.
+    /// doi:10.1016/j.jml.2019.104047); 3 s leaves time to read it and come back.
     private static let discardConfirmation: Duration = .seconds(3)
     private static let labelHeight = Glass.capsuleHeight
     private static let labelGap: CGFloat = 6
@@ -451,10 +453,13 @@ private final class RecordingControlsView: NSView {
     private lazy var actionLabelCapsule = Glass.capsule(holding: actionLabel)
     private var actionLabelCenter: NSLayoutConstraint?
     private var hoveredButton: GlassButton?
+    private let bar: NSView
+    private var isDiscardArmed = false
     private var discardDisarm: Task<Void, Never>?
     private var isPaused = false
 
     init() {
+        bar = NSView()
         super.init(frame: .zero)
 
         dot.wantsLayer = true
@@ -469,8 +474,10 @@ private final class RecordingControlsView: NSView {
         clock.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
         stopButton.tint = .systemRed
 
-        let bar = Glass.toolbar([clock, pauseButton, stopButton, Glass.divider(), discardButton])
+        let toolbar = Glass.toolbar([clock, pauseButton, stopButton, Glass.divider(), discardButton])
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
         bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(toolbar)
         addSubview(bar)
 
         actionLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
@@ -485,8 +492,12 @@ private final class RecordingControlsView: NSView {
             dot.heightAnchor.constraint(equalToConstant: 8),
             // Wide enough for "00:00", so the bar keeps its width for the first hour.
             time.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.textWidth("00:00", font: time.font!)),
-            bar.leadingAnchor.constraint(equalTo: leadingAnchor),
-            bar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            toolbar.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
+            toolbar.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
+            toolbar.topAnchor.constraint(equalTo: bar.topAnchor),
+            toolbar.bottomAnchor.constraint(equalTo: bar.bottomAnchor),
+            bar.centerXAnchor.constraint(equalTo: centerXAnchor),
+            bar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor),
             bar.bottomAnchor.constraint(equalTo: bottomAnchor),
             bar.topAnchor.constraint(equalTo: topAnchor, constant: Self.labelHeight + Self.labelGap),
             actionLabelCapsule.bottomAnchor.constraint(equalTo: bar.topAnchor, constant: -Self.labelGap),
@@ -503,10 +514,11 @@ private final class RecordingControlsView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Whole points, so the panel's frame matches it exactly and a re-fit only happens when the time gets wider.
+    /// Wide enough for the longest hover label too, so showing one never resizes the panel and slides the buttons
+    /// out from under the pointer. Whole points, so the panel's frame matches it and only a wider time re-fits it.
     var panelSize: CGSize {
-        let size = fittingSize
-        return CGSize(width: ceil(size.width), height: ceil(size.height))
+        let widestLabel = Self.textWidth(Self.armedDiscardLabel, font: actionLabel.font!) + 16
+        return CGSize(width: ceil(max(bar.fittingSize.width, widestLabel)), height: Self.labelHeight + Self.labelGap + Glass.toolbarHeight)
     }
 
     private static func textWidth(_ text: String, font: NSFont) -> CGFloat {
@@ -539,13 +551,21 @@ private final class RecordingControlsView: NSView {
     }
 
     private func hover(_ button: GlassButton, _ hovered: Bool) {
+        if button === discardButton, isDiscardArmed {
+            if hovered {
+                discardDisarm?.cancel()
+                discardDisarm = nil
+            } else {
+                scheduleDisarm()
+            }
+        }
         guard hovered else {
             if hoveredButton === button { hoveredButton = nil }
             if hoveredButton == nil { actionLabelCapsule.isHidden = true }
             return
         }
         hoveredButton = button
-        let label = button === discardButton && discardDisarm != nil ? "Click again to discard" : button.accessibilityLabel() ?? ""
+        let label = button === discardButton && isDiscardArmed ? Self.armedDiscardLabel : button.accessibilityLabel() ?? ""
         showLabel(label, over: button)
     }
 
@@ -569,15 +589,23 @@ private final class RecordingControlsView: NSView {
     }
 
     @objc private func discard() {
-        guard discardDisarm == nil else {
+        guard !isDiscardArmed else {
             discardDisarm?.cancel()
             discardDisarm = nil
+            isDiscardArmed = false
             onDiscard?()
             return
         }
+        isDiscardArmed = true
         discardButton.image = Self.symbol("trash.fill", "Discard")
         discardButton.tint = .systemRed
-        showLabel("Click again to discard", over: discardButton)
+        showLabel(Self.armedDiscardLabel, over: discardButton)
+        // A press from the keyboard or VoiceOver has no pointer resting on the button to keep it armed.
+        if hoveredButton !== discardButton { scheduleDisarm() }
+    }
+
+    private func scheduleDisarm() {
+        discardDisarm?.cancel()
         discardDisarm = Task { [weak self] in
             try? await Task.sleep(for: Self.discardConfirmation)
             guard !Task.isCancelled else { return }
@@ -587,6 +615,7 @@ private final class RecordingControlsView: NSView {
 
     private func disarmDiscard() {
         discardDisarm = nil
+        isDiscardArmed = false
         discardButton.image = Self.symbol("trash", "Discard")
         discardButton.tint = .labelColor
         if hoveredButton === discardButton {

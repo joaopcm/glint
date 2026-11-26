@@ -53,19 +53,45 @@ final class RecordingUITests: LunettaUITestCase {
         XCTAssertEqual(app.images.matching(NSPredicate(format: "label BEGINSWITH 'Recording '")).count, 0, "a discarded recording got a quick-access card")
     }
 
+    /// XCUITest waits about 6 s for the system to go idle after a drag (run 45727922838), longer than the countdown,
+    /// so this drag goes straight through the event tap and the countdown is polled without XCTWaiter's 1 s interval.
     @MainActor func testEscapeDuringTheCountdownRecordsNothing() throws {
         press(.recordArea)
         waitForOverlay(after: .recordArea)
-        selectRecordingArea()
+        let origin = overlay.frame.origin
+        postDrag(from: CGPoint(x: origin.x + 100, y: origin.y + 100), to: CGPoint(x: origin.x + 300, y: origin.y + 250))
         let countdown = app.descendants(matching: .any).matching(identifier: AccessibilityID.recordingCountdown).firstMatch
-        XCTAssertTrue(countdown.waitForExistence(timeout: Self.captureTimeout), "no countdown after selecting the area to record")
+        XCTAssertTrue(poll(within: TimeInterval(2)) { countdown.exists }, "no countdown within 2 s of selecting the area to record")
         pressEscape()
-        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: countdown)
-        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: Self.captureTimeout), .completed, "Esc didn't close the countdown")
+        XCTAssertTrue(poll(within: Self.captureTimeout) { !countdown.exists }, "Esc didn't close the countdown")
         // Past the 3 s the countdown would have run, so a recording that started anyway shows its timer.
         XCTAssertFalse(stopRecordingButton.waitForExistence(timeout: 4), "a recording started after Esc cancelled the countdown")
         let files = try FileManager.default.contentsOfDirectory(at: saveFolder, includingPropertiesForKeys: nil)
         XCTAssertTrue(files.isEmpty, "cancelling the countdown left \(files.map(\.lastPathComponent)) in \(saveFolder.path)")
+    }
+
+    /// Top-left global points, the same space as `screenPoint`.
+    @MainActor private func postDrag(from start: CGPoint, to end: CGPoint) {
+        let steps = 10
+        let points = [start] + (1...steps).map { step in
+            let progress = CGFloat(step) / CGFloat(steps)
+            return CGPoint(x: start.x + (end.x - start.x) * progress, y: start.y + (end.y - start.y) * progress)
+        }
+        for (index, point) in points.enumerated() {
+            let type: CGEventType = index == 0 ? .leftMouseDown : .leftMouseDragged
+            CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
+    }
+
+    @MainActor private func poll(within timeout: TimeInterval, until condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            guard Date() < deadline else { return false }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return true
     }
 
     @MainActor private func waitUntil(_ element: XCUIElement, hasLabel label: String) -> Bool {
