@@ -40,7 +40,7 @@ final class AnnotationRenderCache {
 
 @MainActor
 public enum AnnotationRenderer {
-    static let highlight = CGColor(srgbRed: 1, green: 0.84, blue: 0, alpha: 0.45)
+    static let highlightAlpha: CGFloat = 0.45
     private static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
     private static let boldLineHeightRatio: CGFloat = {
         let reference: CGFloat = 100
@@ -118,7 +118,7 @@ public enum AnnotationRenderer {
             context.stroke(annotation.bounds)
         case .highlighter:
             context.setBlendMode(.multiply)
-            context.setFillColor(highlight)
+            context.setFillColor(annotation.color.cgColor.copy(alpha: highlightAlpha)!)
             context.fill(annotation.lines.isEmpty ? [annotation.bounds] : annotation.lines)
         case .arrow:
             drawArrow(annotation, in: context)

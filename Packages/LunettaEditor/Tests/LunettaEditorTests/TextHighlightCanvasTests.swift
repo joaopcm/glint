@@ -22,6 +22,18 @@ struct TextHighlightCanvasTests {
         #expect(harness.document.annotations.map(\.lines.count) == [1])
     }
 
+    @Test func textHighlightTakesTheCanvasColor() {
+        let harness = HighlighterHarness(layout: threeLines)
+        let green = AnnotationColor(redByte: 0, greenByte: 200, blueByte: 0)
+        harness.canvas.color = green
+        harness.drag(from: CGPoint(x: 60, y: 10), to: CGPoint(x: 10, y: 70))
+        #expect(harness.document.annotations.map(\.color) == [green])
+    }
+
+    @Test func highlighterIsRecolorable() {
+        #expect(Annotation.Kind.highlighter.usesColor)
+    }
+
     @Test func freeRectWhenNoTextUnderPointer() {
         let harness = HighlighterHarness(layout: threeLines)
         harness.drag(from: CGPoint(x: 160, y: 10), to: CGPoint(x: 195, y: 90))

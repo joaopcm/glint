@@ -12,8 +12,8 @@ public struct Annotation: Identifiable, Equatable, Sendable {
 
         public var usesColor: Bool {
             switch self {
-            case .arrow, .rectangle, .text: true
-            case .highlighter, .blur, .pixelate: false
+            case .arrow, .rectangle, .text, .highlighter: true
+            case .blur, .pixelate: false
             }
         }
 
@@ -70,12 +70,12 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         self.bend = bend
     }
 
-    public static func textHighlight(_ lines: [CGRect], id: UUID = UUID()) -> Annotation {
+    public static func textHighlight(_ lines: [CGRect], color: AnnotationColor = .red, id: UUID = UUID()) -> Annotation {
         let span = lines.dropFirst().reduce(lines.first ?? .zero) { $0.union($1) }
         return Annotation(
             id: id, kind: .highlighter,
             start: CGPoint(x: span.minX, y: span.minY), end: CGPoint(x: span.maxX, y: span.maxY),
-            lineWidth: 0, lines: lines
+            lineWidth: 0, color: color, lines: lines
         )
     }
 

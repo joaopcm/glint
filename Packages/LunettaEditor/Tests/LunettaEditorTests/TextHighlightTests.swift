@@ -42,4 +42,11 @@ struct TextHighlightTests {
         let pixels = Pixels(try #require(AnnotationRenderer.flatten(solidImage(width: 200, height: 100), [.textHighlight(overlapping)])))
         #expect(pixels.rgb(x: 20, y: 27) == pixels.rgb(x: 20, y: 15))
     }
+
+    @Test func highlightTintsWithItsColor() throws {
+        let blue = AnnotationColor(redByte: 0, greenByte: 0, blueByte: 255)
+        let pixels = Pixels(try #require(AnnotationRenderer.flatten(solidImage(width: 200, height: 100), [.textHighlight(lines, color: blue)])))
+        let tint = pixels.rgb(x: 20, y: 20)
+        #expect(tint.b > 250 && tint.r < 200 && tint.g < 200)
+    }
 }

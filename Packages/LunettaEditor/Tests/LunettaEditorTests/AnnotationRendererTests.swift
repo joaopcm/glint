@@ -30,7 +30,7 @@ struct AnnotationRendererTests {
     }
 
     @Test func highlighterTintsWithoutHidingTheImage() throws {
-        let mark = Annotation(kind: .highlighter, start: CGPoint(x: 100, y: 10), end: CGPoint(x: 190, y: 90), lineWidth: 4)
+        let mark = Annotation(kind: .highlighter, start: CGPoint(x: 100, y: 10), end: CGPoint(x: 190, y: 90), lineWidth: 4, color: .yellow)
         let pixels = try Pixels(#require(AnnotationRenderer.flatten(base, [mark])))
         let tinted = pixels.rgb(x: 150, y: 50)
         #expect(tinted.r > 240 && tinted.g > 200 && tinted.b < 200)

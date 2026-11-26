@@ -485,7 +485,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     }
 
     private func textHighlight(from start: TextLayout.Position, to end: TextLayout.Position, id: UUID) -> Annotation {
-        .textHighlight(document.textLayout?.highlight(from: start, to: end) ?? [], id: id)
+        .textHighlight(document.textLayout?.highlight(from: start, to: end) ?? [], color: color, id: id)
     }
 
     private func isNear(_ handle: CGPoint, _ point: CGPoint) -> Bool {
