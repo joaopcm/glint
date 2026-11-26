@@ -573,7 +573,9 @@ private final class RecordingControlsView: NSView {
         actionLabel.stringValue = label
         actionLabelCenter?.isActive = false
         let center = actionLabelCapsule.centerXAnchor.constraint(equalTo: button.centerXAnchor)
-        center.priority = .defaultHigh // the edge constraints win, so a label never spills off the panel
+        // Below the window's stay-put priority: at .defaultHigh AppKit widened the panel to center "Click again to
+        // discard" and slid Discard 69 pt out from under the pointer (run 45729544627). The edge constraints win instead.
+        center.priority = NSLayoutConstraint.Priority(NSLayoutConstraint.Priority.windowSizeStayPut.rawValue - 1)
         center.isActive = true
         actionLabelCenter = center
         actionLabelCapsule.isHidden = false
