@@ -86,7 +86,7 @@ final class AppState {
             },
             onProblem: { [weak self] message in self?.toast.show(message) }
         )
-        let capturer = ScreenCapturer()
+        let capturer = ScreenCapturer(chromeWindowIDs: { await CaptureChrome.windowIDs() })
         let coordinator = CaptureCoordinator(
             capturer: capturer,
             recorder: capturer,

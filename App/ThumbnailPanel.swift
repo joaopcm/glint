@@ -9,7 +9,7 @@ import os
 import QuartzCore
 import UniformTypeIdentifiers
 
-/// Quick-access overlay. Never appears in captures: ScreenCapturer excludes Lunetta's own windows.
+/// Quick-access overlay.
 @MainActor
 final class ThumbnailPresenter {
     static func size(width: CGFloat) -> CGSize {

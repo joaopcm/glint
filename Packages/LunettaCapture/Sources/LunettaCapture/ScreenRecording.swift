@@ -17,23 +17,19 @@ public struct RecordingOptions: Sendable, Equatable {
     /// nil records the system default input.
     public var microphoneID: String?
     public var showsClicks: Bool
-    /// Lunetta's own windows that still belong in an area recording, like the pressed keys.
-    public var keptWindowIDs: [UInt32]
 
     public init(
         codec: VideoCodec,
         systemAudio: Bool,
         microphone: Bool,
         microphoneID: String? = nil,
-        showsClicks: Bool = false,
-        keptWindowIDs: [UInt32] = []
+        showsClicks: Bool = false
     ) {
         self.codec = codec
         self.systemAudio = systemAudio
         self.microphone = microphone
         self.microphoneID = microphoneID
         self.showsClicks = showsClicks
-        self.keptWindowIDs = keptWindowIDs
     }
 }
 
@@ -76,7 +72,7 @@ public actor ScreenRecording {
 extension ScreenCapturer {
     public func record(_ target: RecordingTarget, to url: URL, options: RecordingOptions) async throws -> ScreenRecording {
         try Self.requirePermission()
-        let (filter, configuration) = try await Self.recordingSetup(for: target, keeping: options.keptWindowIDs)
+        let (filter, configuration) = try await Self.recordingSetup(for: target, hiding: await chromeWindowIDs())
         Self.apply(options, to: configuration)
         let output = SCRecordingOutputConfiguration()
         output.outputURL = url
@@ -107,7 +103,7 @@ extension ScreenCapturer {
 
     private static func recordingSetup(
         for target: RecordingTarget,
-        keeping keptWindowIDs: [UInt32]
+        hiding hiddenWindowIDs: [UInt32]
     ) async throws -> sending (SCContentFilter, SCStreamConfiguration) {
         let configuration = SCStreamConfiguration()
         switch target {
@@ -118,7 +114,7 @@ extension ScreenCapturer {
             configuration.sourceRect = region.sourceRect
             configuration.width = region.width
             configuration.height = region.height
-            return (try await filterExcludingLunetta(displayID: display.id, keeping: keptWindowIDs), configuration)
+            return (try await contentFilter(displayID: display.id, hiding: hiddenWindowIDs), configuration)
         case .window(let id):
             guard let window = try await shareableContent().windows.first(where: { $0.windowID == id }) else {
                 throw CaptureError.windowNotFound(id)

@@ -193,7 +193,6 @@ private final class FakeMicrophone: MicrophoneAccess {
 
 @MainActor
 private final class FakeKeystrokes: KeystrokeShowing {
-    static let windowID: UInt32 = 777
     var isAllowed: Bool
     private(set) var shownOver: [CGRect] = []
     private(set) var hideCount = 0
@@ -201,10 +200,9 @@ private final class FakeKeystrokes: KeystrokeShowing {
 
     init(allowed: Bool = true) { isAllowed = allowed }
 
-    func show(over region: CGRect) throws -> UInt32 {
+    func show(over region: CGRect) throws {
         guard isAllowed else { throw RecordingProblem.inputMonitoringDenied }
         shownOver.append(region)
-        return Self.windowID
     }
 
     func hide() { hideCount += 1 }
@@ -214,13 +212,11 @@ private final class FakeKeystrokes: KeystrokeShowing {
 
 @MainActor
 private final class FakeClickRings: ClickShowing {
-    static let windowID: UInt32 = 778
     private(set) var shownOver: [CGRect] = []
     private(set) var hideCount = 0
 
-    func show(over region: CGRect) -> UInt32 {
+    func show(over region: CGRect) {
         shownOver.append(region)
-        return Self.windowID
     }
 
     func hide() { hideCount += 1 }
@@ -984,7 +980,7 @@ private func name(_ event: RecordingEvent) -> String {
     let alert = try #require(harness.alerts.presented.first)
     #expect(alert.title == "Lunetta couldn't start the recording")
     #expect(alert.message == failure.localizedDescription)
-    #expect(events == [.ended(.failed)])
+    #expect(events.map(name) == ["started", "ended(failed)"], "the HUD goes up before the stream starts, so the recording can leave it out")
 }
 
 @MainActor @Test func aRecordingThatStopsOnItsOwnKeepsTheFileAndSaysWhy() async throws {
@@ -1253,7 +1249,7 @@ private func name(_ event: RecordingEvent) -> String {
     )
     await harness.coordinator.toggleRecording(.area)
     await harness.coordinator.startOverRecording()
-    #expect(events.map(name) == ["started", "ended(discarded)", "ended(failed)"])
+    #expect(events.map(name) == ["started", "ended(discarded)", "started", "ended(failed)"])
     let alert = try #require(harness.alerts.presented.first)
     #expect(alert.title == "Lunetta couldn't start the recording over")
     #expect(alert.message == failure.localizedDescription)
@@ -1351,11 +1347,9 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     await harness.coordinator.toggleRecording(.area)
     #expect(harness.clickRings.shownOver == [recordedArea])
     let options = try #require(await recorder.starts.first?.options)
-    #expect(options.keptWindowIDs == [FakeClickRings.windowID])
     #expect(!options.showsClicks, "macOS's circles drew nothing in area recordings, and would double up with the rings if they ever did")
     await harness.coordinator.togglePause()
     await harness.coordinator.togglePause()
-    #expect(await recorder.starts.map { $0.options.keptWindowIDs } == [[FakeClickRings.windowID], [FakeClickRings.windowID]])
     #expect(harness.clickRings.hideCount == 0)
     await harness.coordinator.stopRecording()
     #expect(harness.clickRings.hideCount == 1)
@@ -1369,12 +1363,11 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     #expect(harness.clickRings.shownOver.isEmpty)
     let options = try #require(await recorder.starts.first?.options)
     #expect(options.showsClicks)
-    #expect(options.keptWindowIDs == [])
     await harness.coordinator.stopRecording()
 }
 
 @MainActor @Test func aRecordingThatCantStartTakesTheClickRingsDown() async throws {
-    let failure = CaptureError.overlayUnavailable(FakeClickRings.windowID)
+    let failure = CaptureError.recordingFailed(path: "/tmp/x.mp4", reason: "Start stream failed")
     let harness = try Harness(recorder: FakeRecorder(startFailure: failure), selection: .area(recordedArea), showsClicks: true)
     await harness.coordinator.toggleRecording(.area)
     #expect(harness.clickRings.hideCount == 1)
@@ -1395,11 +1388,9 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     let harness = try Harness(recorder: recorder, selection: .area(recordedArea), showsKeys: true)
     await harness.coordinator.toggleRecording(.area)
     #expect(harness.keystrokes.shownOver == [recordedArea])
-    #expect(await recorder.starts.first?.options.keptWindowIDs == [FakeKeystrokes.windowID])
     #expect(harness.keystrokes.hideCount == 0)
     await harness.coordinator.togglePause()
     await harness.coordinator.togglePause()
-    #expect(await recorder.starts.map { $0.options.keptWindowIDs } == [[FakeKeystrokes.windowID], [FakeKeystrokes.windowID]])
     #expect(harness.keystrokes.hideCount == 0)
     await harness.coordinator.stopRecording()
     #expect(harness.keystrokes.hideCount == 1)
@@ -1410,7 +1401,6 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     let harness = try Harness(recorder: recorder, selection: .area(recordedArea))
     await harness.coordinator.toggleRecording(.area)
     #expect(harness.keystrokes.shownOver.isEmpty)
-    #expect(await recorder.starts.first?.options.keptWindowIDs == [])
     await harness.coordinator.stopRecording()
 }
 
@@ -1424,7 +1414,7 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
 }
 
 @MainActor @Test func aRecordingThatCantStartTakesThePressedKeysDown() async throws {
-    let failure = CaptureError.overlayUnavailable(FakeKeystrokes.windowID)
+    let failure = CaptureError.recordingFailed(path: "/tmp/x.mp4", reason: "Start stream failed")
     let harness = try Harness(recorder: FakeRecorder(startFailure: failure), selection: .area(recordedArea), showsKeys: true)
     await harness.coordinator.toggleRecording(.area)
     #expect(harness.keystrokes.hideCount == 1)
@@ -1606,7 +1596,6 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     #expect(harness.clickRings.hideCount == 1)
     let options = await recorder.starts.map { $0.options }
     #expect(options.count == 2)
-    #expect(options.last?.keptWindowIDs == [FakeKeystrokes.windowID, FakeClickRings.windowID])
     #expect(options.last?.microphoneID == deskMic.id)
     await harness.coordinator.inputDisconnected(id: deskMic.id)
     #expect(events.last == .ended(.saved))
