@@ -42,6 +42,14 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             updateCursorAtMouse()
         }
     }
+    public var color: AnnotationColor = .red {
+        didSet {
+            if editingTextID == nil {
+                textField?.textColor = color.nsColor
+            }
+        }
+    }
+    var activeResponder: NSResponder { textField ?? self }
     public var contentInsets = NSEdgeInsetsZero {
         didSet { needsDisplay = true }
     }
@@ -99,6 +107,9 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
 
     public func documentChanged() {
         if let selectedID, document.annotation(selectedID) == nil { self.selectedID = nil }
+        if let editingTextID, let editing = document.annotation(editingTextID) {
+            textField?.textColor = editing.color.nsColor
+        }
         updateAccessibilityValue()
         needsDisplay = true
     }
@@ -262,12 +273,19 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     }
 
     private func drawArrowHandles(of arrow: Annotation) {
+        let lift = NSShadow()
+        lift.shadowColor = NSColor.black.withAlphaComponent(0.3)
+        lift.shadowBlurRadius = 2
+        lift.shadowOffset = NSSize(width: 0, height: -1)
         for handle in arrow.handles {
             let center = viewPoint(arrow.point(of: handle))
             let radius = Self.arrowHandleDiameter / 2
             let dot = NSBezierPath(ovalIn: CGRect(x: center.x - radius, y: center.y - radius, width: 2 * radius, height: 2 * radius))
-            (handle == .bend ? NSColor(cgColor: AnnotationRenderer.ink)! : NSColor.controlAccentColor).setFill()
+            NSGraphicsContext.saveGraphicsState()
+            lift.set()
+            (handle == .bend ? arrow.color.nsColor : NSColor.controlAccentColor).setFill()
             dot.fill()
+            NSGraphicsContext.restoreGraphicsState()
             NSColor.white.setStroke()
             dot.lineWidth = 2
             dot.stroke()
@@ -401,7 +419,15 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             gesture = .cropping(from: point, to: point)
         case .arrow, .rectangle, .highlighter, .blur, .pixelate:
             selectedID = nil
-            gesture = newAnnotationKind(for: tool).map { .drawing(Annotation(kind: $0, start: point, end: point, lineWidth: $0 == .arrow ? arrowLineWidth : lineWidth)) }
+            gesture = newAnnotationKind(for: tool).map {
+                .drawing(Annotation(
+                    kind: $0,
+                    start: point,
+                    end: point,
+                    lineWidth: $0 == .arrow ? arrowLineWidth : lineWidth,
+                    color: color
+                ))
+            }
         }
     }
 
@@ -488,7 +514,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
 
     private func beginTextEntry(at point: CGPoint) {
         selectedID = nil
-        showTextField(at: point, text: "", lineHeight: textLineHeight)
+        showTextField(at: point, text: "", lineHeight: textLineHeight, color: color)
     }
 
     private func beginTextEditing(_ annotation: Annotation) {
@@ -496,16 +522,16 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         selectedID = annotation.id
         editingTextID = annotation.id
         let lines = CGFloat(AnnotationRenderer.lineCount(text))
-        showTextField(at: annotation.bounds.origin, text: text, lineHeight: annotation.bounds.height / lines)
+        showTextField(at: annotation.bounds.origin, text: text, lineHeight: annotation.bounds.height / lines, color: annotation.color)
     }
 
-    private func showTextField(at imageOrigin: CGPoint, text: String, lineHeight: CGFloat) {
+    private func showTextField(at imageOrigin: CGPoint, text: String, lineHeight: CGFloat, color: AnnotationColor) {
         let field = NSTextField(string: text)
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = AnnotationRenderer.textFont(fittingLineHeight: lineHeight * zoom)
-        field.textColor = NSColor(cgColor: AnnotationRenderer.ink)
+        field.textColor = color.nsColor
         field.placeholderString = "Type, then press Return"
         field.delegate = self
         field.setAccessibilityLabel("Annotation text")
@@ -536,7 +562,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case (let id?, false):
             document.setText(id, text)
         case (nil, false):
-            let label = Annotation.text(text, at: textFieldOrigin, lineHeight: textFieldLineHeight)
+            let label = Annotation.text(text, at: textFieldOrigin, lineHeight: textFieldLineHeight, color: color)
             document.add(label)
             selectedID = label.id
         case (nil, true):

@@ -48,6 +48,7 @@ public final class LunettaSettings {
         static let bucketPublicBaseURL = "bucketPublicBaseURL"
         static let uploadAfterCapture = "uploadAfterCapture"
         static let pickerPromptExplained = "pickerPromptExplained"
+        static let annotationColor = "annotationColor"
     }
 
     private let store: KeyValueStore
@@ -323,5 +324,26 @@ public final class LunettaSettings {
             return store.bool(forKey: Key.pickerPromptExplained) ?? false
         }
         set { withMutation(keyPath: \.pickerPromptExplained) { store.set(newValue, forKey: Key.pickerPromptExplained) } }
+    }
+
+    public static let defaultAnnotationColor = "#FF3B30"
+
+    public var annotationColor: String {
+        get {
+            access(keyPath: \.annotationColor)
+            guard let raw = store.string(forKey: Key.annotationColor), Self.isValidHexColor(raw) else {
+                return Self.defaultAnnotationColor
+            }
+            return raw.uppercased()
+        }
+        set {
+            let normalized = Self.isValidHexColor(newValue) ? newValue.uppercased() : Self.defaultAnnotationColor
+            withMutation(keyPath: \.annotationColor) { store.set(normalized, forKey: Key.annotationColor) }
+        }
+    }
+
+    private static func isValidHexColor(_ value: String) -> Bool {
+        guard value.count == 7, value.first == "#" else { return false }
+        return value.dropFirst().allSatisfy(\.isHexDigit)
     }
 }

@@ -40,9 +40,7 @@ final class AnnotationRenderCache {
 
 @MainActor
 public enum AnnotationRenderer {
-    static let ink = CGColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 1)
     static let highlight = CGColor(srgbRed: 1, green: 0.84, blue: 0, alpha: 0.45)
-    private static let inkColor = NSColor(cgColor: ink)!
     private static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
     private static let boldLineHeightRatio: CGFloat = {
         let reference: CGFloat = 100
@@ -114,7 +112,7 @@ public enum AnnotationRenderer {
     private static func draw(_ annotation: Annotation, over base: CGImage, in context: CGContext, cache: AnnotationRenderCache?) {
         switch annotation.kind {
         case .rectangle:
-            context.setStrokeColor(ink)
+            context.setStrokeColor(annotation.color.cgColor)
             context.setLineWidth(annotation.lineWidth)
             context.setLineJoin(.round)
             context.stroke(annotation.bounds)
@@ -125,7 +123,7 @@ public enum AnnotationRenderer {
         case .arrow:
             drawArrow(annotation, in: context)
         case .text(let text):
-            drawText(text, in: annotation.bounds, context: context)
+            drawText(text, color: annotation.color, in: annotation.bounds, context: context)
         case .blur(let sigma):
             obscure(annotation, of: base, isBlur: true, size: sigma, cache: cache, in: context) { region in
                 blurred(base, region, sigma: sigma, cache: cache)
@@ -206,7 +204,7 @@ public enum AnnotationRenderer {
             )
         }
 
-        context.setStrokeColor(ink)
+        context.setStrokeColor(arrow.color.cgColor)
         context.setLineWidth(arrow.lineWidth)
         context.setLineCap(.round)
         context.setLineJoin(.round)
@@ -231,10 +229,10 @@ public enum AnnotationRenderer {
         return lines
     }
 
-    private static func drawText(_ text: String, in box: CGRect, context: CGContext) {
+    private static func drawText(_ text: String, color: AnnotationColor, in box: CGRect, context: CGContext) {
         let attributes: [NSAttributedString.Key: Any] = [
             .font: textFont(fittingLineHeight: box.height / CGFloat(lineCount(text))),
-            .foregroundColor: inkColor,
+            .foregroundColor: color.nsColor,
         ]
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
@@ -245,9 +243,22 @@ public enum AnnotationRenderer {
 
 extension Annotation {
     @MainActor
-    public static func text(_ text: String, at origin: CGPoint, lineHeight: CGFloat, id: UUID = UUID()) -> Annotation {
+    public static func text(
+        _ text: String,
+        at origin: CGPoint,
+        lineHeight: CGFloat,
+        color: AnnotationColor = .red,
+        id: UUID = UUID()
+    ) -> Annotation {
         let size = AnnotationRenderer.textSize(text, lineHeight: lineHeight)
         let height = lineHeight * CGFloat(AnnotationRenderer.lineCount(text))
-        return Annotation(id: id, kind: .text(text), start: origin, end: CGPoint(x: origin.x + size.width, y: origin.y + height), lineWidth: 0)
+        return Annotation(
+            id: id,
+            kind: .text(text),
+            start: origin,
+            end: CGPoint(x: origin.x + size.width, y: origin.y + height),
+            lineWidth: 0,
+            color: color
+        )
     }
 }

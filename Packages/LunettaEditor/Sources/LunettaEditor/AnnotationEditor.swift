@@ -57,14 +57,22 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     private static let captionFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
     private static let easeOut = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
     private static let titlebarHeight = NSWindow.frameRect(forContentRect: .zero, styleMask: [.titled]).height
-    private static let minimumContentSize = CGSize(width: 560, height: 400)
+    // Open dock (history 70 + color 52 + tools with slider 377 + save 58 + 3×8 gaps = 581 pt) + 2×16 margins = 613 pt.
+    private static let minimumContentSize = CGSize(width: 620, height: 400)
+    private static weak var colorPanelOwner: AnnotationEditor?
 
     public let window: NSWindow
     public let canvas: EditorCanvas
     private let document: AnnotationDocument
+    private let onColorChange: (AnnotationColor) -> Void
     private let save: (CGImage) throws -> Void
     private let onClose: () -> Void
     private(set) var toolButtons: [EditorCanvas.Tool: GlassButton] = [:]
+    private(set) var colorButton: ColorPickerButton!
+    private(set) var palettePanel: ColorPalettePanel?
+    private var paletteEventMonitor: Any?
+    private var isSyncingColorPanel = false
+    private var isDraggingColorPanel = false
     private var undoButton: GlassButton!
     private var redoButton: GlassButton!
     private var toolsBar: NSView!
@@ -85,13 +93,17 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         document: AnnotationDocument,
         title: String,
         pixelsPerPoint: CGFloat,
+        initialColor: AnnotationColor = .red,
+        onColorChange: @escaping (AnnotationColor) -> Void = { _ in },
         save: @escaping (CGImage) throws -> Void,
         onClose: @escaping () -> Void
     ) {
         self.document = document
+        self.onColorChange = onColorChange
         self.save = save
         self.onClose = onClose
         canvas = EditorCanvas(document: document, pixelsPerPoint: pixelsPerPoint)
+        canvas.color = initialColor
         window = NSWindow(
             contentRect: CGRect(origin: .zero, size: Self.minimumContentSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -110,21 +122,27 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         window.contentView = makeContent()
 
         canvas.onToolChange = { [weak self] tool in
+            self?.closeColorPalette()
             self?.showSelectedTool(tool)
             self?.updateIntensityControl()
             self?.updateCaption()
         }
-        canvas.onSelectionChange = { [weak self] in self?.updateIntensityControl() }
+        canvas.onSelectionChange = { [weak self] in
+            self?.updateIntensityControl()
+            self?.syncColorUI()
+        }
         canvas.onSave = { [weak self] in self?.saveAndClose() }
         document.onChange = { [weak self] in
             self?.canvas.documentChanged()
             self?.updateUndoButtons()
             self?.updateIntensityControl()
+            self?.syncColorUI()
             self?.updateCaption(fading: true)
         }
         canvas.tool = .arrow
         canvas.documentChanged()
         updateUndoButtons()
+        syncColorUI()
         sizeWindow(pixelsPerPoint: pixelsPerPoint)
     }
 
@@ -171,6 +189,14 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         undoButton = undoControl
         redoButton = redoControl
 
+        let pickerControl = ColorPickerButton(target: self, action: #selector(toggleColorPalette))
+        pickerControl.color = canvas.color
+        trackHover(of: pickerControl, caption: NSAttributedString(string: "Color", attributes: [
+            .font: Self.captionFont,
+            .foregroundColor: NSColor.labelColor,
+        ]))
+        colorButton = pickerControl
+
         let saveButton = GlassButton(title: "Save", target: self, action: #selector(saveAndClose))
         saveButton.isBordered = false
         saveButton.tint = .white
@@ -184,6 +210,7 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         let tools = Glass.toolbar(toolItems, blending: .withinWindow)
         // The toolbar gaps both sides of anything that isn't a button; the host carries its own inset so it closes to nothing.
         (intensityHost.superview as? NSStackView)?.setCustomSpacing(0, after: toolButtons[.pixelate]!)
+        let colors = Glass.toolbar([pickerControl], blending: .withinWindow)
         let history = Glass.toolbar([undoControl, redoControl], blending: .withinWindow)
         let saving = Glass.toolbar([saveButton], tint: .controlAccentColor, blending: .withinWindow)
         toolsBar = tools
@@ -198,7 +225,7 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
 
         // One dock in the middle: capture cards sit in a screen corner above every window, so a Save button in the
         // corner of a screen-sized editor ended up under the card (UI test run 45724644945).
-        let dock = NSStackView(views: [history, tools, saving])
+        let dock = NSStackView(views: [history, colors, tools, saving])
         dock.spacing = Self.dockSpacing
         self.dock = dock
 
@@ -309,6 +336,13 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         }
     }
 
+    private func trackHover(of button: ColorPickerButton, caption: NSAttributedString) {
+        captions[ObjectIdentifier(button)] = caption
+        button.onHoverChange = { [weak self] button, hovered in
+            self?.hoverChanged(button, hovered)
+        }
+    }
+
     private func hoverChanged(_ control: NSView, _ hovered: Bool) {
         if hovered {
             hoveredControl = control
@@ -329,12 +363,15 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     private static func label(of tool: EditorCanvas.Tool) -> String {
         tools.first { $0.tool == tool }?.label ?? ""
     }
-
     private var showsHint: Bool {
         document.annotations.isEmpty && document.crop == nil
     }
 
     private func updateCaption(fading: Bool = false) {
+        if palettePanel != nil {
+            setCaptionAlpha(0, duration: 0)
+            return
+        }
         let text: NSAttributedString
         let anchor: NSView
         if let hoveredControl, let hovered = hoverCaption(for: hoveredControl) {
@@ -358,6 +395,11 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
 
     /// Hover captions switch instantly, as on the cards; only the hint eases out once the first edit lands.
     private func setCaptionAlpha(_ alpha: CGFloat, duration: TimeInterval) {
+        guard duration > 0 else {
+            captionHost.alphaValue = alpha
+            captionHost.isHidden = alpha == 0
+            return
+        }
         if alpha > 0 { captionHost.isHidden = false }
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = duration
@@ -370,6 +412,147 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
                 self.captionHost.isHidden = true
             }
         })
+    }
+
+    // MARK: Color
+
+    var activeColor: AnnotationColor {
+        if let id = canvas.selectedID,
+           let selected = document.annotation(id),
+           selected.kind.usesColor {
+            return selected.color
+        }
+        return canvas.color
+    }
+
+    func applyColor(_ color: AnnotationColor, coalescing: Bool = false) {
+        canvas.color = color
+        onColorChange(color)
+        if let id = canvas.selectedID,
+           let selected = document.annotation(id),
+           selected.kind.usesColor {
+            document.setColor(id, color, coalescing: coalescing)
+        }
+        syncColorUI()
+    }
+
+    private func syncColorUI() {
+        let color = activeColor
+        colorButton?.color = color
+        palettePanel?.selectedColor = color
+        if NSColorPanel.sharedColorPanelExists, Self.colorPanelOwner === self {
+            let panel = NSColorPanel.shared
+            if panel.isVisible, !isDraggingColorPanel {
+                isSyncingColorPanel = true
+                panel.color = color.nsColor
+                isSyncingColorPanel = false
+            }
+        }
+    }
+
+    @objc func toggleColorPalette() {
+        if palettePanel != nil {
+            closeColorPalette()
+        } else {
+            openColorPalette()
+        }
+    }
+
+    func openColorPalette() {
+        guard palettePanel == nil else { return }
+        window.contentView?.layoutSubtreeIfNeeded()
+        let panel = ColorPalettePanel(
+            selectedColor: activeColor,
+            onSelectColor: { [weak self] color in
+                self?.applyColor(color)
+                self?.closeColorPalette()
+                if let self { self.window.makeFirstResponder(self.canvas.activeResponder) }
+            },
+            onSelectCustom: { [weak self] in
+                self?.openSystemColorPanel()
+            }
+        )
+        let buttonInWindow = colorButton.convert(colorButton.bounds, to: nil)
+        let buttonOnScreen = window.convertToScreen(buttonInWindow)
+        let size = panel.frame.size
+        var origin = CGPoint(
+            x: (buttonOnScreen.midX - size.width / 2).rounded(),
+            y: (buttonOnScreen.maxY + Self.captionGap).rounded()
+        )
+        if let visible = (window.screen ?? NSScreen.main)?.visibleFrame.insetBy(dx: 8, dy: 8) {
+            origin.x = min(max(origin.x, visible.minX), visible.maxX - size.width)
+            origin.y = min(max(origin.y, visible.minY), visible.maxY - size.height)
+        }
+        panel.setFrameOrigin(origin)
+        palettePanel = panel
+        colorButton.isOpen = true
+        updateCaption()
+
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if !reduceMotion { panel.alphaValue = 0 }
+        window.addChildWindow(panel, ordered: .above)
+        panel.orderFront(nil)
+        if !reduceMotion {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.15
+                context.timingFunction = Self.easeOut
+                panel.animator().alphaValue = 1
+            }
+        }
+
+        paletteEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
+        ) { [weak self] event in
+            guard let self, let panel = self.palettePanel else { return event }
+            if event.type == .keyDown {
+                if event.keyCode == 53 {
+                    self.closeColorPalette()
+                    return nil
+                }
+                return event
+            }
+            if event.window === panel { return event }
+            if event.window === self.window {
+                let point = self.colorButton.convert(event.locationInWindow, from: nil)
+                if self.colorButton.bounds.contains(point) { return event }
+            }
+            self.closeColorPalette()
+            return event
+        }
+    }
+
+    func closeColorPalette() {
+        if let monitor = paletteEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            paletteEventMonitor = nil
+        }
+        guard let panel = palettePanel else { return }
+        palettePanel = nil
+        colorButton.isOpen = false
+        window.removeChildWindow(panel)
+        panel.orderOut(nil)
+        updateCaption()
+    }
+
+    func openSystemColorPanel() {
+        closeColorPalette()
+        let panel = NSColorPanel.shared
+        isSyncingColorPanel = true
+        panel.showsAlpha = false
+        panel.color = activeColor.nsColor
+        isSyncingColorPanel = false
+        Self.colorPanelOwner = self
+        panel.setTarget(self)
+        panel.setAction(#selector(colorPanelChanged(_:)))
+        panel.orderFront(nil)
+    }
+
+    @objc private func colorPanelChanged(_ sender: NSColorPanel) {
+        guard !isSyncingColorPanel else { return }
+        let eventType = NSApp.currentEvent?.type
+        let coalescing = eventType == .leftMouseDragged && isDraggingColorPanel
+        isDraggingColorPanel = eventType == .leftMouseDragged || eventType == .leftMouseDown
+        applyColor(AnnotationColor(nsColor: sender.color), coalescing: coalescing)
     }
 
     // MARK: State
@@ -435,14 +618,17 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     }
 
     @objc private func undo() {
+        closeColorPalette()
         document.undoManager.undo()
     }
 
     @objc private func redo() {
+        closeColorPalette()
         document.undoManager.redo()
     }
 
     @objc private func saveAndClose() {
+        closeColorPalette()
         window.makeFirstResponder(canvas)
         do {
             guard let image = document.flattened() else {
@@ -459,11 +645,27 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         }
     }
 
+    public func windowDidResignKey(_ notification: Notification) {
+        closeColorPalette()
+    }
+
+    public func windowDidResize(_ notification: Notification) {
+        closeColorPalette()
+    }
+
     public func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? {
         document.undoManager
     }
 
     public func windowWillClose(_ notification: Notification) {
+        closeColorPalette()
+        if NSColorPanel.sharedColorPanelExists, Self.colorPanelOwner === self {
+            Self.colorPanelOwner = nil
+            let panel = NSColorPanel.shared
+            panel.setTarget(nil)
+            panel.setAction(nil)
+            panel.close()
+        }
         document.onChange = nil
         if NSApp.isActive, let previousApp, previousApp != NSRunningApplication.current {
             NSApp.yieldActivation(to: previousApp)

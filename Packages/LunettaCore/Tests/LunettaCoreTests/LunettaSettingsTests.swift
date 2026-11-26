@@ -126,6 +126,7 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(changeIsSeen(\.recordingInput, becomes: AudioInput(id: "usb-1", name: "Desk Mic")))
     #expect(changeIsSeen(\.showPressedKeys, becomes: true))
     #expect(changeIsSeen(\.showMouseClicks, becomes: true))
+    #expect(changeIsSeen(\.annotationColor, becomes: "#30D158"))
 }
 
 @MainActor @Test func countdownAndSoundsDefaultOnAndAreRemembered() {
@@ -220,4 +221,14 @@ private final class ChangeFlag: @unchecked Sendable {
     let store = MemoryStore()
     store.set("usb-1", forKey: "recordingInputID")
     #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).recordingInput == AudioInput(id: "usb-1", name: "usb-1"))
+}
+
+@MainActor @Test func annotationColorDefaultsRoundTripsAndRejectsInvalidHex() {
+    let store = MemoryStore()
+    let settings = LunettaSettings(store: store, defaultSaveFolder: desktop)
+    #expect(settings.annotationColor == "#FF3B30")
+    settings.annotationColor = "#30d158"
+    #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).annotationColor == "#30D158")
+    store.set("invalid", forKey: "annotationColor")
+    #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).annotationColor == "#FF3B30")
 }

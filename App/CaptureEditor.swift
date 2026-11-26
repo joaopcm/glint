@@ -1,5 +1,6 @@
 import AppKit
 import LunettaCapture
+import LunettaCore
 import LunettaEditor
 import ImageIO
 
@@ -19,6 +20,7 @@ enum CaptureEditor {
         _ document: AnnotationDocument,
         savingTo url: URL,
         on screen: NSScreen,
+        settings: LunettaSettings,
         onSaved: @escaping (CGImage) -> Void,
         onClose: @escaping () -> Void
     ) -> AnnotationEditor {
@@ -26,6 +28,8 @@ enum CaptureEditor {
             document: document,
             title: url.lastPathComponent,
             pixelsPerPoint: screen.backingScaleFactor,
+            initialColor: AnnotationColor(hex: settings.annotationColor) ?? .red,
+            onColorChange: { color in settings.annotationColor = color.hexString },
             save: { image in
                 try PNGWriter.write(image, to: url)
                 onSaved(image)
