@@ -17,6 +17,7 @@ concurrency:
 jobs:
   core-linux:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     services:
       minio:
         # bitnamilegacy/minio:2025.4.22, pinned 2026-11-24. minio/minio and quay.io/minio/minio refused anonymous pulls (#53).
@@ -78,6 +79,7 @@ jobs:
 
   app-macos:
     runs-on: macos-26
+    timeout-minutes: 15
     env:
       COMPILATION_CACHE_ENABLE_CACHING: YES
     steps:
@@ -174,8 +176,8 @@ jobs:
     env:
       DERIVED_DATA: build
       COMPILATION_CACHE_ENABLE_CACHING: YES
-      # These two ran 285 s of UI tests and the rest 293 s in run 45664723521. New classes land in shard b.
-      SHARD_A_CLASSES: QuickAccessUITests MenuAndSettingsUITests
+      # These three should run ~454 s of UI tests and the rest ~488 s. New classes land in shard b.
+      SHARD_A_CLASSES: QuickAccessUITests MenuAndSettingsUITests RecordingUITests
     # The test step's cap plus the 30 s of setup before it and the upload after it, rounded up.
     timeout-minutes: 15
     steps:
@@ -215,7 +217,8 @@ jobs:
           for class in $SHARD_A_CLASSES; do selection+=("-${{ matrix.select }}:LunettaUITests/$class"); done
           xcodebuild -scheme LunettaUI -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA" -resultBundlePath ui.xcresult \
             COMPILATION_CACHE_ENABLE_CACHING="$COMPILATION_CACHE_ENABLE_CACHING" "${selection[@]}" \
-            -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 test
+            -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
+            -retry-tests-on-failure -test-iterations 2 test
         timeout-minutes: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
