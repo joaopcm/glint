@@ -28,6 +28,10 @@ final class RecordingStageUITests: LunettaUITestCase {
         let titleWidth = ("Record" as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]).width
         XCTAssertGreaterThanOrEqual(record.frame.width, titleWidth + 13 + 2 * 10,
                                     "Record is \(record.frame.width) pt wide, too narrow for its title, its 13 pt symbol and 10 pt of padding a side")
+        let margins = try XCTUnwrap(contentMargins(of: record), "Record's screenshot shows nothing drawn on it")
+        let tolerance = Int(2 * pointerScreen.backingScaleFactor)
+        XCTAssertLessThanOrEqual(abs(margins.leading - margins.trailing), tolerance,
+                                 "Record's dot and title sit \(margins.leading) px from its left edge and \(margins.trailing) px from its right")
 
         let systemAudio = stageControl(AccessibilityID.recordingStageSystemAudio)
         center(of: systemAudio).hover()
@@ -81,6 +85,27 @@ final class RecordingStageUITests: LunettaUITestCase {
         XCTAssertFalse(stopRecordingButton.waitForExistence(timeout: Self.noFileWait), "Cancel started a recording")
         let files = try FileManager.default.contentsOfDirectory(at: saveFolder, includingPropertiesForKeys: nil)
         XCTAssertTrue(files.isEmpty, "the stage left \(files.map(\.lastPathComponent)) in \(saveFolder.path) without recording")
+    }
+
+    /// Pixels between each edge of `element` and the nearest column that differs from the background at its edges:
+    /// where its icon and title start and stop.
+    @MainActor private func contentMargins(of element: XCUIElement) -> (leading: Int, trailing: Int)? {
+        guard let image = element.screenshot().image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let width = image.width
+        let height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let middle = height / 2
+        let background = (0..<3).map { (Int(pixels[(middle * width) * 4 + $0]) + Int(pixels[(middle * width + width - 1) * 4 + $0])) / 2 }
+        // A guess, not a measurement: text and symbols stand far apart from the glass behind them, its own shading doesn't.
+        let drawn = (0..<width).filter { x in
+            (0..<height).contains { y in (0..<3).contains { abs(Int(pixels[(y * width + x) * 4 + $0]) - background[$0]) > 80 } }
+        }
+        guard let first = drawn.first, let last = drawn.last else { return nil }
+        return (first, width - 1 - last)
     }
 
     @MainActor private var stage: XCUIElement {
