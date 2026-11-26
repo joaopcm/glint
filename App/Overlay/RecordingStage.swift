@@ -522,8 +522,18 @@ private final class RecordingStageView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        follow(pointer: event.screenLocation, keepingAspectRatio: event.modifierFlags.contains(.shift))
+    }
+
+    /// Pressing or letting go of ⇧ mid-drag reshapes the area right away, without waiting for the pointer to move.
+    override func flagsChanged(with event: NSEvent) {
+        follow(pointer: NSEvent.mouseLocation, keepingAspectRatio: event.modifierFlags.contains(.shift))
+        super.flagsChanged(with: event)
+    }
+
+    private func follow(pointer: CGPoint, keepingAspectRatio: Bool) {
         guard let drag else { return }
-        area = StageGeometry.rect(for: drag, pointer: event.screenLocation, bounds: screenFrame)
+        area = StageGeometry.rect(for: drag, pointer: pointer, bounds: screenFrame, keepingAspectRatio: keepingAspectRatio)
     }
 
     override func mouseUp(with event: NSEvent) {

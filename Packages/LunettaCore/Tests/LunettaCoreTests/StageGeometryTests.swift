@@ -30,6 +30,36 @@ private let area = CGRect(x: 100, y: 200, width: 400, height: 300)
     #expect(flipped == CGRect(x: 50, y: 200, width: 50, height: 300))
 }
 
+@Test func shiftOnACornerScalesByTheAxisPulledFurthest() {
+    let scaled = StageGeometry.rect(for: .resize(.bottomRight, from: area), pointer: CGPoint(x: 580, y: 170), bounds: screen, keepingAspectRatio: true)
+    #expect(scaled == CGRect(x: 100, y: 140, width: 480, height: 360), "x pulled 1.2×, y only 1.1×, so both scale 1.2×")
+}
+
+@Test func shiftOnAnEdgeScalesAroundTheOtherAxisCenter() {
+    let scaled = StageGeometry.rect(for: .resize(.right, from: area), pointer: CGPoint(x: 600, y: 0), bounds: screen, keepingAspectRatio: true)
+    #expect(scaled == CGRect(x: 100, y: 162.5, width: 500, height: 375))
+}
+
+@Test func shiftStillFlipsPastTheOppositeCorner() {
+    let flipped = StageGeometry.rect(for: .resize(.bottomRight, from: area), pointer: CGPoint(x: 60, y: 560), bounds: screen, keepingAspectRatio: true)
+    #expect(flipped == CGRect(x: 20, y: 500, width: 80, height: 60))
+}
+
+@Test func shiftStopsScalingAtTheScreenEdge() {
+    let corner = StageGeometry.rect(for: .resize(.topLeft, from: area), pointer: CGPoint(x: -30, y: 2000), bounds: screen, keepingAspectRatio: true)
+    #expect(corner == CGRect(x: 0, y: 200, width: 500, height: 375), "the left edge runs out of room first")
+    let edge = StageGeometry.rect(for: .resize(.bottom, from: area), pointer: CGPoint(x: 300, y: -1000), bounds: screen, keepingAspectRatio: true)
+    #expect(edge == CGRect(x: 0, y: 50, width: 600, height: 450), "the centered width runs out of room on the left")
+}
+
+@Test func shiftDoesNothingToAMoveOrADraw() {
+    let grab = CGPoint(x: 300, y: 350)
+    #expect(StageGeometry.rect(for: .move(from: area, grab: grab), pointer: CGPoint(x: 320, y: 340), bounds: screen, keepingAspectRatio: true)
+        == CGRect(x: 120, y: 190, width: 400, height: 300))
+    #expect(StageGeometry.rect(for: .draw(from: CGPoint(x: 10, y: 10)), pointer: CGPoint(x: 110, y: 30), bounds: screen, keepingAspectRatio: true)
+        == CGRect(x: 10, y: 10, width: 100, height: 20))
+}
+
 @Test func movingFollowsTheGrabAndStaysOnScreen() {
     let grab = CGPoint(x: 300, y: 350)
     #expect(StageGeometry.rect(for: .move(from: area, grab: grab), pointer: CGPoint(x: 320, y: 340), bounds: screen)
