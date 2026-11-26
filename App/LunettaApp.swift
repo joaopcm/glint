@@ -47,6 +47,7 @@ final class AppState {
     private lazy var recordingHUD = RecordingHUD(settings: settings)
     private let microphone = SystemMicrophoneAccess()
     private let keystrokes = KeystrokeOverlay()
+    private let clickRings = ClickRingOverlay()
     private lazy var recordingStage = RecordingStage(
         model: RecordingStageModel(
             settings: settings,
@@ -91,6 +92,7 @@ final class AppState {
             recorder: capturer,
             microphone: microphone,
             keystrokes: keystrokes,
+            clickRings: clickRings,
             stager: recordingStage,
             selector: SelectionOverlayController(
                 showsMagnifier: { [settings] in settings.showMagnifierWhileSelecting },

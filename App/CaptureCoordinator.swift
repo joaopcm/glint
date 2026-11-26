@@ -62,6 +62,21 @@ protocol KeystrokeShowing {
     func openSettings()
 }
 
+/// The rings drawn under the pointer on each click in a recorded area.
+@MainActor
+protocol ClickShowing {
+    /// Returns the overlay's window ID, which the recording keeps while it leaves out Lunetta's other windows.
+    func show(over region: CGRect) -> UInt32
+    func hide()
+}
+
+/// What Lunetta draws over a recorded area; each rides along in the video as a kept window.
+private struct RecordingOverlays {
+    var keys = false
+    var clicks = false
+    var isEmpty: Bool { !keys && !clicks }
+}
+
 @MainActor
 protocol RecordingStaging {
     /// Shows `region` to move, resize and record with the panel's choices; nil when the user drops it.
@@ -149,6 +164,7 @@ private final class RecordingSession {
 
     let target: RecordingTarget
     let options: RecordingOptions
+    let overlays: RecordingOverlays
     /// The input chosen in the panel; nil when the microphone is off or follows the system default.
     let input: AudioInput?
     let url: URL
@@ -161,9 +177,10 @@ private final class RecordingSession {
     private var partCount = 0
     private var queue: Task<Void, Never>?
 
-    init(target: RecordingTarget, options: RecordingOptions, input: AudioInput?, url: URL, status: RecordingStatus) {
+    init(target: RecordingTarget, options: RecordingOptions, overlays: RecordingOverlays, input: AudioInput?, url: URL, status: RecordingStatus) {
         self.target = target
         self.options = options
+        self.overlays = overlays
         self.input = input
         self.url = url
         self.status = status
@@ -192,6 +209,7 @@ final class CaptureCoordinator {
     private let recorder: any Recording
     private let microphone: any MicrophoneAccess
     private let keystrokes: any KeystrokeShowing
+    private let clickRings: any ClickShowing
     private let stager: any RecordingStaging
     private let selector: any Selecting
     private let alerts: any AlertPresenting
@@ -217,6 +235,7 @@ final class CaptureCoordinator {
         recorder: any Recording,
         microphone: any MicrophoneAccess,
         keystrokes: any KeystrokeShowing,
+        clickRings: any ClickShowing,
         stager: any RecordingStaging,
         selector: any Selecting,
         alerts: any AlertPresenting,
@@ -236,6 +255,7 @@ final class CaptureCoordinator {
         self.recorder = recorder
         self.microphone = microphone
         self.keystrokes = keystrokes
+        self.clickRings = clickRings
         self.stager = stager
         self.selector = selector
         self.alerts = alerts
@@ -302,8 +322,8 @@ final class CaptureCoordinator {
         isRunning = true
         defer { isRunning = false }
         var selected = false
-        var showsKeys = false
-        defer { if showsKeys, session == nil { keystrokes.hide() } }
+        var overlays = RecordingOverlays()
+        defer { if session == nil { hide(overlays) } }
         do {
             guard await capturer.hasPermission() else { throw CaptureError.permissionDenied }
             if !staged, let problem = recordingProblems(for: mode).first { throw problem }
@@ -316,18 +336,19 @@ final class CaptureCoordinator {
             let choices = settings.recordingChoices
             selected = true
             let input = choices.microphone ? choices.input : nil
+            // A window recording holds that window alone, so Lunetta's rings can't reach it and macOS's circles stand in.
+            let drawsClicks = choices.showsClicks && mode == .area
             var options = RecordingOptions(
                 codec: settings.recordingCodec,
                 systemAudio: choices.systemAudio,
                 microphone: choices.microphone,
                 microphoneID: input?.id,
-                showsClicks: choices.showsClicks
+                showsClicks: choices.showsClicks && !drawsClicks
             )
-            if choices.showsKeys {
-                showsKeys = true
-                options.keptWindowIDs = [try keystrokes.show(over: region)]
-            }
-            try await record(target, status: RecordingStatus(region: region, dimsOutside: mode == .area), options: options, input: input)
+            overlays = RecordingOverlays(keys: choices.showsKeys, clicks: drawsClicks)
+            options.keptWindowIDs = try show(overlays, over: region)
+            let status = RecordingStatus(region: region, dimsOutside: mode == .area)
+            try await record(target, status: status, options: options, overlays: overlays, input: input)
         } catch {
             if selected { onRecordingEvent(.ended(.failed)) }
             present(error, failure: "Lunetta couldn't start the recording")
@@ -339,27 +360,45 @@ final class CaptureCoordinator {
         isRunning = true
         defer { isRunning = false }
         await discardRecording()
-        let showsKeys = !session.options.keptWindowIDs.isEmpty
-        defer { if showsKeys, self.session == nil { keystrokes.hide() } }
+        let overlays = session.overlays
+        defer { if self.session == nil { hide(overlays) } }
         do {
             var options = session.options
-            // Discarding took the pressed keys down with the old recording; the new one gets them back.
-            if showsKeys { options.keptWindowIDs = [try keystrokes.show(over: session.status.region)] }
+            // Discarding took the overlays down with the old recording; the new one gets them back.
+            options.keptWindowIDs = try show(overlays, over: session.status.region)
             let status = RecordingStatus(region: session.status.region, dimsOutside: session.status.dimsOutside)
-            try await record(session.target, status: status, options: options, input: session.input)
+            try await record(session.target, status: status, options: options, overlays: overlays, input: session.input)
         } catch {
             onRecordingEvent(.ended(.failed))
             present(error, failure: "Lunetta couldn't start the recording over")
         }
     }
 
-    private func record(_ target: RecordingTarget, status: RecordingStatus, options: RecordingOptions, input: AudioInput?) async throws {
+    private func show(_ overlays: RecordingOverlays, over region: CGRect) throws -> [UInt32] {
+        var kept: [UInt32] = []
+        if overlays.keys { kept.append(try keystrokes.show(over: region)) }
+        if overlays.clicks { kept.append(clickRings.show(over: region)) }
+        return kept
+    }
+
+    private func hide(_ overlays: RecordingOverlays) {
+        if overlays.keys { keystrokes.hide() }
+        if overlays.clicks { clickRings.hide() }
+    }
+
+    private func record(
+        _ target: RecordingTarget,
+        status: RecordingStatus,
+        options: RecordingOptions,
+        overlays: RecordingOverlays,
+        input: AudioInput?
+    ) async throws {
         guard await countDownIfOn(status) else { return }
         let url = nextFileURL(ext: "mp4")
         let active = try await recorder.startRecording(target, to: url, options: options)
         var status = status
         status.clock.start(at: now())
-        let session = RecordingSession(target: target, options: options, input: input, url: url, status: status)
+        let session = RecordingSession(target: target, options: options, overlays: overlays, input: input, url: url, status: status)
         self.session = session
         attach(active, writingTo: url, in: session)
         onRecordingEvent(.started(status))
@@ -485,7 +524,7 @@ final class CaptureCoordinator {
     /// The controls go away on the click; joining the parts and handing over the file follow.
     private func beginEnding(_ session: RecordingSession, as end: RecordingEnd) {
         session.isEnding = true
-        if !session.options.keptWindowIDs.isEmpty { keystrokes.hide() }
+        hide(session.overlays)
         onRecordingEvent(.ended(end))
     }
 

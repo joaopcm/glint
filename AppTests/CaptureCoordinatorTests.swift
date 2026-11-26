@@ -213,6 +213,20 @@ private final class FakeKeystrokes: KeystrokeShowing {
 }
 
 @MainActor
+private final class FakeClickRings: ClickShowing {
+    static let windowID: UInt32 = 778
+    private(set) var shownOver: [CGRect] = []
+    private(set) var hideCount = 0
+
+    func show(over region: CGRect) -> UInt32 {
+        shownOver.append(region)
+        return Self.windowID
+    }
+
+    func hide() { hideCount += 1 }
+}
+
+@MainActor
 private final class FakeStager: RecordingStaging {
     var answer: (CGRect) -> CGRect? = { $0 }
     var whileStaged: (@MainActor () -> Void)?
@@ -279,6 +293,7 @@ private struct Harness {
     let settings: LunettaSettings
     let microphone: FakeMicrophone
     let keystrokes: FakeKeystrokes
+    let clickRings = FakeClickRings()
     let stager = FakeStager()
     let countdown = FakeCountdown()
     let coordinator: CaptureCoordinator
@@ -340,6 +355,7 @@ private struct Harness {
             recorder: recorder,
             microphone: microphone,
             keystrokes: keystrokes,
+            clickRings: clickRings,
             stager: stager,
             selector: selector,
             alerts: alerts,
@@ -1313,21 +1329,55 @@ func recordingAsksForExactlyTheAudioStreamsThatAreOn(systemAudio: Bool, micropho
 
 private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
 
-@MainActor @Test func theChosenInputAndClickHighlightsReachTheRecorder() async throws {
+@MainActor @Test func theChosenInputReachesTheRecorder() async throws {
     let recorder = FakeRecorder()
     let harness = try Harness(
         recorder: recorder,
         microphone: FakeMicrophone(inputs: [deskMic]),
         selection: .area(recordedArea),
         recordMicrophone: true,
-        input: deskMic,
-        showsClicks: true
+        input: deskMic
     )
     await harness.coordinator.toggleRecording(.area)
     let options = try #require(await recorder.starts.first?.options)
-    #expect(options == RecordingOptions(codec: .h264, systemAudio: false, microphone: true, microphoneID: "usb-1", showsClicks: true))
+    #expect(options == RecordingOptions(codec: .h264, systemAudio: false, microphone: true, microphoneID: "usb-1"))
     await harness.coordinator.stopRecording()
     #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func clickRingsShowOverTheAreaStayInTheRecordingAndGoWhenItEnds() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), showsClicks: true)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.clickRings.shownOver == [recordedArea])
+    let options = try #require(await recorder.starts.first?.options)
+    #expect(options.keptWindowIDs == [FakeClickRings.windowID])
+    #expect(!options.showsClicks, "macOS's circles drew nothing in area recordings, and would double up with the rings if they ever did")
+    await harness.coordinator.togglePause()
+    await harness.coordinator.togglePause()
+    #expect(await recorder.starts.map { $0.options.keptWindowIDs } == [[FakeClickRings.windowID], [FakeClickRings.windowID]])
+    #expect(harness.clickRings.hideCount == 0)
+    await harness.coordinator.stopRecording()
+    #expect(harness.clickRings.hideCount == 1)
+}
+
+@MainActor @Test func aWindowRecordingLeavesClicksToMacOS() async throws {
+    let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
+    let recorder = FakeRecorder()
+    let harness = try Harness(capturer: FakeCapturer(windows: [window]), recorder: recorder, selection: .window(42), showsClicks: true)
+    await harness.coordinator.toggleRecording(.window)
+    #expect(harness.clickRings.shownOver.isEmpty)
+    let options = try #require(await recorder.starts.first?.options)
+    #expect(options.showsClicks)
+    #expect(options.keptWindowIDs == [])
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func aRecordingThatCantStartTakesTheClickRingsDown() async throws {
+    let failure = CaptureError.overlayUnavailable(FakeClickRings.windowID)
+    let harness = try Harness(recorder: FakeRecorder(startFailure: failure), selection: .area(recordedArea), showsClicks: true)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.clickRings.hideCount == 1)
 }
 
 @MainActor @Test func aChosenInputIsIgnoredWhileTheMicrophoneIsOff() async throws {
@@ -1535,7 +1585,7 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     #expect(harness.alerts.presented.isEmpty && followsDefault.alerts.presented.isEmpty)
 }
 
-@MainActor @Test func startOverBringsThePressedKeysBackAndKeepsTheChosenInput() async throws {
+@MainActor @Test func startOverBringsTheOverlaysBackAndKeepsTheChosenInput() async throws {
     let recorder = FakeRecorder()
     var events: [RecordingEvent] = []
     let harness = try Harness(
@@ -1545,15 +1595,18 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
         recordMicrophone: true,
         input: deskMic,
         showsKeys: true,
+        showsClicks: true,
         onRecordingEvent: { events.append($0) }
     )
     await harness.coordinator.toggleRecording(.area)
     await harness.coordinator.startOverRecording()
     #expect(harness.keystrokes.shownOver == [recordedArea, recordedArea])
     #expect(harness.keystrokes.hideCount == 1, "the discarded recording should take its keys down once, and the new one keep them up")
+    #expect(harness.clickRings.shownOver == [recordedArea, recordedArea])
+    #expect(harness.clickRings.hideCount == 1)
     let options = await recorder.starts.map { $0.options }
     #expect(options.count == 2)
-    #expect(options.last?.keptWindowIDs == [FakeKeystrokes.windowID])
+    #expect(options.last?.keptWindowIDs == [FakeKeystrokes.windowID, FakeClickRings.windowID])
     #expect(options.last?.microphoneID == deskMic.id)
     await harness.coordinator.inputDisconnected(id: deskMic.id)
     #expect(events.last == .ended(.saved))
