@@ -82,10 +82,10 @@ final class MenuShortcutsUITests: LunettaUITestCase {
         guard let key = attribute(kAXMenuItemCmdCharAttribute, of: item) as? String, !key.isEmpty else { return nil }
         let modifiers = (attribute(kAXMenuItemCmdModifiersAttribute, of: item) as? Int) ?? 0
         var symbols = ""
-        if modifiers & Int(kAXMenuItemModifierControl) != 0 { symbols += "⌃" }
-        if modifiers & Int(kAXMenuItemModifierOption) != 0 { symbols += "⌥" }
-        if modifiers & Int(kAXMenuItemModifierShift) != 0 { symbols += "⇧" }
-        if modifiers & Int(kAXMenuItemModifierNoCommand) == 0 { symbols += "⌘" }
+        if modifiers & MenuItemModifier.control != 0 { symbols += "⌃" }
+        if modifiers & MenuItemModifier.option != 0 { symbols += "⌥" }
+        if modifiers & MenuItemModifier.shift != 0 { symbols += "⇧" }
+        if modifiers & MenuItemModifier.noCommand == 0 { symbols += "⌘" }
         return symbols + key.uppercased()
     }
 
@@ -107,4 +107,12 @@ final class MenuShortcutsUITests: LunettaUITestCase {
         var value: CFTypeRef?
         return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
     }
+}
+
+/// The `kAXMenuItemModifier*` bits from HIServices' AXAttributeConstants.h, which Swift doesn't import.
+private enum MenuItemModifier {
+    static let shift = 1 << 0
+    static let option = 1 << 1
+    static let control = 1 << 2
+    static let noCommand = 1 << 3
 }
