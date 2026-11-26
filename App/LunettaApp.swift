@@ -91,8 +91,8 @@ final class AppState {
             alerts: NSAlertPresenter(),
             settings: settings,
             playShutterSound: { [shutterSound] in shutterSound.play() },
-            onSaved: { [weak self] url, precomputedThumbnail in
-                self?.thumbnail.show(url, precomputedThumbnail: precomputedThumbnail)
+            onSaved: { [weak self] url, precomputedThumbnail, compression in
+                self?.thumbnail.show(url, precomputedThumbnail: precomputedThumbnail, compression: compression)
             },
             onRecordingEvent: { [weak self] event in self?.recordingHUD.handle(event) },
             countDown: { [weak self] status in await self?.recordingHUD.countDown(status) ?? true }

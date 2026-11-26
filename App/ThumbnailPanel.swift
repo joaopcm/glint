@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import LunettaCapture
 import LunettaCore
 import LunettaEditor
 import LunettaUI
@@ -100,20 +101,20 @@ final class ThumbnailPresenter {
         show(url, precomputedThumbnail: nil)
     }
 
-    func show(_ url: URL, precomputedThumbnail: CGImage?) {
+    func show(_ url: URL, precomputedThumbnail: CGImage?, compression: PendingCompression? = nil) {
         let screen = NSScreen.screens.first { $0.frame.contains(pointerLocation()) } ?? NSScreen.main
         guard let screen else { return }
         if let precomputedThumbnail {
             let scaled = ThumbnailDownsampler.downsample(precomputedThumbnail, maxPixelSize: ThumbnailItem.maxPixelSize(on: screen))
-            return show(url, thumbnail: scaled, on: screen)
+            return show(url, thumbnail: scaled, on: screen, compression: compression)
         }
         guard ThumbnailItem.isVideo(url) else {
             guard let thumbnail = ThumbnailItem.thumbnail(of: url, on: screen) else { return }
-            return show(url, thumbnail: thumbnail, on: screen)
+            return show(url, thumbnail: thumbnail, on: screen, compression: compression)
         }
         Task {
             do {
-                show(url, thumbnail: try await ThumbnailItem.videoThumbnail(of: url, on: screen), on: screen)
+                show(url, thumbnail: try await ThumbnailItem.videoThumbnail(of: url, on: screen), on: screen, compression: compression)
             } catch {
                 Logger(subsystem: "com.joaopcm.lunetta", category: "thumbnail")
                     .error("no thumbnail for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -121,7 +122,7 @@ final class ThumbnailPresenter {
         }
     }
 
-    private func show(_ url: URL, thumbnail: CGImage, on screen: NSScreen) {
+    private func show(_ url: URL, thumbnail: CGImage, on screen: NSScreen, compression: PendingCompression?) {
         let item = ThumbnailItem(url: url, screen: screen, thumbnail: thumbnail)
         item.view.onAction = { [weak self, weak item] action in
             guard let self, let item else { return }
@@ -139,8 +140,34 @@ final class ThumbnailPresenter {
         expansion.collapse(on: screen)
         cancelAutoDismiss() // still stacking: restart the countdown (layout() schedules it again)
         layout()
-        if settings.uploadAfterCapture {
+        if let compression {
+            finish(compression, for: item)
+        } else if settings.uploadAfterCapture {
             upload(item, closingCard: false)
+        }
+    }
+
+    /// The card says it's compressing until the file is final. Actions that read the file wait for it, and so does
+    /// upload after capture.
+    private func finish(_ compression: PendingCompression, for item: ThumbnailItem) {
+        item.isCompressing = true
+        refreshHover()
+        Task {
+            let outcome = await compression.result
+            item.isCompressing = false
+            switch outcome {
+            case .success(let result):
+                item.view.showCompressed(result)
+            case .failure(let error):
+                showError("Lunetta couldn't compress the capture", error)
+            }
+            if settings.uploadAfterCapture { upload(item, closingCard: false) }
+            let waiting = item.actionsAfterCompression
+            item.actionsAfterCompression = []
+            if items.contains(where: { $0 === item }) {
+                waiting.forEach { handle($0, for: item) }
+            }
+            refreshHover()
         }
     }
 
@@ -222,8 +249,8 @@ final class ThumbnailPresenter {
         for item in items { item.view.isHovered = item === hovered }
         scheduleFolding(pointerOver: hovered?.screen)
 
-        // Hovering any thumbnail, dragging one out, a modal panel (Save As), an open editor or a running upload pauses auto-hide for the whole overlay.
-        if hovered != nil || isDraggingOut || isRunningModal || !editors.isEmpty || items.contains(where: \.isUploading) {
+        // Hovering any thumbnail, dragging one out, a modal panel (Save As), an open editor, a running compression or upload pauses auto-hide for the whole overlay.
+        if hovered != nil || isDraggingOut || isRunningModal || !editors.isEmpty || items.contains(where: { $0.isCompressing || $0.isUploading }) {
             cancelAutoDismiss()
             return
         }
@@ -312,6 +339,10 @@ final class ThumbnailPresenter {
     }
 
     private func handle(_ action: ThumbnailView.Action, for item: ThumbnailItem) {
+        if item.isCompressing, action.readsTheFile {
+            item.actionsAfterCompression.append(action)
+            return
+        }
         switch action {
         case .copy:
             do {
@@ -519,6 +550,11 @@ private final class ThumbnailItem {
     var isUploading = false {
         didSet { view.isUploading = isUploading }
     }
+    var isCompressing = false {
+        didSet { view.isCompressing = isCompressing }
+    }
+    /// Pressed while the file was being compressed; they run on the final file.
+    var actionsAfterCompression: [ThumbnailView.Action] = []
 
     static func isVideo(_ url: URL) -> Bool {
         UTType(filenameExtension: url.pathExtension)?.conforms(to: .movie) == true
@@ -579,7 +615,26 @@ private final class ThumbnailItem {
 }
 
 final class ThumbnailView: NSView, NSDraggingSource {
-    enum Action: Int { case copy, upload, saveAs, annotate, pin, close, expand, open, dropped }
+    enum Action: Int {
+        case copy, upload, saveAs, annotate, pin, close, expand, open, dropped
+
+        var readsTheFile: Bool {
+            switch self {
+            case .copy, .upload, .saveAs, .annotate, .pin, .open: true
+            case .close, .expand, .dropped: false
+            }
+        }
+    }
+
+    /// "62% smaller" once the file shrank; "Already small" when the compressed copy wasn't smaller and the original stays.
+    static func compressionSummary(_ result: CompressionResult?) -> String {
+        guard let result else { return "Already small" }
+        return "\(max(1, Int((result.savedFraction * 100).rounded())))% smaller"
+    }
+
+    // "62% smaller" is 2 words, 0.5 s at the 238 wpm adult silent reading rate (Brysbaert 2019, doi:10.1016/j.jml.2019.104047);
+    // the other second lets the eye come back to the card after the capture.
+    static let compressionSummaryVisibleFor: Duration = .seconds(1.5)
 
     static func clickAction(isStacked: Bool, isVideo: Bool) -> Action {
         if isStacked { return .expand }
@@ -609,6 +664,12 @@ final class ThumbnailView: NSView, NSDraggingSource {
     private lazy var actionLabelCapsule = Glass.capsule(holding: actionLabel)
     private var actionLabelCenter: NSLayoutConstraint?
     private lazy var uploadIndicator = Glass.capsule(holding: uploadSpinner, tint: .controlAccentColor)
+    private let compressionSpinner = NSProgressIndicator()
+    private let compressionDone = NSImageView()
+    private let compressionLabel = NSTextField(labelWithString: "Compressing")
+    private lazy var compressionContent = NSStackView(views: [compressionSpinner, compressionDone, compressionLabel])
+    private lazy var compressionStatus = Glass.capsule(holding: compressionContent)
+    private var compressionStatusHide: Task<Void, Never>?
     private var mouseDownPoint: CGPoint?
     private var mouseDownScreenPoint: CGPoint?
     private var isResizing = false
@@ -651,6 +712,70 @@ final class ThumbnailView: NSView, NSDraggingSource {
                 uploadSpinner.startAnimation(nil)
             } else {
                 uploadSpinner.stopAnimation(nil)
+            }
+        }
+    }
+
+    /// Shows the pill with its spinner right away: it arrives with the card, so it needs no entrance of its own.
+    var isCompressing = false {
+        didSet {
+            guard isCompressing != oldValue else { return }
+            if isCompressing {
+                compressionStatusHide?.cancel()
+                compressionSpinner.isHidden = false
+                compressionDone.isHidden = true
+                compressionLabel.stringValue = "Compressing"
+                compressionStatus.alphaValue = 1
+                compressionStatus.isHidden = false
+                compressionSpinner.startAnimation(nil)
+            } else {
+                compressionSpinner.stopAnimation(nil)
+                hideCompressionStatus(after: .zero)
+            }
+        }
+    }
+
+    /// The spinner crossfades into a checkmark and the result while the pill eases to its new width, then the pill fades.
+    func showCompressed(_ result: CompressionResult?) {
+        compressionStatus.isHidden = false
+        compressionStatus.alphaValue = 1
+        compressionContent.wantsLayer = true
+        let crossfade = CATransition()
+        crossfade.type = .fade
+        crossfade.duration = Self.compressionMorphDuration
+        crossfade.timingFunction = ThumbnailPresenter.easeOut
+        compressionContent.layer?.add(crossfade, forKey: "compressed")
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.compressionMorphDuration
+            context.timingFunction = ThumbnailPresenter.easeOut
+            context.allowsImplicitAnimation = true
+            compressionSpinner.isHidden = true
+            compressionDone.isHidden = false
+            compressionLabel.stringValue = Self.compressionSummary(result)
+            layoutSubtreeIfNeeded()
+        }
+        hideCompressionStatus(after: Self.compressionSummaryVisibleFor)
+    }
+
+    // emil-design-eng: a state change under 300 ms on the strong ease-out curve, and the exit faster than what came before it.
+    private static let compressionMorphDuration: TimeInterval = 0.2
+    private static let compressionExitDuration: TimeInterval = 0.15
+
+    /// Opacity only, so Reduce Motion needs no other path.
+    private func hideCompressionStatus(after delay: Duration) {
+        compressionStatusHide?.cancel()
+        compressionStatusHide = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Self.compressionExitDuration
+                context.timingFunction = ThumbnailPresenter.easeOut
+                self.compressionStatus.animator().alphaValue = 0
+            } completionHandler: {
+                MainActor.assumeIsolated {
+                    guard !self.isCompressing else { return }
+                    self.compressionStatus.isHidden = true
+                }
             }
         }
     }
@@ -744,6 +869,21 @@ final class ThumbnailView: NSView, NSDraggingSource {
         uploadIndicator.translatesAutoresizingMaskIntoConstraints = false
         addSubview(uploadIndicator)
 
+        compressionSpinner.style = .spinning
+        compressionSpinner.controlSize = .small
+        compressionSpinner.isIndeterminate = true
+        compressionDone.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 10, weight: .bold))
+        compressionDone.contentTintColor = .labelColor
+        compressionLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        compressionLabel.textColor = .labelColor
+        compressionLabel.setAccessibilityIdentifier(AccessibilityID.compressionStatus)
+        compressionContent.orientation = .horizontal
+        compressionContent.spacing = 5
+        compressionStatus.isHidden = true
+        compressionStatus.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(compressionStatus)
+
         NSLayoutConstraint.activate([
             frame.leadingAnchor.constraint(equalTo: leadingAnchor),
             frame.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -776,6 +916,13 @@ final class ThumbnailView: NSView, NSDraggingSource {
             uploadIndicator.centerYAnchor.constraint(equalTo: imageView.centerYAnchor),
             uploadIndicator.widthAnchor.constraint(equalTo: badge.heightAnchor),
             uploadIndicator.heightAnchor.constraint(equalTo: badge.heightAnchor),
+            // Top center: the close button and the pile's count take the top corners, the action bar the bottom.
+            compressionStatus.topAnchor.constraint(equalTo: imageView.topAnchor, constant: 8),
+            compressionStatus.centerXAnchor.constraint(equalTo: imageView.centerXAnchor),
+            compressionStatus.heightAnchor.constraint(equalTo: badge.heightAnchor),
+            compressionStatus.widthAnchor.constraint(equalTo: compressionContent.widthAnchor, constant: 16),
+            compressionSpinner.widthAnchor.constraint(equalToConstant: 16),
+            compressionSpinner.heightAnchor.constraint(equalToConstant: 16),
         ])
 
         // .inVisibleRect follows resizes, so one area for the view's lifetime is enough.

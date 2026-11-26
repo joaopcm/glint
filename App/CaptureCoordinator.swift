@@ -73,6 +73,15 @@ protocol ActiveRecording: Sendable {
     func finished() async throws
 }
 
+/// A capture being compressed in place; nil when it came out no smaller and the saved file stays.
+typealias PendingCompression = Task<CompressionResult?, any Error>
+
+private struct SavedScreenshot: Sendable {
+    let url: URL
+    let png: Data
+    let compression: PendingCompression?
+}
+
 struct FrozenDisplay: Sendable {
     let display: DisplayInfo
     let image: CGImage
@@ -192,12 +201,14 @@ final class CaptureCoordinator {
     private let pointerLocation: @MainActor () -> CGPoint
     private let copyToClipboard: @MainActor (URL, Data) throws -> Void
     private let writePNG: @Sendable (CGImage, URL) async throws -> Data
+    private let compress: @Sendable (URL) async throws -> CompressionResult?
     private let playShutterSound: @MainActor () -> Void
-    private let onSaved: @MainActor (URL, _ thumbnail: CGImage?) -> Void
+    private let onSaved: @MainActor (URL, _ thumbnail: CGImage?, PendingCompression?) -> Void
     private let onRecordingEvent: @MainActor (RecordingEvent) -> Void
     private let countDown: @MainActor (RecordingStatus) async -> Bool
     private var isRunning = false
-    private var delivery: Task<Void, Never>?
+    private var delivery: Task<SavedScreenshot?, Never>?
+    private var clipboardCopy: Task<Void, Never>?
     private var session: RecordingSession?
     private var countdown: Task<Bool, Never>?
 
@@ -215,8 +226,9 @@ final class CaptureCoordinator {
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
         copyToClipboard: @escaping @MainActor (URL, Data) throws -> Void = { url, data in try NSPasteboard.general.copyPNGData(data, fileURL: url) },
         writePNG: @escaping @Sendable (CGImage, URL) async throws -> Data = CaptureCoordinator.writePNG,
+        compress: @escaping @Sendable (URL) async throws -> CompressionResult? = CaptureCompressor.compress,
         playShutterSound: @escaping @MainActor () -> Void = {},
-        onSaved: @escaping @MainActor (URL, _ thumbnail: CGImage?) -> Void = { _, _ in },
+        onSaved: @escaping @MainActor (URL, _ thumbnail: CGImage?, PendingCompression?) -> Void = { _, _, _ in },
         onRecordingEvent: @escaping @MainActor (RecordingEvent) -> Void = { _ in },
         countDown: @escaping @MainActor (RecordingStatus) async -> Bool = { _ in true }
     ) {
@@ -233,26 +245,30 @@ final class CaptureCoordinator {
         self.pointerLocation = pointerLocation
         self.copyToClipboard = copyToClipboard
         self.writePNG = writePNG
+        self.compress = compress
         self.playShutterSound = playShutterSound
         self.onSaved = onSaved
         self.onRecordingEvent = onRecordingEvent
         self.countDown = countDown
     }
 
-    /// Only taking the image blocks the next capture (#99); deliveries queue so each one names its file after the ones before it are on disk.
+    /// Only taking the image blocks the next capture (#99); saves queue so each one names its file after the ones before it
+    /// are on disk. Copying waits for compression outside that queue, so a compressing capture never holds up the next card.
     func run(_ mode: CaptureMode) async {
         guard let image = await captureImage(mode) else { return }
         let previous = delivery
-        let delivering = Task {
-            await previous?.value
+        let saving = Task { () async -> SavedScreenshot? in
+            _ = await previous?.value
             do {
-                try await deliver(image)
+                return try await save(image)
             } catch {
                 present(error)
+                return nil
             }
         }
-        delivery = delivering
-        await delivering.value
+        delivery = saving
+        guard let saved = await saving.value else { return }
+        await copyIfOn(saved)
     }
 
     func captureImage(_ mode: CaptureMode) async -> CGImage? {
@@ -483,7 +499,7 @@ final class CaptureCoordinator {
         }
         if self.session === session { self.session = nil }
         let saved = fileExists(session.url)
-        if saved { onSaved(session.url, nil) }
+        if saved { onSaved(session.url, nil, compressIfOn(session.url)) }
         if let lost = session.lostInput { problem = CoordinatorError.inputDisconnected(lost, savedTo: saved ? session.url : nil) }
         guard let problem else { return }
         let stoppedEarly = if case .recordingStoppedEarly = problem as? CaptureError { true } else { session.lostInput != nil }
@@ -559,7 +575,7 @@ final class CaptureCoordinator {
         )
     }
 
-    private func deliver(_ image: CGImage) async throws {
+    private func save(_ image: CGImage) async throws -> SavedScreenshot {
         let url = nextFileURL(ext: "png")
         let maxScale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
         let maxThumbnailPixels = LunettaSettings.thumbnailWidthRange.upperBound * maxScale
@@ -569,14 +585,42 @@ final class CaptureCoordinator {
             let thumb = ThumbnailDownsampler.downsample(image, maxPixelSize: maxThumbnailPixels)
             return (data, thumb)
         }.value
-        onSaved(url, thumbnail)
-        // Upload after capture copies the link once the bucket answers; copying the image first would only be overwritten.
+        let compression = compressIfOn(url)
+        onSaved(url, thumbnail, compression)
+        return SavedScreenshot(url: url, png: pngData, compression: compression)
+    }
+
+    private func compressIfOn(_ url: URL) -> PendingCompression? {
+        guard settings.compressAfterCapture else { return nil }
+        let compress = compress
+        return Task.detached(priority: .userInitiated) { try await compress(url) }
+    }
+
+    /// Upload after capture copies the link once the bucket answers; copying the image first would only be overwritten.
+    /// Each copy also waits for the one before it, so the newest capture is the one left on the clipboard.
+    private func copyIfOn(_ saved: SavedScreenshot) async {
         guard settings.copyToClipboardAfterCapture, !settings.uploadAfterCapture else { return }
-        do {
-            try copyToClipboard(url, pngData)
-        } catch {
-            throw CoordinatorError.clipboardFailed(savedTo: url, reason: error.localizedDescription)
+        let previous = clipboardCopy
+        let copying = Task {
+            await previous?.value
+            do {
+                let data = try await bytesAfterCompression(saved)
+                try copyToClipboard(saved.url, data)
+            } catch {
+                present(CoordinatorError.clipboardFailed(savedTo: saved.url, reason: error.localizedDescription))
+            }
         }
+        clipboardCopy = copying
+        await copying.value
+    }
+
+    /// The saved bytes unless compression replaced the file. A compression that failed left the file as saved, and its
+    /// card reports the failure.
+    private func bytesAfterCompression(_ saved: SavedScreenshot) async throws -> Data {
+        guard let compression = saved.compression else { return saved.png }
+        let outcome = await compression.result
+        guard case .success(.some) = outcome else { return saved.png }
+        return try Data(contentsOf: saved.url)
     }
 
     nonisolated static func writePNG(_ image: CGImage, to url: URL) throws -> Data {

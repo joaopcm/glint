@@ -79,6 +79,10 @@ private struct GeneralSettingsView: View {
                     }
                 }
                 Toggle("Copy to clipboard after capture", isOn: $settings.copyToClipboardAfterCapture)
+                Toggle(isOn: $settings.compressAfterCapture) {
+                    Text("Compress after capture")
+                    Text("Shrinks screenshots and recordings before they're copied or uploaded. Screenshots keep up to 256 colors, so photos in them can band a little.")
+                }
             }
             Section("Quick Access") {
                 ThumbnailCornerPicker(corner: $settings.overlayCorner)

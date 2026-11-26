@@ -165,6 +165,13 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).uploadAfterCapture == true)
 }
 
+@MainActor @Test func compressAfterCaptureDefaultsOffAndRoundTrips() {
+    let store = MemoryStore()
+    #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).compressAfterCapture == false)
+    LunettaSettings(store: store, defaultSaveFolder: desktop).compressAfterCapture = true
+    #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).compressAfterCapture == true)
+}
+
 @MainActor @Test func pickerPromptExplainedDefaultsOffAndRoundTrips() {
     let store = MemoryStore()
     #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).pickerPromptExplained == false)

@@ -305,8 +305,12 @@ private struct Harness {
         now: @escaping () -> Date = { recordingStart },
         onShutter: @escaping @MainActor () -> Void = {},
         copyToClipboard: (@MainActor (URL) throws -> Void)? = nil,
+        copiedBytes: @escaping @MainActor (Data) -> Void = { _ in },
         writePNG: (@Sendable (CGImage, URL) async throws -> Data)? = nil,
+        compressOn: Bool = false,
+        compress: @escaping @Sendable (URL) async throws -> CompressionResult? = { _ in nil },
         onSaved: @escaping @MainActor (URL) -> Void = { _ in },
+        onCompression: @escaping @MainActor (PendingCompression?) -> Void = { _ in },
         onRecordingEvent: @escaping @MainActor (RecordingEvent) -> Void = { _ in }
     ) throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "LunettaTests-\(UUID().uuidString)")
@@ -317,6 +321,7 @@ private struct Harness {
         let settings = LunettaSettings(store: MemoryStore(), defaultSaveFolder: folder)
         settings.copyToClipboardAfterCapture = clipboardOn ?? (copyToClipboard != nil)
         settings.uploadAfterCapture = uploadOn
+        settings.compressAfterCapture = compressOn
         settings.freezeScreenWhileSelecting = freezeOn
         settings.recordingCodec = codec
         settings.recordSystemAudio = systemAudio
@@ -342,10 +347,17 @@ private struct Harness {
             now: now,
             fileExists: { FileManager.default.fileExists(atPath: $0.path) },
             pointerLocation: { pointer },
-            copyToClipboard: { url, _ in try copyToClipboard?(url) },
+            copyToClipboard: { url, data in
+                try copyToClipboard?(url)
+                copiedBytes(data)
+            },
             writePNG: writePNG ?? CaptureCoordinator.writePNG,
+            compress: compress,
             playShutterSound: onShutter,
-            onSaved: { url, _ in onSaved(url) },
+            onSaved: { url, _, compression in
+                onSaved(url)
+                onCompression(compression)
+            },
             onRecordingEvent: onRecordingEvent,
             countDown: { [countdown] in await countdown.run($0) }
         )
@@ -576,6 +588,117 @@ func permissionDeniedAlertsBeforeAnyOverlay(mode: CaptureMode) async throws {
     #expect(copied.isEmpty)
 }
 
+private actor CompressionLog {
+    private(set) var files: [URL] = []
+
+    func add(_ file: URL) {
+        files.append(file)
+    }
+}
+
+private struct CompressionBroke: LocalizedError {
+    var errorDescription: String? { "the encoder ran out of memory" }
+}
+
+@MainActor @Test func compressOffNeverCompresses() async throws {
+    let log = CompressionLog()
+    var handed: [PendingCompression?] = []
+    let harness = try Harness(
+        selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)),
+        compress: { file in
+            await log.add(file)
+            return nil
+        },
+        onCompression: { handed.append($0) }
+    )
+    await harness.coordinator.run(.area)
+    #expect(handed.count == 1 && handed[0] == nil)
+    #expect(await log.files.isEmpty)
+}
+
+@MainActor @Test func compressOnHandsTheCardTheSavedFilesCompression() async throws {
+    let log = CompressionLog()
+    let result = CompressionResult(originalBytes: 1000, compressedBytes: 380)
+    var handed: [PendingCompression?] = []
+    let harness = try Harness(
+        selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)),
+        compressOn: true,
+        compress: { file in
+            await log.add(file)
+            return result
+        },
+        onCompression: { handed.append($0) }
+    )
+    await harness.coordinator.run(.area)
+    let compression = try #require(handed.first ?? nil)
+    let outcome = try await compression.value
+    #expect(outcome == result)
+    let saved = try #require(try harness.savedFiles().first)
+    #expect(await log.files.map(\.lastPathComponent) == [saved])
+}
+
+@MainActor @Test func clipboardGetsTheCompressedFile() async throws {
+    var copied: [Data] = []
+    let harness = try Harness(
+        selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)),
+        clipboardOn: true,
+        copiedBytes: { copied.append($0) },
+        compressOn: true,
+        compress: { file in
+            try Data("compressed".utf8).write(to: file)
+            return CompressionResult(originalBytes: 1000, compressedBytes: 10)
+        }
+    )
+    await harness.coordinator.run(.area)
+    #expect(copied == [Data("compressed".utf8)])
+}
+
+@MainActor @Test func clipboardGetsTheCaptureAsSavedWhenCompressionFailsOrGivesUp() async throws {
+    let outcomes: [@Sendable (URL) async throws -> CompressionResult?] = [{ _ in throw CompressionBroke() }, { _ in nil }]
+    for compress in outcomes {
+        var copied: [Data] = []
+        let harness = try Harness(
+            selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)),
+            clipboardOn: true,
+            copiedBytes: { copied.append($0) },
+            compressOn: true,
+            compress: compress
+        )
+        await harness.coordinator.run(.area)
+        let saved = harness.folder.appending(path: try #require(try harness.savedFiles().first))
+        #expect(copied == [try Data(contentsOf: saved)])
+        #expect(harness.alerts.presented.isEmpty) // the card reports a failed compression, not the clipboard
+    }
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aCompressingCaptureNeverHoldsUpTheNextCard() async throws {
+    let compressing = Gate()
+    let release = Gate()
+    var handed: [URL] = []
+    var copied: [Data] = []
+    let harness = try Harness(
+        selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)),
+        clipboardOn: true,
+        copiedBytes: { copied.append($0) },
+        compressOn: true,
+        compress: { _ in
+            await compressing.open()
+            await release.wait()
+            return nil
+        },
+        onSaved: { handed.append($0) }
+    )
+    let first = Task { await harness.coordinator.run(.area) }
+    await compressing.wait()
+    let second = Task { await harness.coordinator.run(.area) }
+    while handed.count < 2 { await Task.yield() }
+    #expect(copied.isEmpty) // both copies wait for compression
+    await release.open()
+    await first.value
+    await second.value
+    #expect(copied.count == 2)
+}
+
 private struct PasteboardLocked: LocalizedError {
     var errorDescription: String? { "the pasteboard is locked" }
 }
@@ -754,6 +877,29 @@ private func name(_ event: RecordingEvent) -> String {
     let recording = try #require(await recorder.recordings.first)
     #expect(await recording.stopCount == 1)
     #expect(handed.count == 1)
+}
+
+@MainActor @Test func aSavedRecordingIsHandedOverWithItsCompression() async throws {
+    let recorder = FakeRecorder()
+    let log = CompressionLog()
+    var handed: [PendingCompression?] = []
+    let harness = try Harness(
+        recorder: recorder,
+        selection: .area(recordedArea),
+        compressOn: true,
+        compress: { file in
+            await log.add(file)
+            return nil
+        },
+        onCompression: { handed.append($0) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+    let compression = try #require(handed.first ?? nil)
+    let outcome = try await compression.value
+    #expect(outcome == nil)
+    let start = try #require(await recorder.starts.first)
+    #expect(await log.files == [start.url])
 }
 
 @MainActor @Test func recordingUsesTheCodecFromSettings() async throws {
