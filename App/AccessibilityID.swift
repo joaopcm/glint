@@ -15,6 +15,7 @@ enum AccessibilityID {
     static let pauseRecording = "lunetta.pauseRecording"
     static let stopRecordingControl = "lunetta.stopRecordingControl"
     static let discardRecording = "lunetta.discardRecording"
+    static let startOverRecording = "lunetta.startOverRecording"
     static let cardActionLabel = "lunetta.cardActionLabel"
     static let restoreDefaultShortcuts = "lunetta.restoreDefaultShortcuts"
 

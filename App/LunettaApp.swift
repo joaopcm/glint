@@ -85,6 +85,7 @@ final class AppState {
         recordingHUD.onStop = { Task { await coordinator.stopRecording() } }
         recordingHUD.onTogglePause = { Task { await coordinator.togglePause() } }
         recordingHUD.onDiscard = { Task { await coordinator.discardRecording() } }
+        recordingHUD.onStartOver = { Task { await coordinator.startOverRecording() } }
         textCapture = TextCapture(
             captureImage: { await coordinator.captureImage(.area) },
             alerts: NSAlertPresenter(),
