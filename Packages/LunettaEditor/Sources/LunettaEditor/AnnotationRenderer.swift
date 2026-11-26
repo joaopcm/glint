@@ -119,7 +119,7 @@ public enum AnnotationRenderer {
         let seed = withUnsafeBytes(of: annotation.id.uuid) { $0.loadUnaligned(as: UInt64.self) }
         for (index, line) in annotation.lines.enumerated() {
             context.addPath(BrushStroke.path(in: line, seed: seed &+ UInt64(index)))
-            context.fillPath(using: .evenOdd)
+            context.fillPath()
         }
         context.endTransparencyLayer()
     }

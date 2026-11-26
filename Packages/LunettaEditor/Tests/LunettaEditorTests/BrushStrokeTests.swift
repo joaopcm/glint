@@ -16,9 +16,9 @@ struct BrushStrokeTests {
     @Test func strokeCoversTheLineMiddle() {
         for seed: UInt64 in 0..<50 {
             let path = BrushStroke.path(in: line, seed: seed)
-            #expect(path.contains(CGPoint(x: line.midX, y: line.midY), using: .evenOdd))
-            #expect(path.contains(CGPoint(x: line.minX + line.height, y: line.midY), using: .evenOdd))
-            #expect(path.contains(CGPoint(x: line.maxX - line.height, y: line.midY), using: .evenOdd))
+            #expect(path.contains(CGPoint(x: line.midX, y: line.midY)))
+            #expect(path.contains(CGPoint(x: line.minX + line.height, y: line.midY)))
+            #expect(path.contains(CGPoint(x: line.maxX - line.height, y: line.midY)))
         }
     }
 
@@ -34,8 +34,20 @@ struct BrushStrokeTests {
         let bottomRight = CGPoint(x: line.maxX - 1, y: line.maxY - 1)
         let squareCorners = (0..<50).filter { seed in
             let path = BrushStroke.path(in: line, seed: UInt64(seed))
-            return path.contains(topLeft, using: .evenOdd) && path.contains(bottomRight, using: .evenOdd)
+            return path.contains(topLeft) && path.contains(bottomRight)
         }
         #expect(squareCorners.count < 10)
+    }
+
+    @Test func strokeIsSolidInside() {
+        let inside = line.insetBy(dx: line.height * 0.2, dy: line.height * 0.15)
+        for seed: UInt64 in 0..<50 {
+            let path = BrushStroke.path(in: line, seed: seed)
+            for x in stride(from: inside.minX, through: inside.maxX, by: 4) {
+                for y in stride(from: inside.minY, through: inside.maxY, by: 2) {
+                    #expect(path.contains(CGPoint(x: x, y: y)), "seed \(seed) left a gap at (\(x), \(y))")
+                }
+            }
+        }
     }
 }
