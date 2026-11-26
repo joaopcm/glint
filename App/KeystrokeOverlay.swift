@@ -85,7 +85,7 @@ final class KeystrokeOverlay: KeystrokeShowing {
         fading = Task { [weak self] in
             try? await Task.sleep(for: Self.linger)
             guard !Task.isCancelled, let capsule = self?.capsule else { return }
-            NSAnimationContext.runAnimationGroup { context in
+            await NSAnimationContext.runAnimationGroup { context in
                 context.duration = ThumbnailPresenter.exitDuration
                 capsule.animator().alphaValue = 0
             }
