@@ -53,18 +53,16 @@ public enum IndexedPNG {
         let depth = Int(bitDepth)
         let perByte = 8 / depth
         let rowBytes = (image.width + perByte - 1) / perByte
-        var data = Data(count: image.height * (rowBytes + 1))
-        data.withUnsafeMutableBytes { out in
-            for row in 0..<image.height {
-                let start = row * (rowBytes + 1) + 1
-                for column in 0..<image.width {
-                    let index = image.indices[row * image.width + column]
-                    let shift = 8 - depth * (column % perByte + 1)
-                    out[start + column / perByte] |= index << shift
-                }
+        var rows = [UInt8](repeating: 0, count: image.height * (rowBytes + 1))
+        for row in 0..<image.height {
+            let start = row * (rowBytes + 1) + 1
+            for column in 0..<image.width {
+                let index = image.indices[row * image.width + column]
+                let shift = 8 - depth * (column % perByte + 1)
+                rows[start + column / perByte] |= index << shift
             }
         }
-        return data
+        return Data(rows)
     }
 
     static func zlib(_ data: Data, deflate: (Data) throws -> Data) rethrows -> Data {
