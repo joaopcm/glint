@@ -154,6 +154,12 @@ class LunettaUITestCase: XCTestCase {
             event.flags = flags
             event.post(tap: .cghidEventTap)
         }
+        // A keyboard lets go of its modifiers too. Without this, every mouse event after ⌥⇧⌘6 still carried ⇧, and a
+        // plain drag on the stage kept the area's aspect ratio: 260 × 194 instead of 260 × 190 (run 45872128791).
+        guard !flags.isEmpty, let release = CGEvent(source: nil) else { return }
+        release.type = .flagsChanged
+        release.flags = []
+        release.post(tap: .cghidEventTap)
     }
 
     /// A point in global screen coordinates (top-left origin), reached through Finder so XCUITest never activates Lunetta.
