@@ -233,7 +233,6 @@ final class CaptureCoordinator {
     /// Only taking the image blocks the next capture (#99); deliveries queue so each one names its file after the ones before it are on disk.
     func run(_ mode: CaptureMode) async {
         guard let image = await captureImage(mode) else { return }
-        if settings.playSoundOnCapture { playShutterSound() }
         let previous = delivery
         let delivering = Task {
             await previous?.value
@@ -251,7 +250,9 @@ final class CaptureCoordinator {
         guard !isRunning else { return nil }
         isRunning = true
         defer { isRunning = false }
-        return await takeImage(mode)
+        guard let image = await takeImage(mode) else { return nil }
+        if settings.playSoundOnCapture { playShutterSound() }
+        return image
     }
 
     private func takeImage(_ mode: CaptureMode) async -> CGImage? {

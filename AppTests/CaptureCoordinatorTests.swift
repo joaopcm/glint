@@ -392,9 +392,16 @@ func eachScreenshotPlaysTheShutterOnce(mode: CaptureMode, selection: SelectionRe
     #expect(try harness.savedFiles().count == 1)
 }
 
-@MainActor @Test func captureTextPlaysNoShutter() async throws {
+@MainActor @Test func captureTextPlaysTheShutterOnce() async throws {
     var shutters = 0
     let harness = try Harness(selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)), onShutter: { shutters += 1 })
+    _ = await harness.coordinator.captureImage(.area)
+    #expect(shutters == 1)
+}
+
+@MainActor @Test func captureTextWithSoundOffPlaysNoShutter() async throws {
+    var shutters = 0
+    let harness = try Harness(selection: .area(CGRect(x: 10, y: 10, width: 5, height: 5)), soundOn: false, onShutter: { shutters += 1 })
     _ = await harness.coordinator.captureImage(.area)
     #expect(shutters == 0)
 }
