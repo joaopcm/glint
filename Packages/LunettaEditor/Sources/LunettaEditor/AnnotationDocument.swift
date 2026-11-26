@@ -6,6 +6,8 @@ public final class AnnotationDocument {
     public let base: CGImage
     public private(set) var annotations: [Annotation] = []
     public private(set) var crop: CGRect?
+    /// nil until OCR finishes; the highlighter draws free rectangles meanwhile.
+    public internal(set) var textLayout: TextLayout?
     public let undoManager = UndoManager()
     public var onChange: (() -> Void)?
     let renderCache: AnnotationRenderCache
@@ -16,6 +18,11 @@ public final class AnnotationDocument {
         renderCache = AnnotationRenderCache(base: base)
         // Grouping by run loop turn merges every change made in one turn into one undo step (undoStepsOneChangeAtATime).
         undoManager.groupsByEvent = false
+    }
+
+    public func loadTextLayout() async {
+        guard textLayout == nil else { return }
+        textLayout = await TextLayout.recognize(in: base)
     }
 
     public func annotation(_ id: UUID) -> Annotation? {

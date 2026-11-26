@@ -34,6 +34,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case resizing(UUID, Annotation.Handle, to: CGPoint)
         case cropping(from: CGPoint, to: CGPoint)
         case restyling(UUID, Annotation.Kind)
+        case highlightingText(TextLayout.Position, Annotation)
     }
 
     public var tool: Tool = .arrow {
@@ -173,7 +174,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         switch gesture {
         case nil:
             return document.annotations
-        case .drawing(let draft):
+        case .drawing(let draft), .highlightingText(_, let draft):
             return document.annotations + [draft]
         case .moving(let id, let from, let to):
             return document.annotations.map { $0.id == id ? $0.moved(by: CGSize(width: to.x - from.x, height: to.y - from.y)) : $0 }
@@ -386,7 +387,9 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             return document.topmostAnnotation(at: point, tolerance: Self.hitTolerance / zoom) == nil ? .arrow : .openHand
         case .text:
             return .iBeam
-        case .arrow, .rectangle, .highlighter, .blur, .pixelate, .crop:
+        case .highlighter:
+            return wordPosition(at: point) == nil ? .crosshair : .iBeam
+        case .arrow, .rectangle, .blur, .pixelate, .crop:
             return .crosshair
         }
     }
@@ -417,6 +420,10 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case .crop:
             selectedID = nil
             gesture = .cropping(from: point, to: point)
+        case .highlighter where wordPosition(at: point) != nil:
+            selectedID = nil
+            let word = wordPosition(at: point)!
+            gesture = .highlightingText(word, textHighlight(from: word, to: word, id: UUID()))
         case .arrow, .rectangle, .highlighter, .blur, .pixelate:
             selectedID = nil
             gesture = newAnnotationKind(for: tool).map {
@@ -439,6 +446,9 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case .moving(let id, let from, _): gesture = .moving(id, from: from, to: point)
         case .resizing(let id, let handle, _): gesture = .resizing(id, handle, to: point)
         case .cropping(let from, _): gesture = .cropping(from: from, to: point)
+        case .highlightingText(let start, let draft):
+            guard let end = document.textLayout?.nearestPosition(to: point) else { return }
+            gesture = .highlightingText(start, textHighlight(from: start, to: end, id: draft.id))
         case .restyling: return
         }
         needsDisplay = true
@@ -457,6 +467,9 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             guard hypot(draft.end.x - draft.start.x, draft.end.y - draft.start.y) * zoom >= Self.minimumDrag else { return }
             document.add(draft)
             selectedID = draft.id
+        case .highlightingText(_, let draft):
+            document.add(draft)
+            selectedID = draft.id
         case .moving(let id, let from, let to):
             document.move(id, by: CGSize(width: to.x - from.x, height: to.y - from.y))
         case .resizing(let id, let handle, let to):
@@ -465,6 +478,14 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             guard hypot(to.x - from.x, to.y - from.y) * zoom >= Self.minimumDrag, let crop = displayedCrop else { return }
             document.setCrop(crop)
         }
+    }
+
+    private func wordPosition(at point: CGPoint) -> TextLayout.Position? {
+        document.textLayout?.position(at: point, pad: Self.hitTolerance / zoom)
+    }
+
+    private func textHighlight(from start: TextLayout.Position, to end: TextLayout.Position, id: UUID) -> Annotation {
+        .textHighlight(document.textLayout?.highlight(from: start, to: end) ?? [], id: id)
     }
 
     private func isNear(_ handle: CGPoint, _ point: CGPoint) -> Bool {
