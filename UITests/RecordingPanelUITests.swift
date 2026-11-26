@@ -3,29 +3,23 @@ import XCTest
 
 final class RecordingPanelUITests: LunettaUITestCase {
     override var pinsRecordingChoices: Bool { false }
+    /// The panel saves to Lunetta's real defaults; each test starts Lunetta from the panel's first-run choices.
+    override var extraLaunchEnvironment: [String: String] { ["LUNETTA_UI_TEST_FRESH_RECORDING_CHOICES": "1"] }
 
-    /// The panel saves to Lunetta's real defaults, which every later test launches with; none of these may leak.
-    private static let panelKeys = [
-        "recordSystemAudio", "recordMicrophone", "recordingInputID", "recordingInputName",
-        "showPressedKeys", "showMouseClicks", "recordingMode",
-    ]
-
-    override func setUpWithError() throws {
-        Self.forgetPanelChoices()
-        try super.setUpWithError()
-    }
-
-    override func tearDownWithError() throws {
-        try super.tearDownWithError()
-        Self.forgetPanelChoices()
-    }
-
-    @MainActor func testChoicesMadeInThePanelAreSavedAndRecordedAfterRecord() async throws {
+    @MainActor func testChoicesMadeInThePanelSurviveARelaunchAndAreRecordedAfterRecord() async throws {
         openRecordingPanel()
         center(of: panelControl(AccessibilityID.recordingPanelSystemAudio)).click()
         center(of: panelControl(AccessibilityID.recordingPanelClicks)).click()
-        XCTAssertTrue(waitUntilSaved("recordSystemAudio", is: true), "turning on System Audio in the panel didn't save it")
-        XCTAssertTrue(waitUntilSaved("showMouseClicks", is: true), "turning on Highlight Clicks in the panel didn't save it")
+        XCTAssertTrue(waitUntilChecked(AccessibilityID.recordingPanelSystemAudio), "clicking System Audio didn't turn it on")
+        XCTAssertTrue(waitUntilChecked(AccessibilityID.recordingPanelClicks), "clicking Highlight Clicks didn't turn it on")
+
+        app.terminate()
+        app.launchEnvironment = [:]
+        app.launch()
+        openRecordingPanel()
+        XCTAssertTrue(waitUntilChecked(AccessibilityID.recordingPanelSystemAudio), "System Audio was off again after relaunching Lunetta")
+        XCTAssertTrue(waitUntilChecked(AccessibilityID.recordingPanelClicks), "Highlight Clicks was off again after relaunching Lunetta")
+        XCTAssertFalse(isChecked(panelControl(AccessibilityID.recordingPanelPressedKeys)), "Show Pressed Keys turned on by itself")
 
         center(of: panelControl(AccessibilityID.recordingPanelRecord)).click()
         waitForOverlay(after: .recordArea)
@@ -53,7 +47,6 @@ final class RecordingPanelUITests: LunettaUITestCase {
         XCTAssertTrue(explanation.waitForExistence(timeout: Self.captureTimeout), "the panel didn't say Show Pressed Keys needs Input Monitoring")
         XCTAssertTrue(app.buttons["Open Input Monitoring Settings"].exists, "the panel names Input Monitoring but offers no way to open it")
         XCTAssertFalse(record.isEnabled, "Record stayed enabled although the keys wouldn't show in the recording")
-        XCTAssertTrue(waitUntilSaved("showPressedKeys", is: true), "turning on Show Pressed Keys in the panel didn't save it")
 
         center(of: panelControl(AccessibilityID.recordingPanelCancel)).click()
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: panel)
@@ -73,48 +66,25 @@ final class RecordingPanelUITests: LunettaUITestCase {
         return control
     }
 
+    @MainActor private func isChecked(_ checkbox: XCUIElement) -> Bool {
+        "\(checkbox.value ?? "")" == "1"
+    }
+
+    @MainActor private func waitUntilChecked(_ identifier: String) -> Bool {
+        let checkbox = panelControl(identifier)
+        let deadline = Date().addingTimeInterval(Self.captureTimeout)
+        while Date() < deadline {
+            if isChecked(checkbox) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return false
+    }
+
     @MainActor private func openRecordingPanel() {
         let statusItem = app.statusItems.firstMatch
         XCTAssertTrue(statusItem.waitForExistence(timeout: Self.captureTimeout), "Lunetta's menu bar icon is missing")
         statusItem.click()
         statusItem.descendants(matching: .menuItem)["Record Screen…"].click()
         XCTAssertTrue(panel.waitForExistence(timeout: Self.captureTimeout), "Record Screen… didn't open the recording panel. Lunetta's accessibility tree:\n\(app.debugDescription)")
-    }
-
-    @MainActor private func waitUntilSaved(_ key: String, is expected: Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(Self.captureTimeout)
-        while Date() < deadline {
-            if Self.savedValue(key) == (expected ? "1" : "0") { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return false
-    }
-
-    /// A fresh `defaults` process each time: the runner's own CFPreferences cache kept answering with what it read
-    /// before Lunetta saved, so a saved choice looked missing and deleting it did nothing (run 45816994479).
-    private static func savedValue(_ key: String) -> String {
-        defaults(["read", lunettaBundleID, key])
-    }
-
-    private static func forgetPanelChoices() {
-        for key in panelKeys {
-            defaults(["delete", lunettaBundleID, key])
-        }
-    }
-
-    @discardableResult private static func defaults(_ arguments: [String]) -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
-        process.arguments = arguments
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = Pipe()
-        do {
-            try process.run()
-        } catch {
-            return "defaults \(arguments.joined(separator: " ")) didn't run: \(error.localizedDescription)"
-        }
-        process.waitUntilExit()
-        return String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

@@ -58,6 +58,9 @@ final class AppState {
     private let shutterSound = ShutterSound()
 
     init() {
+        #if DEBUG
+        startRecordingPanelOverForUITests()
+        #endif
         thumbnail = ThumbnailPresenter(
             settings: settings,
             upload: { [weak self] url in
@@ -131,6 +134,20 @@ final class AppState {
             }
         }
     }
+
+    #if DEBUG
+    /// The panel's UI tests start from its first-run choices. They can't clear Lunetta's defaults themselves: the runner
+    /// never saw what Lunetta saved there, through CFPreferences or `defaults` (runs 45816994479, 45822621052).
+    private func startRecordingPanelOverForUITests() {
+        guard ProcessInfo.processInfo.environment["LUNETTA_UI_TEST_FRESH_RECORDING_CHOICES"] != nil else { return }
+        settings.recordSystemAudio = false
+        settings.recordMicrophone = false
+        settings.recordingInput = nil
+        settings.showPressedKeys = false
+        settings.showMouseClicks = false
+        settings.recordingMode = .area
+    }
+    #endif
 
     private static func bucketCredentialStore() -> any CredentialStore {
         #if DEBUG
