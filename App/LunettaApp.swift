@@ -43,6 +43,7 @@ final class AppState {
     private var coordinator: CaptureCoordinator!
     private var textCapture: TextCapture!
     private var thumbnail: ThumbnailPresenter!
+    private var clipboardCompressor: ClipboardCompressor!
     private lazy var recordingHUD = RecordingHUD(settings: settings)
     private let microphone = SystemMicrophoneAccess()
     private let keystrokes = KeystrokeOverlay()
@@ -76,6 +77,13 @@ final class AppState {
                     self.toast.show("Uploaded, but the clipboard refused the link: \(error.localizedDescription)")
                 }
             }
+        )
+        clipboardCompressor = ClipboardCompressor(
+            settings: settings,
+            show: { [weak self] url, compression in
+                self?.thumbnail.show(url, precomputedThumbnail: nil, compression: compression, isCapture: false)
+            },
+            onProblem: { [weak self] message in self?.toast.show(message) }
         )
         let capturer = ScreenCapturer()
         let coordinator = CaptureCoordinator(

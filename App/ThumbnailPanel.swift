@@ -101,20 +101,22 @@ final class ThumbnailPresenter {
         show(url, precomputedThumbnail: nil)
     }
 
-    func show(_ url: URL, precomputedThumbnail: CGImage?, compression: PendingCompression? = nil) {
+    /// `isCapture` false is for files Lunetta didn't capture, like a copied image it compressed: upload after capture
+    /// leaves those alone.
+    func show(_ url: URL, precomputedThumbnail: CGImage?, compression: PendingCompression? = nil, isCapture: Bool = true) {
         let screen = NSScreen.screens.first { $0.frame.contains(pointerLocation()) } ?? NSScreen.main
         guard let screen else { return }
         if let precomputedThumbnail {
             let scaled = ThumbnailDownsampler.downsample(precomputedThumbnail, maxPixelSize: ThumbnailItem.maxPixelSize(on: screen))
-            return show(url, thumbnail: scaled, on: screen, compression: compression)
+            return show(url, thumbnail: scaled, on: screen, compression: compression, isCapture: isCapture)
         }
         guard ThumbnailItem.isVideo(url) else {
             guard let thumbnail = ThumbnailItem.thumbnail(of: url, on: screen) else { return }
-            return show(url, thumbnail: thumbnail, on: screen, compression: compression)
+            return show(url, thumbnail: thumbnail, on: screen, compression: compression, isCapture: isCapture)
         }
         Task {
             do {
-                show(url, thumbnail: try await ThumbnailItem.videoThumbnail(of: url, on: screen), on: screen, compression: compression)
+                show(url, thumbnail: try await ThumbnailItem.videoThumbnail(of: url, on: screen), on: screen, compression: compression, isCapture: isCapture)
             } catch {
                 Logger(subsystem: "com.joaopcm.lunetta", category: "thumbnail")
                     .error("no thumbnail for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -122,7 +124,7 @@ final class ThumbnailPresenter {
         }
     }
 
-    private func show(_ url: URL, thumbnail: CGImage, on screen: NSScreen, compression: PendingCompression?) {
+    private func show(_ url: URL, thumbnail: CGImage, on screen: NSScreen, compression: PendingCompression?, isCapture: Bool) {
         let item = ThumbnailItem(url: url, screen: screen, thumbnail: thumbnail)
         item.view.onAction = { [weak self, weak item] action in
             guard let self, let item else { return }
@@ -141,15 +143,15 @@ final class ThumbnailPresenter {
         cancelAutoDismiss() // still stacking: restart the countdown (layout() schedules it again)
         layout()
         if let compression {
-            finish(compression, for: item)
-        } else if settings.uploadAfterCapture {
+            finish(compression, for: item, isCapture: isCapture)
+        } else if isCapture, settings.uploadAfterCapture {
             upload(item, closingCard: false)
         }
     }
 
     /// The card says it's compressing until the file is final. Actions that read the file wait for it, and so does
     /// upload after capture.
-    private func finish(_ compression: PendingCompression, for item: ThumbnailItem) {
+    private func finish(_ compression: PendingCompression, for item: ThumbnailItem, isCapture: Bool) {
         item.isCompressing = true
         refreshHover()
         Task {
@@ -161,7 +163,7 @@ final class ThumbnailPresenter {
             case .failure(let error):
                 showError("Lunetta couldn't compress the capture", error)
             }
-            if settings.uploadAfterCapture { upload(item, closingCard: false) }
+            if isCapture, settings.uploadAfterCapture { upload(item, closingCard: false) }
             let waiting = item.actionsAfterCompression
             item.actionsAfterCompression = []
             if items.contains(where: { $0 === item }) {
