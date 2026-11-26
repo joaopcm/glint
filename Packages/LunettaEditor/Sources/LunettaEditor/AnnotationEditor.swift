@@ -1,4 +1,6 @@
 import AppKit
+import LunettaUI
+import QuartzCore
 
 public enum EditorError: LocalizedError, Equatable {
     case flattenFailed(width: Int, height: Int)
@@ -13,26 +15,61 @@ public enum EditorError: LocalizedError, Equatable {
 
 @MainActor
 public final class AnnotationEditor: NSObject, NSWindowDelegate {
+    struct ToolItem {
+        let tool: EditorCanvas.Tool
+        let symbol: String
+        let label: String
+        let hint: String
+    }
+
+    /// Grouped by what the tools do: pick, mark up, hide, frame.
+    static let toolGroups: [[ToolItem]] = [
+        [
+            ToolItem(tool: .select, symbol: "cursorarrow", label: "Select", hint: "Click an annotation to select it, then drag to move it"),
+        ],
+        [
+            ToolItem(tool: .arrow, symbol: "arrow.up.right", label: "Arrow", hint: "Drag to draw an arrow"),
+            ToolItem(tool: .rectangle, symbol: "rectangle", label: "Rectangle", hint: "Drag to draw a rectangle"),
+            ToolItem(tool: .text, symbol: "textformat", label: "Text", hint: "Click where you want to type"),
+            ToolItem(tool: .highlighter, symbol: "highlighter", label: "Highlighter", hint: "Drag across what you want to highlight"),
+        ],
+        [
+            ToolItem(tool: .blur, symbol: "drop.halffull", label: "Blur", hint: "Drag over anything you want to blur"),
+            ToolItem(tool: .pixelate, symbol: "squareshape.split.3x3", label: "Pixelate", hint: "Drag over anything you want to pixelate"),
+        ],
+        [
+            ToolItem(tool: .crop, symbol: "crop", label: "Crop", hint: "Drag to choose what to keep"),
+        ],
+    ]
+    static let undoSymbol = "arrow.uturn.backward"
+    static let redoSymbol = "arrow.uturn.forward"
+
+    private static let tools = toolGroups.flatMap { $0 }
+    private static let chromeMargin: CGFloat = 16
+    private static let imageMargin: CGFloat = 24
+    private static let captionGap: CGFloat = 8
+    private static let dockSpacing: CGFloat = 8
+    private static let captionFadeOut: TimeInterval = 0.2
+    private static let captionFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+    private static let easeOut = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+    private static let titlebarHeight = NSWindow.frameRect(forContentRect: .zero, styleMask: [.titled]).height
+    private static let minimumContentSize = CGSize(width: 560, height: 400)
+
     public let window: NSWindow
     public let canvas: EditorCanvas
     private let document: AnnotationDocument
     private let save: (CGImage) throws -> Void
     private let onClose: () -> Void
-    private var toolButtons: [EditorCanvas.Tool: NSButton] = [:]
-    private var undoButton: NSButton!
-    private var redoButton: NSButton!
+    private var toolButtons: [EditorCanvas.Tool: GlassButton] = [:]
+    private var undoButton: GlassButton!
+    private var redoButton: GlassButton!
+    private var toolsBar: NSView!
+    private let captionLabel = NSTextField(labelWithString: "")
+    private let captionHost = ClickThroughView()
+    private var captionCenter: NSLayoutConstraint?
+    private var captions: [ObjectIdentifier: NSAttributedString] = [:]
+    private var hoveredButton: GlassButton?
     private var previousApp: NSRunningApplication?
-
-    private static let toolSymbols: [(EditorCanvas.Tool, symbol: String, label: String)] = [
-        (.select, "cursorarrow", "Select"),
-        (.arrow, "arrow.up.right", "Arrow"),
-        (.rectangle, "rectangle", "Rectangle"),
-        (.text, "textformat", "Text"),
-        (.highlighter, "highlighter", "Highlighter"),
-        (.blur, "drop", "Blur"),
-        (.pixelate, "squareshape.split.3x3", "Pixelate"),
-        (.crop, "crop", "Crop"),
-    ]
 
     public init(
         document: AnnotationDocument,
@@ -46,23 +83,31 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         self.onClose = onClose
         canvas = EditorCanvas(document: document, pixelsPerPoint: pixelsPerPoint)
         window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: CGRect(origin: .zero, size: Self.minimumContentSize),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         super.init()
         window.title = title
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.tabbingMode = .disallowed
+        window.backgroundColor = .underPageBackgroundColor
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.contentMinSize = CGSize(width: 480, height: 320)
+        window.contentMinSize = Self.minimumContentSize
         window.contentView = makeContent()
 
-        canvas.onToolChange = { [weak self] tool in self?.showSelectedTool(tool) }
+        canvas.onToolChange = { [weak self] tool in
+            self?.showSelectedTool(tool)
+            self?.updateCaption()
+        }
         canvas.onSave = { [weak self] in self?.saveAndClose() }
         document.onChange = { [weak self] in
             self?.canvas.documentChanged()
             self?.updateUndoButtons()
+            self?.updateCaption(fading: true)
         }
         canvas.tool = .arrow
         canvas.documentChanged()
@@ -80,64 +125,107 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         window.makeFirstResponder(canvas)
     }
 
-    private func makeContent() -> NSView {
-        var tools: [NSView] = []
-        for (tool, symbol, label) in Self.toolSymbols {
-            let button = iconButton(symbol, label, #selector(chooseTool(_:)))
-            button.setButtonType(.pushOnPushOff)
-            button.tag = Self.toolSymbols.firstIndex { $0.0 == tool }!
-            toolButtons[tool] = button
-            tools.append(button)
-        }
-        undoButton = iconButton("arrow.uturn.backward", "Undo", #selector(undo))
-        redoButton = iconButton("arrow.uturn.forward", "Redo", #selector(redo))
-        let saveButton = NSButton(title: "Save", target: self, action: #selector(saveAndClose))
-        saveButton.bezelStyle = .push
-        saveButton.toolTip = "Save over the capture (⌘S)"
+    // MARK: Layout
 
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let bar = NSStackView(views: tools + [separator(), undoButton, redoButton, spacer, saveButton])
-        bar.spacing = 4
-        bar.edgeInsets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
+    private static var canvasInsets: NSEdgeInsets {
+        NSEdgeInsets(
+            top: titlebarHeight + imageMargin / 2,
+            left: imageMargin,
+            bottom: 2 * chromeMargin + Glass.toolbarHeight,
+            right: imageMargin
+        )
+    }
+
+    private func makeContent() -> NSView {
+        canvas.contentInsets = Self.canvasInsets
+
+        var toolItems: [NSView] = []
+        for (index, group) in Self.toolGroups.enumerated() {
+            if index > 0 { toolItems.append(Glass.divider()) }
+            for item in group {
+                let button = iconButton(item.symbol, item.label, shortcut: item.tool.shortcut.uppercased(), #selector(chooseTool(_:)))
+                button.setButtonType(.pushOnPushOff)
+                button.tag = Self.tools.firstIndex { $0.tool == item.tool }!
+                toolButtons[item.tool] = button
+                toolItems.append(button)
+            }
+        }
+        let undoControl = iconButton(Self.undoSymbol, "Undo", shortcut: "⌘Z", #selector(undo))
+        let redoControl = iconButton(Self.redoSymbol, "Redo", shortcut: "⇧⌘Z", #selector(redo))
+        undoButton = undoControl
+        redoButton = redoControl
+
+        let saveButton = GlassButton(title: "Save", target: self, action: #selector(saveAndClose))
+        saveButton.isBordered = false
+        saveButton.tint = .white
+        saveButton.attributedTitle = NSAttributedString(string: "Save", attributes: [
+            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold),
+            .foregroundColor: NSColor.white,
+        ])
+        saveButton.setAccessibilityLabel("Save")
+        trackHover(of: saveButton, caption: caption("Save", shortcut: "⌘S"))
+
+        let tools = Glass.toolbar(toolItems, blending: .withinWindow)
+        let history = Glass.toolbar([undoControl, redoControl], blending: .withinWindow)
+        let saving = Glass.toolbar([saveButton], tint: .controlAccentColor, blending: .withinWindow)
+        toolsBar = tools
+
+        captionLabel.font = Self.captionFont
+        captionLabel.textColor = .labelColor
+        let capsule = Glass.capsule(holding: captionLabel, blending: .withinWindow)
+        capsule.translatesAutoresizingMaskIntoConstraints = false
+        captionHost.addSubview(capsule)
+        captionHost.alphaValue = 0
+        captionHost.isHidden = true
+
+        // One dock in the middle: capture cards sit in a screen corner above every window, so a Save button in the
+        // corner of a screen-sized editor ended up under the card (UI test run 45724644945).
+        let dock = NSStackView(views: [history, tools, saving])
+        dock.spacing = Self.dockSpacing
 
         let content = NSView()
-        for view in [bar, canvas] as [NSView] {
+        for view in [canvas, dock, captionHost] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
         }
         NSLayoutConstraint.activate([
-            bar.topAnchor.constraint(equalTo: content.topAnchor),
-            bar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            bar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            canvas.topAnchor.constraint(equalTo: bar.bottomAnchor),
+            canvas.topAnchor.constraint(equalTo: content.topAnchor),
             canvas.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             canvas.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             canvas.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            dock.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            dock.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Self.chromeMargin),
+            capsule.leadingAnchor.constraint(equalTo: captionHost.leadingAnchor),
+            capsule.trailingAnchor.constraint(equalTo: captionHost.trailingAnchor),
+            capsule.topAnchor.constraint(equalTo: captionHost.topAnchor),
+            capsule.bottomAnchor.constraint(equalTo: captionHost.bottomAnchor),
+            captionHost.heightAnchor.constraint(equalToConstant: Glass.capsuleHeight),
+            captionHost.widthAnchor.constraint(equalTo: captionLabel.widthAnchor, constant: 16),
+            captionHost.bottomAnchor.constraint(equalTo: tools.topAnchor, constant: -Self.captionGap),
+            captionHost.leadingAnchor.constraint(greaterThanOrEqualTo: content.leadingAnchor, constant: Self.chromeMargin),
+            captionHost.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -Self.chromeMargin),
         ])
         return content
     }
 
-    private func iconButton(_ symbol: String, _ label: String, _ action: Selector) -> NSButton {
+    private func iconButton(_ symbol: String, _ label: String, shortcut: String, _ action: Selector) -> GlassButton {
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)!
-        let button = NSButton(image: image, target: self, action: action)
-        button.bezelStyle = .toolbar
-        button.toolTip = label
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .medium))!
+        let button = GlassButton(image: image, target: self, action: action)
+        button.isBordered = false
+        button.imagePosition = .imageOnly
         button.setAccessibilityLabel(label)
+        trackHover(of: button, caption: caption(label, shortcut: shortcut))
         return button
     }
 
-    private func separator() -> NSView {
-        let line = NSBox()
-        line.boxType = .separator
-        line.heightAnchor.constraint(equalToConstant: 18).isActive = true
-        return line
-    }
-
     private func sizeWindow(pixelsPerPoint: CGFloat) {
+        let insets = Self.canvasInsets
         let natural = CGSize(width: CGFloat(document.base.width) / pixelsPerPoint, height: CGFloat(document.base.height) / pixelsPerPoint)
-        let barHeight = window.contentView?.fittingSize.height ?? 0
-        window.setContentSize(CGSize(width: max(natural.width, 480), height: max(natural.height + barHeight, 320)))
+        window.setContentSize(CGSize(
+            width: max(natural.width + insets.left + insets.right, Self.minimumContentSize.width),
+            height: max(natural.height + insets.top + insets.bottom, Self.minimumContentSize.height)
+        ))
     }
 
     private func fit(on screen: NSScreen) {
@@ -148,6 +236,73 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         frame.origin = CGPoint(x: visible.midX - frame.width / 2, y: visible.midY - frame.height / 2)
         window.setFrame(frame, display: false)
     }
+
+    // MARK: Caption
+
+    /// One glass label above the tools, like the capture card's: the hovered button's name and shortcut, and on a
+    /// capture with nothing on it yet, how to use the current tool.
+    private func caption(_ label: String, shortcut: String) -> NSAttributedString {
+        let text = NSMutableAttributedString(string: label, attributes: [.font: Self.captionFont, .foregroundColor: NSColor.labelColor])
+        text.append(NSAttributedString(string: "  \(shortcut)", attributes: [.font: Self.captionFont, .foregroundColor: NSColor.secondaryLabelColor]))
+        return text
+    }
+
+    private func trackHover(of button: GlassButton, caption: NSAttributedString) {
+        captions[ObjectIdentifier(button)] = caption
+        button.onHoverChange = { [weak self] button, hovered in
+            guard let self else { return }
+            if hovered {
+                hoveredButton = button
+            } else if hoveredButton === button {
+                hoveredButton = nil
+            }
+            updateCaption()
+        }
+    }
+
+    private var showsHint: Bool {
+        document.annotations.isEmpty && document.crop == nil
+    }
+
+    private func updateCaption(fading: Bool = false) {
+        let text: NSAttributedString
+        let anchor: NSView
+        if let hoveredButton, let hovered = captions[ObjectIdentifier(hoveredButton)] {
+            text = hovered
+            anchor = hoveredButton
+        } else if showsHint, let hint = Self.tools.first(where: { $0.tool == canvas.tool })?.hint {
+            text = NSAttributedString(string: hint, attributes: [.font: Self.captionFont, .foregroundColor: NSColor.labelColor])
+            anchor = toolsBar
+        } else {
+            setCaptionAlpha(0, duration: fading ? Self.captionFadeOut : 0)
+            return
+        }
+        captionLabel.attributedStringValue = text
+        captionCenter?.isActive = false
+        let center = captionHost.centerXAnchor.constraint(equalTo: anchor.centerXAnchor)
+        center.priority = .defaultHigh // the edge constraints win, so a caption never spills off the window
+        center.isActive = true
+        captionCenter = center
+        setCaptionAlpha(1, duration: 0)
+    }
+
+    /// Hover captions switch instantly, as on the cards; only the hint eases out once the first edit lands.
+    private func setCaptionAlpha(_ alpha: CGFloat, duration: TimeInterval) {
+        if alpha > 0 { captionHost.isHidden = false }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = duration
+            context.timingFunction = Self.easeOut
+            captionHost.animator().alphaValue = alpha
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                // Hidden, not just clear, so VoiceOver doesn't read a stale hint; a hover during the fade wins.
+                guard let self, self.captionHost.alphaValue == 0 else { return }
+                self.captionHost.isHidden = true
+            }
+        })
+    }
+
+    // MARK: State
 
     private func showSelectedTool(_ tool: EditorCanvas.Tool) {
         for (candidate, button) in toolButtons {
@@ -161,7 +316,7 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     }
 
     @objc private func chooseTool(_ sender: NSButton) {
-        canvas.tool = Self.toolSymbols[sender.tag].0
+        canvas.tool = Self.tools[sender.tag].tool
         window.makeFirstResponder(canvas)
     }
 
@@ -202,4 +357,8 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         }
         onClose()
     }
+}
+
+private final class ClickThroughView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

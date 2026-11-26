@@ -16,6 +16,19 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             case .pixelate: .pixelate
             }
         }
+
+        public var shortcut: String {
+            switch self {
+            case .select: "v"
+            case .arrow: "a"
+            case .rectangle: "r"
+            case .text: "t"
+            case .highlighter: "h"
+            case .blur: "b"
+            case .pixelate: "p"
+            case .crop: "c"
+            }
+        }
     }
 
     private enum Gesture {
@@ -28,8 +41,11 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     public var tool: Tool = .arrow {
         didSet {
             onToolChange?(tool)
-            window?.invalidateCursorRects(for: self)
+            updateCursorAtMouse()
         }
+    }
+    public var contentInsets = NSEdgeInsetsZero {
+        didSet { needsDisplay = true }
     }
     public var onToolChange: ((Tool) -> Void)?
     public var onSave: (() -> Void)?
@@ -42,6 +58,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     }
 
     let document: AnnotationDocument
+    private let pixelsPerPoint: CGFloat
     private let lineWidth: CGFloat
     private let textLineHeight: CGFloat
     private var gesture: Gesture?
@@ -50,19 +67,21 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     private var textFieldOrigin: CGPoint = .zero
     private var textFieldLineHeight: CGFloat = 0
 
-    private static let handleSize: CGFloat = 8
+    private static let handleDiameter: CGFloat = 10
     private static let hitTolerance: CGFloat = 6
     // Same as ThumbnailView.dragThreshold: a click with a slight jitter draws nothing.
     private static let minimumDrag: CGFloat = 4
 
     public init(document: AnnotationDocument, pixelsPerPoint: CGFloat) {
         self.document = document
+        self.pixelsPerPoint = pixelsPerPoint
         lineWidth = 3 * pixelsPerPoint
         textLineHeight = 28 * pixelsPerPoint
         super.init(frame: .zero)
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
         setAccessibilityLabel("Annotation canvas")
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -88,17 +107,40 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         CGSize(width: document.base.width, height: document.base.height)
     }
 
+    private var availableRect: CGRect {
+        CGRect(
+            x: contentInsets.left,
+            y: contentInsets.top,
+            width: bounds.width - contentInsets.left - contentInsets.right,
+            height: bounds.height - contentInsets.top - contentInsets.bottom
+        )
+    }
+
+    /// Fits the image, but never past its real size: a small capture blown up looks blurry and cheap.
     private var zoom: CGFloat {
-        min(bounds.width / imageSize.width, bounds.height / imageSize.height)
+        let available = availableRect
+        let fit = min(available.width / imageSize.width, available.height / imageSize.height, 1 / pixelsPerPoint)
+        return max(fit, .leastNormalMagnitude)
     }
 
     private var imageRect: CGRect {
         let size = CGSize(width: imageSize.width * zoom, height: imageSize.height * zoom)
-        return CGRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
+        let available = availableRect
+        return CGRect(x: available.midX - size.width / 2, y: available.midY - size.height / 2, width: size.width, height: size.height)
+    }
+
+    /// The canvas reads as the image to accessibility, so its frame is the image's, not the backdrop's.
+    public override func accessibilityFrame() -> NSRect {
+        guard let window else { return super.accessibilityFrame() }
+        return window.convertToScreen(convert(imageRect, to: nil))
     }
 
     private func imagePoint(for event: NSEvent) -> CGPoint {
-        let p = convert(event.locationInWindow, from: nil)
+        imagePoint(atWindowPoint: event.locationInWindow)
+    }
+
+    private func imagePoint(atWindowPoint windowPoint: CGPoint) -> CGPoint {
+        let p = convert(windowPoint, from: nil)
         let rect = imageRect
         return CGPoint(
             x: min(max((p.x - rect.minX) / zoom, 0), imageSize.width),
@@ -143,11 +185,19 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         context.saveGState()
         context.translateBy(x: 0, y: imageSize.height)
         context.scaleBy(x: 1, y: -1)
+        // Shadows ignore the CTM, so a negative height is down on screen. The shadow follows the image's alpha,
+        // so a window capture without its wallpaper casts the window's shape, not a box.
+        context.setShadow(offset: CGSize(width: 0, height: -6), blur: 24, color: NSColor.black.withAlphaComponent(0.35).cgColor)
         context.draw(document.base, in: CGRect(origin: .zero, size: imageSize))
         context.restoreGState()
         let visibleAnnotations = editingTextID == nil ? annotations : annotations.filter { $0.id != editingTextID }
         AnnotationRenderer.draw(visibleAnnotations, over: document.base, inFlippedContext: context, cache: document.renderCache)
         context.restoreGState()
+
+        let edge = NSBezierPath(rect: imageRect.insetBy(dx: -0.5, dy: -0.5))
+        edge.lineWidth = 1
+        NSColor.labelColor.withAlphaComponent(0.1).setStroke()
+        edge.stroke()
 
         if let crop = displayedCrop {
             drawCrop(crop)
@@ -164,18 +214,25 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
                 width: annotation.bounds.width * zoom, height: annotation.bounds.height * zoom
             )))
             outline.lineWidth = 1
-            outline.setLineDash([4, 3], count: 2, phase: 0)
             NSColor.controlAccentColor.setStroke()
             outline.stroke()
         }
+        let lift = NSShadow()
+        lift.shadowColor = NSColor.black.withAlphaComponent(0.3)
+        lift.shadowBlurRadius = 2
+        lift.shadowOffset = NSSize(width: 0, height: -1)
         for handle in Annotation.Handle.allCases {
             let center = viewPoint(annotation.point(of: handle))
-            let square = NSBezierPath(rect: CGRect(x: center.x - Self.handleSize / 2, y: center.y - Self.handleSize / 2, width: Self.handleSize, height: Self.handleSize))
+            let radius = Self.handleDiameter / 2
+            let dot = NSBezierPath(ovalIn: CGRect(x: center.x - radius, y: center.y - radius, width: Self.handleDiameter, height: Self.handleDiameter))
+            NSGraphicsContext.saveGraphicsState()
+            lift.set()
             NSColor.white.setFill()
-            square.fill()
+            dot.fill()
+            NSGraphicsContext.restoreGraphicsState()
             NSColor.controlAccentColor.setStroke()
-            square.lineWidth = 1.5
-            square.stroke()
+            dot.lineWidth = 1.5
+            dot.stroke()
         }
     }
 
@@ -192,9 +249,42 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         border.stroke()
     }
 
-    public override func resetCursorRects() {
-        addCursorRect(imageRect, cursor: tool == .select ? .arrow : tool == .text ? .iBeam : .crosshair)
+    // MARK: Cursor
+
+    public override func cursorUpdate(with event: NSEvent) {
+        cursor(atWindowPoint: event.locationInWindow).set()
     }
+
+    public override func mouseMoved(with event: NSEvent) {
+        cursor(atWindowPoint: event.locationInWindow).set()
+    }
+
+    private func updateCursorAtMouse() {
+        guard let window, window.isKeyWindow else { return }
+        let location = window.mouseLocationOutsideOfEventStream
+        guard bounds.contains(convert(location, from: nil)) else { return }
+        cursor(atWindowPoint: location).set()
+    }
+
+    private func cursor(atWindowPoint windowPoint: CGPoint) -> NSCursor {
+        if case .moving = gesture { return .closedHand }
+        guard imageRect.contains(convert(windowPoint, from: nil)) else { return .arrow }
+        let point = imagePoint(atWindowPoint: windowPoint)
+        if let selectedID, let selected = document.annotation(selectedID),
+           Annotation.Handle.allCases.contains(where: { isNear(selected.point(of: $0), point) }) {
+            return .crosshair
+        }
+        switch tool {
+        case .select:
+            return document.topmostAnnotation(at: point, tolerance: Self.hitTolerance / zoom) == nil ? .arrow : .openHand
+        case .text:
+            return .iBeam
+        case .arrow, .rectangle, .highlighter, .blur, .pixelate, .crop:
+            return .crosshair
+        }
+    }
+
+    // MARK: Mouse
 
     public override func mouseDown(with event: NSEvent) {
         if textField != nil { endTextEditing(commit: true) }
@@ -214,6 +304,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case .select:
             selectedID = document.topmostAnnotation(at: point, tolerance: tolerance)?.id
             gesture = selectedID.map { .moving($0, from: point, to: point) }
+            if gesture != nil { NSCursor.closedHand.set() }
         case .text:
             beginTextEntry(at: point)
         case .crop:
@@ -241,6 +332,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         defer {
             gesture = nil
             needsDisplay = true
+            cursor(atWindowPoint: event.locationInWindow).set()
         }
         switch gesture {
         case nil:
@@ -260,7 +352,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     }
 
     private func isNear(_ handle: CGPoint, _ point: CGPoint) -> Bool {
-        hypot(handle.x - point.x, handle.y - point.y) * zoom <= Self.handleSize
+        hypot(handle.x - point.x, handle.y - point.y) * zoom <= Self.handleDiameter
     }
 
     public override func keyDown(with event: NSEvent) {
@@ -287,9 +379,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         }
     }
 
-    static let shortcuts: [String: Tool] = [
-        "v": .select, "a": .arrow, "r": .rectangle, "t": .text, "h": .highlighter, "b": .blur, "p": .pixelate, "c": .crop,
-    ]
+    static let shortcuts = Dictionary(uniqueKeysWithValues: Tool.allCases.map { ($0.shortcut, $0) })
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -326,7 +416,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         field.focusRingType = .none
         field.font = AnnotationRenderer.textFont(fittingLineHeight: lineHeight * zoom)
         field.textColor = NSColor(cgColor: AnnotationRenderer.ink)
-        field.placeholderString = "Text"
+        field.placeholderString = "Type, then press Return"
         field.delegate = self
         field.setAccessibilityLabel("Annotation text")
         field.sizeToFit()
