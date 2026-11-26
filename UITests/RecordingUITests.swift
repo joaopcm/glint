@@ -3,6 +3,9 @@ import AVFoundation
 import XCTest
 
 final class RecordingUITests: LunettaUITestCase {
+    /// Longer than the part kept after starting over, 1 s of pointer moves and a click, so a saved file this long holds the discarded part.
+    private static let discardedLength = 6
+
     @MainActor func testRecordAreaThenStopFromTheMenuBarWritesAPlayableMP4OfTheSelectedSize() async throws {
         let scale = pointerScreen.backingScaleFactor
         let movie = try recordArea(movingThePointerThrough: true)
@@ -53,6 +56,57 @@ final class RecordingUITests: LunettaUITestCase {
         XCTAssertEqual(app.images.matching(NSPredicate(format: "label BEGINSWITH 'Recording '")).count, 0, "a discarded recording got a quick-access card")
     }
 
+    @MainActor func testStartOverFromTheControlsAsksForASecondClickThenSavesOnlyWhatCameAfter() async throws {
+        let scale = pointerScreen.backingScaleFactor
+        let topLeft = startRecordingArea()
+        let time = recordingControl(AccessibilityID.recordingTime)
+        XCTAssertTrue(poll(within: TimeInterval(Self.discardedLength) + Self.captureTimeout) { (recordedSeconds(time) ?? 0) >= Self.discardedLength },
+                      "the controls never showed \(Self.discardedLength) s recorded")
+        let startOver = recordingControl(AccessibilityID.startOverRecording)
+        center(of: startOver).click()
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertFalse(recordingCountdown.exists, "one click on Start Over restarted the recording; it should ask for a second click")
+        XCTAssertGreaterThanOrEqual(recordedSeconds(time) ?? 0, Self.discardedLength, "one click on Start Over reset the timer")
+        center(of: startOver).click()
+
+        XCTAssertTrue(poll(within: Self.captureTimeout) {
+            stopRecordingButton.exists && (recordedSeconds(time) ?? .max) < Self.discardedLength
+        }, "the timer didn't start again from 0:00 after confirming Start Over")
+        movePointer(through: topLeft, for: 1)
+        let keptSeconds = try XCTUnwrap(recordedSeconds(time), "the restarted recording has no time in its controls")
+        XCTAssertLessThan(keptSeconds, Self.discardedLength, "the restarted recording ran as long as the discarded one, so its length proves nothing")
+        center(of: recordingControl(AccessibilityID.stopRecordingControl)).click()
+
+        let movie = try XCTUnwrap(waitForFile(withExtension: "mp4"), "no MP4 in \(saveFolder.path) after stopping a recording that started over")
+        try await assertPlayable(movie, size: CGSize(width: 200 * scale, height: 150 * scale))
+        let duration = try await AVURLAsset(url: movie).load(.duration).seconds
+        XCTAssertLessThan(duration, Double(Self.discardedLength),
+                          "\(movie.lastPathComponent) is \(duration) s, so it holds part of the \(Self.discardedLength) s thrown away by Start Over")
+        RunLoop.current.run(until: Date().addingTimeInterval(Self.noFileWait))
+        let files = try FileManager.default.contentsOfDirectory(at: saveFolder, includingPropertiesForKeys: nil)
+        XCTAssertEqual(files.map(\.lastPathComponent), [movie.lastPathComponent], "starting over left more than the restarted recording behind")
+    }
+
+    @MainActor func testStartOverWhilePausedStartsANewRecording() throws {
+        startRecordingArea()
+        let pause = recordingControl(AccessibilityID.pauseRecording)
+        center(of: pause).click()
+        XCTAssertTrue(waitUntil(pause, hasLabel: "Resume"), "Pause didn't turn into Resume after pausing")
+        let startOver = recordingControl(AccessibilityID.startOverRecording)
+        center(of: startOver).click()
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertFalse(recordingCountdown.exists, "one click on Start Over restarted the paused recording; it should ask for a second click")
+        XCTAssertEqual(pause.label, "Resume", "one click on Start Over resumed the paused recording")
+        center(of: startOver).click()
+
+        XCTAssertTrue(waitUntil(pause, hasLabel: "Pause"), "starting over while paused didn't start a new recording")
+        center(of: stopRecordingButton).click()
+        let movie = try XCTUnwrap(waitForFile(withExtension: "mp4"), "no MP4 in \(saveFolder.path) after stopping a recording that started over")
+        RunLoop.current.run(until: Date().addingTimeInterval(Self.noFileWait))
+        let files = try FileManager.default.contentsOfDirectory(at: saveFolder, includingPropertiesForKeys: nil)
+        XCTAssertEqual(files.map(\.lastPathComponent), [movie.lastPathComponent], "starting over while paused left more than the restarted recording behind")
+    }
+
     /// XCUITest waits about 6 s for the system to go idle after a drag (run 45727922838), longer than the countdown,
     /// so this drag goes straight through the event tap and the countdown is polled without XCTWaiter's 1 s interval.
     @MainActor func testEscapeDuringTheCountdownRecordsNothing() throws {
@@ -60,7 +114,7 @@ final class RecordingUITests: LunettaUITestCase {
         waitForOverlay(after: .recordArea)
         let origin = overlay.frame.origin
         postDrag(from: CGPoint(x: origin.x + 100, y: origin.y + 100), to: CGPoint(x: origin.x + 300, y: origin.y + 250))
-        let countdown = app.descendants(matching: .any).matching(identifier: AccessibilityID.recordingCountdown).firstMatch
+        let countdown = recordingCountdown
         XCTAssertTrue(poll(within: TimeInterval(2)) { countdown.exists }, "no countdown within 2 s of selecting the area to record")
         pressEscape()
         XCTAssertTrue(poll(within: Self.captureTimeout) { !countdown.exists }, "Esc didn't close the countdown")
@@ -97,6 +151,15 @@ final class RecordingUITests: LunettaUITestCase {
     @MainActor private func waitUntil(_ element: XCUIElement, hasLabel label: String) -> Bool {
         let labelled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", label), object: element)
         return XCTWaiter.wait(for: [labelled], timeout: Self.captureTimeout) == .completed
+    }
+
+    @MainActor private var recordingCountdown: XCUIElement {
+        app.descendants(matching: .any).matching(identifier: AccessibilityID.recordingCountdown).firstMatch
+    }
+
+    @MainActor private func recordedSeconds(_ time: XCUIElement) -> Int? {
+        guard time.exists, let label = time.value as? String else { return nil }
+        return label.split(separator: ":").reduce(0) { total, part in total * 60 + (Int(part) ?? 0) }
     }
 }
 

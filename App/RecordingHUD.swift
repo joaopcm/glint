@@ -17,6 +17,7 @@ final class RecordingHUD {
     var onStop: (@MainActor () -> Void)?
     var onTogglePause: (@MainActor () -> Void)?
     var onDiscard: (@MainActor () -> Void)?
+    var onStartOver: (@MainActor () -> Void)?
 
     private let sounds: RecordingSounds
     private var dims: [NSPanel] = []
@@ -123,6 +124,7 @@ final class RecordingHUD {
         controls.onTogglePause = { [weak self] in self?.onTogglePause?() }
         controls.onStop = { [weak self] in self?.onStop?() }
         controls.onDiscard = { [weak self] in self?.onDiscard?() }
+        controls.onStartOver = { [weak self] in self?.onStartOver?() }
         self.controls = controls
         let visible = Self.screen(for: status.region).visibleFrame
         let frame = RecordingGeometry.controlBarFrame(size: controls.panelSize, region: status.region, visible: visible, gap: Self.gap)
@@ -429,33 +431,48 @@ private final class CountdownView: NSView {
     }
 }
 
-/// Elapsed time, pause or resume, stop and discard in one glass capsule, styled like the quick-access card's toolbar.
-/// Discard asks for a second click, so a slip next to Stop never throws a recording away. It stays armed while the
-/// pointer rests on it and disarms once the pointer has been away for `discardConfirmation`.
+/// Elapsed time, pause or resume, stop, start over and discard in one glass capsule, styled like the quick-access card's
+/// toolbar. Start over and discard ask for a second click, so a slip next to Stop never throws a recording away. The
+/// armed one stays armed while the pointer rests on it and disarms once the pointer has been away for `confirmation`.
 private final class RecordingControlsView: NSView {
-    private static let armedDiscardLabel = "Click again to discard"
-    /// "Click again to discard" is 4 words, about 1 s at the 238 wpm adult silent reading rate (Brysbaert 2019,
+    private struct TwoClickAction {
+        let symbol: String
+        let armedSymbol: String
+        let title: String
+        let armedTitle: String
+    }
+
+    private static let discardAction = TwoClickAction(symbol: "trash", armedSymbol: "trash.fill", title: "Discard", armedTitle: "Click again to discard")
+    private static let startOverAction = TwoClickAction(
+        symbol: "arrow.counterclockwise",
+        armedSymbol: "arrow.counterclockwise",
+        title: "Start Over",
+        armedTitle: "Click again to start over"
+    )
+    /// "Click again to start over" is 5 words, about 1.3 s at the 238 wpm adult silent reading rate (Brysbaert 2019,
     /// doi:10.1016/j.jml.2019.104047); 3 s leaves time to read it and come back.
-    private static let discardConfirmation: Duration = .seconds(3)
+    private static let confirmation: Duration = .seconds(3)
     private static let labelHeight = Glass.capsuleHeight
     private static let labelGap: CGFloat = 6
 
     var onTogglePause: (() -> Void)?
     var onStop: (() -> Void)?
     var onDiscard: (() -> Void)?
+    var onStartOver: (() -> Void)?
 
     private let dot = NSView()
     private let time = NSTextField(labelWithString: "0:00")
     private lazy var pauseButton = button("pause.fill", "Pause", AccessibilityID.pauseRecording, #selector(togglePause))
     private lazy var stopButton = button("stop.fill", "Stop and Save", AccessibilityID.stopRecordingControl, #selector(stop))
-    private lazy var discardButton = button("trash", "Discard", AccessibilityID.discardRecording, #selector(discard))
+    private lazy var startOverButton = button(Self.startOverAction, AccessibilityID.startOverRecording, #selector(startOver))
+    private lazy var discardButton = button(Self.discardAction, AccessibilityID.discardRecording, #selector(discard))
     private let actionLabel = NSTextField(labelWithString: "")
     private lazy var actionLabelCapsule = Glass.capsule(holding: actionLabel)
     private var actionLabelCenter: NSLayoutConstraint?
     private var hoveredButton: GlassButton?
     private let bar: NSView
-    private var isDiscardArmed = false
-    private var discardDisarm: Task<Void, Never>?
+    private var armedButton: GlassButton?
+    private var disarming: Task<Void, Never>?
     private var isPaused = false
 
     init() {
@@ -474,7 +491,7 @@ private final class RecordingControlsView: NSView {
         clock.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
         stopButton.tint = .systemRed
 
-        let toolbar = Glass.toolbar([clock, pauseButton, stopButton, Glass.divider(), discardButton])
+        let toolbar = Glass.toolbar([clock, pauseButton, stopButton, Glass.divider(), startOverButton, discardButton])
         toolbar.translatesAutoresizingMaskIntoConstraints = false
         bar.translatesAutoresizingMaskIntoConstraints = false
         bar.addSubview(toolbar)
@@ -506,7 +523,7 @@ private final class RecordingControlsView: NSView {
             actionLabelCapsule.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor),
             actionLabelCapsule.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
         ])
-        for button in [pauseButton, stopButton, discardButton] {
+        for button in [pauseButton, stopButton, startOverButton, discardButton] {
             button.onHoverChange = { [weak self] button, hovered in self?.hover(button, hovered) }
         }
     }
@@ -517,7 +534,7 @@ private final class RecordingControlsView: NSView {
     /// Wide enough for the longest hover label too, so showing one never resizes the panel and slides the buttons
     /// out from under the pointer. Whole points, so the panel's frame matches it and only a wider time re-fits it.
     var panelSize: CGSize {
-        let widestLabel = Self.textWidth(Self.armedDiscardLabel, font: actionLabel.font!) + 16
+        let widestLabel = [Self.discardAction, Self.startOverAction].map { Self.textWidth($0.armedTitle, font: actionLabel.font!) }.max()! + 16
         return CGSize(width: ceil(max(bar.fittingSize.width, widestLabel)), height: Self.labelHeight + Self.labelGap + Glass.toolbarHeight)
     }
 
@@ -550,11 +567,21 @@ private final class RecordingControlsView: NSView {
         return button
     }
 
+    private func button(_ action: TwoClickAction, _ id: String, _ selector: Selector) -> GlassButton {
+        button(action.symbol, action.title, id, selector)
+    }
+
+    private func twoClickAction(of button: GlassButton) -> TwoClickAction? {
+        if button === discardButton { return Self.discardAction }
+        if button === startOverButton { return Self.startOverAction }
+        return nil
+    }
+
     private func hover(_ button: GlassButton, _ hovered: Bool) {
-        if button === discardButton, isDiscardArmed {
+        if button === armedButton {
             if hovered {
-                discardDisarm?.cancel()
-                discardDisarm = nil
+                disarming?.cancel()
+                disarming = nil
             } else {
                 scheduleDisarm()
             }
@@ -565,7 +592,8 @@ private final class RecordingControlsView: NSView {
             return
         }
         hoveredButton = button
-        let label = button === discardButton && isDiscardArmed ? Self.armedDiscardLabel : button.accessibilityLabel() ?? ""
+        let armedTitle = button === armedButton ? twoClickAction(of: button)?.armedTitle : nil
+        let label = armedTitle ?? button.accessibilityLabel() ?? ""
         showLabel(label, over: button)
     }
 
@@ -591,37 +619,51 @@ private final class RecordingControlsView: NSView {
     }
 
     @objc private func discard() {
-        guard !isDiscardArmed else {
-            discardDisarm?.cancel()
-            discardDisarm = nil
-            isDiscardArmed = false
-            onDiscard?()
+        confirm(discardButton, then: onDiscard)
+    }
+
+    @objc private func startOver() {
+        confirm(startOverButton, then: onStartOver)
+    }
+
+    private func confirm(_ button: GlassButton, then act: (() -> Void)?) {
+        guard armedButton !== button else {
+            disarm()
+            act?()
             return
         }
-        isDiscardArmed = true
-        discardButton.image = Self.symbol("trash.fill", "Discard")
-        discardButton.tint = .systemRed
-        showLabel(Self.armedDiscardLabel, over: discardButton)
+        disarm()
+        arm(button)
+    }
+
+    private func arm(_ button: GlassButton) {
+        guard let action = twoClickAction(of: button) else { return }
+        armedButton = button
+        button.image = Self.symbol(action.armedSymbol, action.title)
+        button.tint = .systemRed
+        showLabel(action.armedTitle, over: button)
         // A press from the keyboard or VoiceOver has no pointer resting on the button to keep it armed.
-        if hoveredButton !== discardButton { scheduleDisarm() }
+        if hoveredButton !== button { scheduleDisarm() }
     }
 
     private func scheduleDisarm() {
-        discardDisarm?.cancel()
-        discardDisarm = Task { [weak self] in
-            try? await Task.sleep(for: Self.discardConfirmation)
+        disarming?.cancel()
+        disarming = Task { [weak self] in
+            try? await Task.sleep(for: Self.confirmation)
             guard !Task.isCancelled else { return }
-            self?.disarmDiscard()
+            self?.disarm()
         }
     }
 
-    private func disarmDiscard() {
-        discardDisarm = nil
-        isDiscardArmed = false
-        discardButton.image = Self.symbol("trash", "Discard")
-        discardButton.tint = .labelColor
-        if hoveredButton === discardButton {
-            showLabel("Discard", over: discardButton)
+    private func disarm() {
+        disarming?.cancel()
+        disarming = nil
+        guard let button = armedButton, let action = twoClickAction(of: button) else { return }
+        armedButton = nil
+        button.image = Self.symbol(action.symbol, action.title)
+        button.tint = .labelColor
+        if hoveredButton === button {
+            showLabel(action.title, over: button)
         } else if hoveredButton == nil {
             actionLabelCapsule.isHidden = true
         }

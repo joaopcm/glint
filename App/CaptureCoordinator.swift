@@ -263,24 +263,42 @@ final class CaptureCoordinator {
             if settings.recordMicrophone, microphone.status != .authorized { throw CoordinatorError.microphoneDeniedForRecording }
             guard let (target, region) = try await selectRecordingTarget(mode) else { return }
             selected = true
-            var status = RecordingStatus(region: region, dimsOutside: mode == .area)
-            guard await countDownIfOn(status) else { return }
-            let url = nextFileURL(ext: "mp4")
             let options = RecordingOptions(
                 codec: settings.recordingCodec,
                 systemAudio: settings.recordSystemAudio,
                 microphone: settings.recordMicrophone
             )
-            let active = try await recorder.startRecording(target, to: url, options: options)
-            status.clock.start(at: now())
-            let session = RecordingSession(target: target, options: options, url: url, status: status)
-            self.session = session
-            attach(active, writingTo: url, in: session)
-            onRecordingEvent(.started(status))
+            try await record(target, status: RecordingStatus(region: region, dimsOutside: mode == .area), options: options)
         } catch {
             if selected { onRecordingEvent(.ended(.failed)) }
             present(error, failure: "Lunetta couldn't start the recording")
         }
+    }
+
+    func startOverRecording() async {
+        guard let session, !session.isEnding, !isRunning else { return }
+        isRunning = true
+        defer { isRunning = false }
+        await discardRecording()
+        do {
+            let status = RecordingStatus(region: session.status.region, dimsOutside: session.status.dimsOutside)
+            try await record(session.target, status: status, options: session.options)
+        } catch {
+            onRecordingEvent(.ended(.failed))
+            present(error, failure: "Lunetta couldn't start the recording over")
+        }
+    }
+
+    private func record(_ target: RecordingTarget, status: RecordingStatus, options: RecordingOptions) async throws {
+        guard await countDownIfOn(status) else { return }
+        let url = nextFileURL(ext: "mp4")
+        let active = try await recorder.startRecording(target, to: url, options: options)
+        var status = status
+        status.clock.start(at: now())
+        let session = RecordingSession(target: target, options: options, url: url, status: status)
+        self.session = session
+        attach(active, writingTo: url, in: session)
+        onRecordingEvent(.started(status))
     }
 
     private func countDownIfOn(_ status: RecordingStatus) async -> Bool {
