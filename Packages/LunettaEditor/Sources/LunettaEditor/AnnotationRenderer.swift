@@ -119,7 +119,7 @@ public enum AnnotationRenderer {
         case .highlighter:
             context.setBlendMode(.multiply)
             context.setFillColor(highlight)
-            context.fill(annotation.bounds)
+            context.fill(annotation.lines.isEmpty ? [annotation.bounds] : annotation.lines)
         case .arrow:
             drawArrow(annotation, in: context)
         case .text(let text):

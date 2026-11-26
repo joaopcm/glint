@@ -45,6 +45,8 @@ public struct Annotation: Identifiable, Equatable, Sendable {
     public var end: CGPoint
     public var lineWidth: CGFloat
     public var color: AnnotationColor
+    /// A text highlight's padded rect per line; empty for every other annotation, including a free highlight.
+    public var lines: [CGRect]
     /// The point an arrow's curve passes through halfway along; nil draws it straight.
     public var bend: CGPoint?
 
@@ -55,6 +57,7 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         end: CGPoint,
         lineWidth: CGFloat,
         color: AnnotationColor = .red,
+        lines: [CGRect] = [],
         bend: CGPoint? = nil
     ) {
         self.id = id
@@ -63,7 +66,17 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         self.end = end
         self.lineWidth = lineWidth
         self.color = color
+        self.lines = lines
         self.bend = bend
+    }
+
+    public static func textHighlight(_ lines: [CGRect], id: UUID = UUID()) -> Annotation {
+        let span = lines.dropFirst().reduce(lines.first ?? .zero) { $0.union($1) }
+        return Annotation(
+            id: id, kind: .highlighter,
+            start: CGPoint(x: span.minX, y: span.minY), end: CGPoint(x: span.maxX, y: span.maxY),
+            lineWidth: 0, lines: lines
+        )
     }
 
     public var bounds: CGRect {
@@ -71,7 +84,8 @@ public struct Annotation: Identifiable, Equatable, Sendable {
     }
 
     public var handles: [Handle] {
-        kind == .arrow ? [.start, .end, .bend] : [.start, .end]
+        if !lines.isEmpty { return [] }
+        return kind == .arrow ? [.start, .end, .bend] : [.start, .end]
     }
 
     public func point(of handle: Handle) -> CGPoint {
@@ -109,6 +123,7 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         moved.start = CGPoint(x: start.x + delta.width, y: start.y + delta.height)
         moved.end = CGPoint(x: end.x + delta.width, y: end.y + delta.height)
         moved.bend = bend.map { CGPoint(x: $0.x + delta.width, y: $0.y + delta.height) }
+        moved.lines = lines.map { $0.offsetBy(dx: delta.width, dy: delta.height) }
         return moved
     }
 
@@ -134,6 +149,8 @@ public struct Annotation: Identifiable, Equatable, Sendable {
             let samples = (0...Self.curveSamples).map { curvePoint(at: CGFloat($0) / CGFloat(Self.curveSamples)) }
             let nearest = zip(samples, samples.dropFirst()).map { distance(from: point, toSegment: $0, $1) }.min() ?? .infinity
             return nearest <= lineWidth / 2 + tolerance
+        case .highlighter where !lines.isEmpty:
+            return lines.contains { $0.insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
         case .rectangle, .text, .highlighter, .blur, .pixelate:
             return bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
         }
