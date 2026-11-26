@@ -167,11 +167,12 @@ private final class RecordingStageView: NSView {
     private lazy var microphoneButton = toggle("mic.fill", "Microphone", AccessibilityID.recordingStageMicrophone, #selector(toggleMicrophone(_:)))
     /// The chosen input's name, then the up-and-down chevron macOS puts on every pop-up button.
     private lazy var inputButton: GlassButton = {
+        // At the title's own size and the symbol's small scale, the chevron centers on the text like a menu's does;
+        // a 9 pt symbol beside 13 pt text sat off its middle.
         let chevron = NSImage(systemSymbolName: "chevron.up.chevron.down", accessibilityDescription: nil)!
-            .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))!
+            .withSymbolConfiguration(.init(pointSize: NSFont.systemFontSize, weight: .semibold, scale: .small))!
         let button = GlassButton(title: "System Default", image: chevron, target: self, action: #selector(chooseInput(_:)))
         button.imagePosition = .imageTrailing
-        (button.cell as? NSButtonCell)?.lineBreakMode = .byTruncatingTail
         button.setAccessibilityIdentifier(AccessibilityID.recordingStageInput)
         return button
     }()
@@ -297,9 +298,9 @@ private final class RecordingStageView: NSView {
         clicksButton.state = settings.showMouseClicks ? .on : .off
         inputButton.isEnabled = settings.recordMicrophone
         let inputName = settings.recordingInput?.name ?? "System Default"
-        inputButton.title = inputName
+        inputButton.title = Self.inputTitle(inputName, font: inputButton.font)
         inputButton.setAccessibilityLabel("Input: \(inputName)")
-        inputWidth?.constant = Self.inputButtonWidth(inputButton)
+        inputWidth?.constant = ceil(inputButton.intrinsicContentSize.width) + 2 * Glass.titlePadding
         updateRecordButton()
         notice?.removeFromSuperview()
         notice = model.problems.isEmpty ? nil : makeNotice(model.problems)
@@ -422,10 +423,11 @@ private final class RecordingStageView: NSView {
     /// built-in input on Apple silicon MacBook Pros. A longer name ends in an ellipsis; the hover label has it whole.
     private static let inputNameMaxWidth: CGFloat = 140
 
-    private static func inputButtonWidth(_ button: NSButton) -> CGFloat {
-        let full = ceil(button.intrinsicContentSize.width)
-        let chevronAndGap = (button.image?.size.width ?? 0) + 6
-        return min(full, inputNameMaxWidth + chevronAndGap) + 2 * Glass.titlePadding
+    /// Shortened here, not by the cell: a cell truncates until the title fills the whole button, which pushed the name
+    /// and chevron against both edges.
+    private static func inputTitle(_ name: String, font: NSFont?) -> String {
+        let font = font ?? .systemFont(ofSize: NSFont.systemFontSize)
+        return TextTruncation.tail(name, fitting: Double(inputNameMaxWidth)) { Double(($0 as NSString).size(withAttributes: [.font: font]).width) }
     }
 
     // MARK: Area
