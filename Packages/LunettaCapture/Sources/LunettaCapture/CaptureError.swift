@@ -10,6 +10,7 @@ public enum CaptureError: Error, LocalizedError, Equatable {
     case recordingFailed(path: String, reason: String)
     case recordingStoppedEarly(path: String, reason: String)
     case wallpaperUnavailable(String)
+    case overlayUnavailable(UInt32)
 
     public var errorDescription: String? {
         switch self {
@@ -31,6 +32,8 @@ public enum CaptureError: Error, LocalizedError, Equatable {
             "The recording stopped on its own: \(reason) What was recorded until then is saved to \(path)."
         case .wallpaperUnavailable(let reason):
             "Could not put the window on your wallpaper: \(reason). Turn off \"Wallpaper behind window captures\" in Lunetta Settings > General to capture the window on its own."
+        case .overlayUnavailable(let id):
+            "The pressed keys overlay (window \(id)) wasn't on screen when the recording started, so the keys wouldn't show in it. Record again, or turn off Show Pressed Keys in the recording panel."
         }
     }
 }

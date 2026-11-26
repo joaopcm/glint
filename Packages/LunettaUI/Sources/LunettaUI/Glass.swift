@@ -97,6 +97,13 @@ public enum Glass {
         return background
     }
 
+    /// A rounded glass surface behind `content`, such as a floating panel's whole body.
+    public static func surface(holding content: NSView, cornerRadius: CGFloat) -> NSView {
+        let surface = background(cornerRadius: cornerRadius)
+        setContent(content, of: surface)
+        return surface
+    }
+
     /// Only a glass view's `contentView` is guaranteed to render inside the glass.
     private static func setContent(_ content: NSView, of background: NSView) {
         content.translatesAutoresizingMaskIntoConstraints = false

@@ -36,6 +36,15 @@ struct SystemMicrophoneAccess: MicrophoneAccess {
         }
     }
 
+    var inputs: [AudioInput] {
+        let discovery = AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone, .external], mediaType: .audio, position: .unspecified)
+        var seen = Set<String>()
+        return discovery.devices.compactMap { device in
+            guard seen.insert(device.uniqueID).inserted else { return nil }
+            return AudioInput(id: device.uniqueID, name: device.localizedName)
+        }
+    }
+
     func requestAccess() async -> Bool {
         await AVCaptureDevice.requestAccess(for: .audio)
     }

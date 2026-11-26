@@ -121,16 +121,21 @@ public struct ScreenCapturer: Sendable {
         guard CapturePermission.isGranted() else { throw CaptureError.permissionDenied }
     }
 
-    static func filterExcludingLunetta(displayID: UInt32) async throws -> sending SCContentFilter {
+    /// `keeping` names Lunetta windows to leave in; one that macOS doesn't list fails rather than going missing from the image.
+    static func filterExcludingLunetta(displayID: UInt32, keeping keptWindowIDs: [UInt32] = []) async throws -> sending SCContentFilter {
         let content = try await shareableContent()
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
             throw CaptureError.displayNotFound(displayID)
+        }
+        let kept = content.windows.filter { keptWindowIDs.contains($0.windowID) }
+        if let missing = keptWindowIDs.first(where: { id in !kept.contains { $0.windowID == id } }) {
+            throw CaptureError.overlayUnavailable(missing)
         }
         let ownBundleID = Bundle.main.bundleIdentifier
         guard let lunetta = content.applications.first(where: { $0.bundleIdentifier == ownBundleID }) else {
             return SCContentFilter(display: display, excludingWindows: [])
         }
-        return SCContentFilter(display: display, excludingApplications: [lunetta], exceptingWindows: [])
+        return SCContentFilter(display: display, excludingApplications: [lunetta], exceptingWindows: kept)
     }
 
     private static func configuration(width: Int, height: Int) -> SCStreamConfiguration {

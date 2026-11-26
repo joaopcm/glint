@@ -23,7 +23,7 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Lunetta records your microphone into screen recordings when Record Microphone is on.</string>
+	<string>Lunetta records your microphone into screen recordings when Microphone is on in the recording panel.</string>
 	<key>LSUIElement</key>
 	<true/>
 </dict>

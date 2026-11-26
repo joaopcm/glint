@@ -23,3 +23,9 @@ import Testing
     let message = CaptureError.textRecognitionFailed("The image is too small").errorDescription ?? ""
     #expect(message.contains("The image is too small"))
 }
+
+@Test func aMissingKeysOverlayNamesTheWindowAndHowToRecordWithoutIt() {
+    let message = CaptureError.overlayUnavailable(4_242).errorDescription ?? ""
+    #expect(message.contains("4242"))
+    #expect(message.contains("turn off Show Pressed Keys"))
+}

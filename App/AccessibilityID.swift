@@ -18,6 +18,17 @@ enum AccessibilityID {
     static let startOverRecording = "lunetta.startOverRecording"
     static let cardActionLabel = "lunetta.cardActionLabel"
     static let restoreDefaultShortcuts = "lunetta.restoreDefaultShortcuts"
+    static let recordingPanel = "lunetta.recordingPanel"
+    static let recordingPanelMode = "lunetta.recordingPanel.mode"
+    static let recordingPanelSystemAudio = "lunetta.recordingPanel.systemAudio"
+    static let recordingPanelMicrophone = "lunetta.recordingPanel.microphone"
+    static let recordingPanelInput = "lunetta.recordingPanel.input"
+    static let recordingPanelPressedKeys = "lunetta.recordingPanel.pressedKeys"
+    static let recordingPanelClicks = "lunetta.recordingPanel.clicks"
+    static let recordingPanelProblem = "lunetta.recordingPanel.problem"
+    static let recordingPanelRecord = "lunetta.recordingPanel.record"
+    static let recordingPanelCancel = "lunetta.recordingPanel.cancel"
+    static let pressedKeys = "lunetta.pressedKeys"
 
     static func connectionStep(_ step: String) -> String { "lunetta.connectionStep.\(step)" }
 }

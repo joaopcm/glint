@@ -6,10 +6,6 @@ enum CaptureMode {
     case area, window, fullScreen
 }
 
-enum RecordingMode {
-    case area, window
-}
-
 enum SelectionResult: Equatable {
     case area(CGRect)
     case window(UInt32)
@@ -48,14 +44,21 @@ enum RecordingEvent: Equatable {
     case ended(RecordingEnd)
 }
 
-enum MicrophoneStatus {
-    case notDetermined, authorized, denied
-}
-
 @MainActor
 protocol MicrophoneAccess {
     var status: MicrophoneStatus { get }
+    var inputs: [AudioInput] { get }
     func requestAccess() async -> Bool
+    func openSettings()
+}
+
+/// The pressed keys drawn over a recorded area, and the Input Monitoring access reading them needs.
+@MainActor
+protocol KeystrokeShowing {
+    var isAllowed: Bool { get }
+    /// Returns the overlay's window ID, which the recording keeps while it leaves out Lunetta's other windows.
+    func show(over region: CGRect) throws -> UInt32
+    func hide()
     func openSettings()
 }
 
@@ -80,7 +83,17 @@ struct CaptureAlert: Equatable {
     enum Button: String {
         case ok = "OK"
         case openSystemSettings = "Open System Settings"
+        case allowMicrophone = "Allow Microphone"
         case openMicrophoneSettings = "Open Microphone Settings"
+        case openInputMonitoringSettings = "Open Input Monitoring Settings"
+
+        init(_ fix: RecordingFix) {
+            self = switch fix {
+            case .allowMicrophone: .allowMicrophone
+            case .openMicrophoneSettings: .openMicrophoneSettings
+            case .openInputMonitoringSettings: .openInputMonitoringSettings
+            }
+        }
     }
 
     let title: String
@@ -96,8 +109,7 @@ protocol AlertPresenting {
 enum CoordinatorError: LocalizedError {
     case noDisplays
     case clipboardFailed(savedTo: URL, reason: String)
-    case microphoneDenied
-    case microphoneDeniedForRecording
+    case inputDisconnected(AudioInput, savedTo: URL?)
 
     var errorDescription: String? {
         switch self {
@@ -105,10 +117,8 @@ enum CoordinatorError: LocalizedError {
             "No display is connected, so there is nothing to capture."
         case .clipboardFailed(let url, let reason):
             "The screenshot was saved to \(url.path), but copying it to the clipboard failed: \(reason)"
-        case .microphoneDenied:
-            "Lunetta isn't allowed to use the microphone. Turn on Lunetta in System Settings > Privacy & Security > Microphone, then turn on Record Microphone again."
-        case .microphoneDeniedForRecording:
-            "Record Microphone is on, but Lunetta isn't allowed to use the microphone. Turn on Lunetta in System Settings > Privacy & Security > Microphone, or turn off Record Microphone in the Lunetta menu."
+        case .inputDisconnected(let input, let url):
+            InputDisconnected.message(input: input, savedTo: url?.path)
         }
     }
 }
@@ -124,18 +134,22 @@ private final class RecordingSession {
 
     let target: RecordingTarget
     let options: RecordingOptions
+    /// The input chosen in the panel; nil when the microphone is off or follows the system default.
+    let input: AudioInput?
     let url: URL
     let partsFolder = FileManager.default.temporaryDirectory.appending(path: "Lunetta-recording-\(UUID().uuidString)")
     var status: RecordingStatus
     var parts: [URL] = []
     var segment: Segment?
     var isEnding = false
+    var lostInput: AudioInput?
     private var partCount = 0
     private var queue: Task<Void, Never>?
 
-    init(target: RecordingTarget, options: RecordingOptions, url: URL, status: RecordingStatus) {
+    init(target: RecordingTarget, options: RecordingOptions, input: AudioInput?, url: URL, status: RecordingStatus) {
         self.target = target
         self.options = options
+        self.input = input
         self.url = url
         self.status = status
     }
@@ -162,6 +176,7 @@ final class CaptureCoordinator {
     private let capturer: any Capturing
     private let recorder: any Recording
     private let microphone: any MicrophoneAccess
+    private let keystrokes: any KeystrokeShowing
     private let selector: any Selecting
     private let alerts: any AlertPresenting
     private let settings: LunettaSettings
@@ -183,6 +198,7 @@ final class CaptureCoordinator {
         capturer: any Capturing,
         recorder: any Recording,
         microphone: any MicrophoneAccess,
+        keystrokes: any KeystrokeShowing,
         selector: any Selecting,
         alerts: any AlertPresenting,
         settings: LunettaSettings,
@@ -199,6 +215,7 @@ final class CaptureCoordinator {
         self.capturer = capturer
         self.recorder = recorder
         self.microphone = microphone
+        self.keystrokes = keystrokes
         self.selector = selector
         self.alerts = alerts
         self.settings = settings
@@ -247,7 +264,8 @@ final class CaptureCoordinator {
         }
     }
 
-    /// The record hotkeys and the menu items toggle: during the countdown they cancel it, while recording they stop.
+    /// The record hotkeys toggle: during the countdown they cancel it, while recording they stop. The panel's Record button
+    /// comes here too, with the same checks, so both start from the same choices.
     func toggleRecording(_ mode: RecordingMode) async {
         if let countdown {
             countdown.cancel()
@@ -258,17 +276,27 @@ final class CaptureCoordinator {
         isRunning = true
         defer { isRunning = false }
         var selected = false
+        var showsKeys = false
+        defer { if showsKeys, session == nil { keystrokes.hide() } }
         do {
             guard await capturer.hasPermission() else { throw CaptureError.permissionDenied }
-            if settings.recordMicrophone, microphone.status != .authorized { throw CoordinatorError.microphoneDeniedForRecording }
+            if let problem = recordingProblems(for: mode).first { throw problem }
+            let choices = settings.recordingChoices
             guard let (target, region) = try await selectRecordingTarget(mode) else { return }
             selected = true
-            let options = RecordingOptions(
+            let input = choices.microphone ? choices.input : nil
+            var options = RecordingOptions(
                 codec: settings.recordingCodec,
-                systemAudio: settings.recordSystemAudio,
-                microphone: settings.recordMicrophone
+                systemAudio: choices.systemAudio,
+                microphone: choices.microphone,
+                microphoneID: input?.id,
+                showsClicks: choices.showsClicks
             )
-            try await record(target, status: RecordingStatus(region: region, dimsOutside: mode == .area), options: options)
+            if choices.showsKeys {
+                showsKeys = true
+                options.keptWindowIDs = [try keystrokes.show(over: region)]
+            }
+            try await record(target, status: RecordingStatus(region: region, dimsOutside: mode == .area), options: options, input: input)
         } catch {
             if selected { onRecordingEvent(.ended(.failed)) }
             present(error, failure: "Lunetta couldn't start the recording")
@@ -280,22 +308,27 @@ final class CaptureCoordinator {
         isRunning = true
         defer { isRunning = false }
         await discardRecording()
+        let showsKeys = !session.options.keptWindowIDs.isEmpty
+        defer { if showsKeys, self.session == nil { keystrokes.hide() } }
         do {
+            var options = session.options
+            // Discarding took the pressed keys down with the old recording; the new one gets them back.
+            if showsKeys { options.keptWindowIDs = [try keystrokes.show(over: session.status.region)] }
             let status = RecordingStatus(region: session.status.region, dimsOutside: session.status.dimsOutside)
-            try await record(session.target, status: status, options: session.options)
+            try await record(session.target, status: status, options: options, input: session.input)
         } catch {
             onRecordingEvent(.ended(.failed))
             present(error, failure: "Lunetta couldn't start the recording over")
         }
     }
 
-    private func record(_ target: RecordingTarget, status: RecordingStatus, options: RecordingOptions) async throws {
+    private func record(_ target: RecordingTarget, status: RecordingStatus, options: RecordingOptions, input: AudioInput?) async throws {
         guard await countDownIfOn(status) else { return }
         let url = nextFileURL(ext: "mp4")
         let active = try await recorder.startRecording(target, to: url, options: options)
         var status = status
         status.clock.start(at: now())
-        let session = RecordingSession(target: target, options: options, url: url, status: status)
+        let session = RecordingSession(target: target, options: options, input: input, url: url, status: status)
         self.session = session
         attach(active, writingTo: url, in: session)
         onRecordingEvent(.started(status))
@@ -309,19 +342,30 @@ final class CaptureCoordinator {
         return await counting.value
     }
 
-    /// The permission prompt only comes up when the toggle turns on; a refusal leaves the toggle off and says how to fix it.
-    func setRecordMicrophone(_ on: Bool) async {
-        guard on else {
-            settings.recordMicrophone = false
-            return
+    /// What keeps the panel's current choices from recording `mode`; the record hotkeys check the same list.
+    func recordingProblems(for mode: RecordingMode) -> [RecordingProblem] {
+        RecordingPreflight.problems(
+            mode: mode,
+            choices: settings.recordingChoices,
+            microphone: microphone.status,
+            inputMonitoringAllowed: keystrokes.isAllowed,
+            connectedInputs: settings.recordMicrophone ? microphone.inputs : []
+        )
+    }
+
+    func fix(_ fix: RecordingFix) async {
+        switch fix {
+        case .allowMicrophone: _ = await microphone.requestAccess()
+        case .openMicrophoneSettings: microphone.openSettings()
+        case .openInputMonitoringSettings: keystrokes.openSettings()
         }
-        let allowed = switch microphone.status {
-        case .authorized: true
-        case .notDetermined: await microphone.requestAccess()
-        case .denied: false
-        }
-        settings.recordMicrophone = allowed
-        if !allowed { present(CoordinatorError.microphoneDenied, failure: "Lunetta can't record the microphone") }
+    }
+
+    /// SCStream keeps recording when its input goes away; ending here keeps the file from going on without its sound.
+    func inputDisconnected(id: String) async {
+        guard let session, !session.isEnding, let input = session.input, input.id == id else { return }
+        session.lostInput = input
+        await end(session)
     }
 
     func stopRecording() async {
@@ -410,6 +454,7 @@ final class CaptureCoordinator {
     /// The controls go away on the click; joining the parts and handing over the file follow.
     private func beginEnding(_ session: RecordingSession, as end: RecordingEnd) {
         session.isEnding = true
+        if !session.options.keptWindowIDs.isEmpty { keystrokes.hide() }
         onRecordingEvent(.ended(end))
     }
 
@@ -422,9 +467,11 @@ final class CaptureCoordinator {
             problem = problem ?? error
         }
         if self.session === session { self.session = nil }
-        if fileExists(session.url) { onSaved(session.url, nil) }
+        let saved = fileExists(session.url)
+        if saved { onSaved(session.url, nil) }
+        if let lost = session.lostInput { problem = CoordinatorError.inputDisconnected(lost, savedTo: saved ? session.url : nil) }
         guard let problem else { return }
-        let stoppedEarly = if case .recordingStoppedEarly = problem as? CaptureError { true } else { false }
+        let stoppedEarly = if case .recordingStoppedEarly = problem as? CaptureError { true } else { session.lostInput != nil }
         present(problem, failure: stoppedEarly ? "Lunetta's recording stopped early" : "Lunetta couldn't finish the recording")
     }
 
@@ -577,22 +624,27 @@ final class CaptureCoordinator {
 
     private func present(_ error: any Error, failure: String = "Lunetta couldn't take the screenshot") {
         let needsPermission = (error as? CaptureError) == .permissionDenied
-        let needsMicrophone = switch error as? CoordinatorError {
-        case .microphoneDenied, .microphoneDeniedForRecording: true
-        default: false
-        }
+        let fix = (error as? RecordingProblem)?.fix
         let savedButNotCopied = if case .clipboardFailed = error as? CoordinatorError { true } else { false }
         let alert = CaptureAlert(
             title: savedButNotCopied ? "Lunetta saved the screenshot but couldn't copy it" : failure,
             message: error.localizedDescription,
-            buttons: needsPermission ? [.openSystemSettings, .ok] : needsMicrophone ? [.openMicrophoneSettings, .ok] : [.ok]
+            buttons: needsPermission ? [.openSystemSettings, .ok] : fix.map { [CaptureAlert.Button($0), .ok] } ?? [.ok]
         )
-        let choice = alerts.present(alert)
-        if choice == .openMicrophoneSettings { microphone.openSettings() }
-        guard choice == .openSystemSettings else { return }
-        // CGPreflightScreenCaptureAccess never registers Lunetta with TCC; without this request
-        // Lunetta is missing from the Screen Recording list and the user has to add it by hand.
-        _ = CapturePermission.request()
-        CapturePermission.openSettings()
+        switch alerts.present(alert) {
+        case .ok:
+            break
+        case .openSystemSettings:
+            // CGPreflightScreenCaptureAccess never registers Lunetta with TCC; without this request
+            // Lunetta is missing from the Screen Recording list and the user has to add it by hand.
+            _ = CapturePermission.request()
+            CapturePermission.openSettings()
+        case .allowMicrophone:
+            Task { await self.fix(.allowMicrophone) }
+        case .openMicrophoneSettings:
+            microphone.openSettings()
+        case .openInputMonitoringSettings:
+            keystrokes.openSettings()
+        }
     }
 }
