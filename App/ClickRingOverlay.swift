@@ -1,14 +1,14 @@
 import AppKit
 import QuartzCore
 
-/// Draws a ring under the pointer on each click inside the recorded area. ScreenCaptureKit's own `showMouseClicks`
+/// Pulses a soft disc under the pointer on each click inside the recorded area. ScreenCaptureKit's own `showMouseClicks`
 /// drew nothing in Lunetta's area recordings (an SCRecordingOutput stream that leaves out Lunetta's windows), and
 /// tinycap saw the same with that setup (https://github.com/soleo/tinycap/pull/7). A global monitor sees other
 /// apps' clicks without any permission; only key events need one.
 @MainActor
 final class ClickRingOverlay: ClickShowing {
-    private static let diameter: CGFloat = 36
-    private static let lineWidth: CGFloat = 3
+    static let diameter: CGFloat = 36
+    static let fillAlpha: CGFloat = 0.2
 
     private var panel: NSPanel?
     private var monitor: Any?
@@ -37,50 +37,46 @@ final class ClickRingOverlay: ClickShowing {
     private func ring(at location: CGPoint) {
         guard let panel, panel.frame.contains(location), let host = panel.contentView?.layer else { return }
         let center = CGPoint(x: location.x - panel.frame.minX, y: location.y - panel.frame.minY)
-        let ring = Self.makeRing(centeredAt: center)
-        host.addSublayer(ring)
+        let pulse = Self.makePulse(centeredAt: center)
+        host.addSublayer(pulse)
         CATransaction.begin()
-        CATransaction.setCompletionBlock { ring.removeFromSuperlayer() }
-        ring.add(Self.fadeAway(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion), forKey: "click")
+        CATransaction.setCompletionBlock { pulse.removeFromSuperlayer() }
+        pulse.add(Self.pulse(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion), forKey: "click")
         CATransaction.commit()
     }
 
-    private static func makeRing(centeredAt center: CGPoint) -> CAShapeLayer {
-        let ring = CAShapeLayer()
-        ring.bounds = CGRect(x: 0, y: 0, width: diameter, height: diameter)
-        ring.position = center
-        ring.path = CGPath(ellipseIn: ring.bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2), transform: nil)
-        let accent = NSColor.controlAccentColor
-        ring.fillColor = accent.withAlphaComponent(0.3).cgColor
-        ring.strokeColor = accent.cgColor
-        ring.lineWidth = lineWidth
-        ring.opacity = 0
-        return ring
+    /// A borderless, see-through disc, so whatever sits under the pointer stays readable while it pulses.
+    static func makePulse(centeredAt center: CGPoint) -> CAShapeLayer {
+        let pulse = CAShapeLayer()
+        pulse.bounds = CGRect(x: 0, y: 0, width: diameter, height: diameter)
+        pulse.position = center
+        pulse.path = CGPath(ellipseIn: pulse.bounds, transform: nil)
+        pulse.fillColor = NSColor.controlAccentColor.withAlphaComponent(fillAlpha).cgColor
+        pulse.strokeColor = nil
+        pulse.opacity = 0
+        return pulse
     }
 
-    /// Grows in like a thumbnail enters, then fades like one leaves.
-    private static func fadeAway(reduceMotion: Bool) -> CAAnimationGroup {
-        let enter = ThumbnailPresenter.enterDuration
-        let exit = ThumbnailPresenter.exitDuration
+    /// Spreads out from the click while it fades, over the time a thumbnail takes to come and go.
+    static func pulse(reduceMotion: Bool) -> CAAnimationGroup {
+        let duration = ThumbnailPresenter.enterDuration + ThumbnailPresenter.exitDuration
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1
         fade.toValue = 0
-        fade.beginTime = enter
-        fade.duration = exit
-        fade.fillMode = .backwards
+        fade.duration = duration
         fade.timingFunction = ThumbnailPresenter.easeOut
         let group = CAAnimationGroup()
         if reduceMotion {
             group.animations = [fade]
         } else {
-            let grow = CABasicAnimation(keyPath: "transform.scale")
-            grow.fromValue = 0.5
-            grow.toValue = 1
-            grow.duration = enter
-            grow.timingFunction = ThumbnailPresenter.easeOut
-            group.animations = [grow, fade]
+            let spread = CABasicAnimation(keyPath: "transform.scale")
+            spread.fromValue = 0.3
+            spread.toValue = 1
+            spread.duration = duration
+            spread.timingFunction = ThumbnailPresenter.easeOut
+            group.animations = [spread, fade]
         }
-        group.duration = enter + exit
+        group.duration = duration
         return group
     }
 
