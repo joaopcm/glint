@@ -56,6 +56,9 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     public var onToolChange: ((Tool) -> Void)?
     public var onSelectionChange: (() -> Void)?
     public var onSave: (() -> Void)?
+    public var onZoomChange: (() -> Void)?
+    /// How far past fitting the window the capture is zoomed: 1 fits it, `maximumMagnification` shows it at `maximumZoom`.
+    public private(set) var magnification: CGFloat = 1
     public private(set) var selectedID: UUID? {
         didSet {
             guard selectedID != oldValue else { return }
@@ -76,6 +79,15 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     private var textFieldOrigin: CGPoint = .zero
     private var textFieldLineHeight: CGFloat = 0
     private var intensities: [Tool: Double] = [.blur: ObscuringIntensity.standard, .pixelate: ObscuringIntensity.standard]
+    /// The image point shown at the middle of the available rect, before `clamped(_:)` keeps the image covering it.
+    private var focus: CGPoint
+
+    /// Eight times the capture's real size: a pixel of a Retina capture spans 4 pt, wide enough to put a handle on.
+    static let maximumZoom: CGFloat = 8
+    // NSScrollView's default lineScroll: a mouse wheel reports lines, a trackpad points.
+    private static let pointsPerLine: CGFloat = 10
+    // A mouse-wheel notch, one line or 10 pt, zooms by e^0.1: about 10%.
+    private static let zoomPerPoint: CGFloat = 0.01
 
     private static let handleDiameter: CGFloat = 10
     private static let arrowHandleDiameter: CGFloat = 14
@@ -91,6 +103,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         // About half the cursor's width, measured against the cursor in the reference arrow the redesign copies.
         arrowLineWidth = 6 * pixelsPerPoint
         textLineHeight = 28 * pixelsPerPoint
+        focus = CGPoint(x: CGFloat(document.base.width) / 2, y: CGFloat(document.base.height) / 2)
         super.init(frame: .zero)
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
@@ -134,22 +147,111 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     }
 
     /// Fits the image, but never past its real size: a small capture blown up looks blurry and cheap.
-    private var zoom: CGFloat {
+    private var fitZoom: CGFloat {
         let available = availableRect
         let fit = min(available.width / imageSize.width, available.height / imageSize.height, 1 / pixelsPerPoint)
         return max(fit, .leastNormalMagnitude)
     }
 
+    private var zoom: CGFloat { fitZoom * magnification }
+
+    var maximumMagnification: CGFloat {
+        max(Self.maximumZoom / pixelsPerPoint / fitZoom, 1)
+    }
+
+    /// The zoom as Preview shows it: 100% is the capture's real size.
+    var zoomPercent: Int {
+        Int((zoom * pixelsPerPoint * 100).rounded())
+    }
+
+    /// 0 fits the window, 1 is `maximumZoom`. Logarithmic, so every step of a slider zooms by the same ratio.
+    var zoomPosition: Double {
+        get {
+            let range = log(maximumMagnification)
+            return range > 0 ? Double(log(magnification) / range) : 0
+        }
+        set { setMagnification(pow(maximumMagnification, CGFloat(newValue))) }
+    }
+
     var imageRect: CGRect {
-        let size = CGSize(width: imageSize.width * zoom, height: imageSize.height * zoom)
         let available = availableRect
-        return CGRect(x: available.midX - size.width / 2, y: available.midY - size.height / 2, width: size.width, height: size.height)
+        let center = clamped(focus)
+        return CGRect(
+            x: available.midX - center.x * zoom,
+            y: available.midY - center.y * zoom,
+            width: imageSize.width * zoom,
+            height: imageSize.height * zoom
+        )
+    }
+
+    /// Centers an image smaller than the available rect; a bigger one may scroll only until its edge meets the rect's.
+    private func clamped(_ point: CGPoint) -> CGPoint {
+        let available = availableRect
+        func axis(_ value: CGFloat, image: CGFloat, visible: CGFloat) -> CGFloat {
+            let half = visible / 2 / zoom
+            return image <= 2 * half ? image / 2 : min(max(value, half), image - half)
+        }
+        return CGPoint(
+            x: axis(point.x, image: imageSize.width, visible: available.width),
+            y: axis(point.y, image: imageSize.height, visible: available.height)
+        )
     }
 
     /// The canvas reads as the image to accessibility, so its frame is the image's, not the backdrop's.
     public override func accessibilityFrame() -> NSRect {
         guard let window else { return super.accessibilityFrame() }
-        return window.convertToScreen(convert(imageRect, to: nil))
+        return window.convertToScreen(convert(imageRect.intersection(bounds), to: nil))
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        magnification = min(magnification, maximumMagnification)
+        zoomChanged()
+    }
+
+    // MARK: Zoom
+
+    /// Keeps the image point under `anchor`, a point in the view, where it is; without one, the middle stays put.
+    func setMagnification(_ value: CGFloat, anchoredAt anchor: CGPoint? = nil) {
+        let available = availableRect
+        let anchor = anchor ?? CGPoint(x: available.midX, y: available.midY)
+        let before = imageRect
+        let anchoredPoint = CGPoint(x: (anchor.x - before.minX) / zoom, y: (anchor.y - before.minY) / zoom)
+        magnification = min(max(value, 1), maximumMagnification)
+        focus = clamped(CGPoint(
+            x: anchoredPoint.x - (anchor.x - available.midX) / zoom,
+            y: anchoredPoint.y - (anchor.y - available.midY) / zoom
+        ))
+        zoomChanged()
+    }
+
+    /// Moves the image by `offset` view points, as a scroll view moves its content.
+    func pan(by offset: CGSize) {
+        let center = clamped(focus)
+        focus = clamped(CGPoint(x: center.x - offset.width / zoom, y: center.y - offset.height / zoom))
+        zoomChanged()
+    }
+
+    public override func scrollWheel(with event: NSEvent) {
+        let points = event.hasPreciseScrollingDeltas ? 1 : Self.pointsPerLine
+        let delta = CGSize(width: event.scrollingDeltaX * points, height: event.scrollingDeltaY * points)
+        if event.modifierFlags.contains(.command) {
+            setMagnification(magnification * exp(delta.height * Self.zoomPerPoint), anchoredAt: convert(event.locationInWindow, from: nil))
+        } else if magnification > 1 {
+            pan(by: delta)
+        } else {
+            super.scrollWheel(with: event)
+        }
+    }
+
+    public override func magnify(with event: NSEvent) {
+        setMagnification(magnification * (1 + event.magnification), anchoredAt: convert(event.locationInWindow, from: nil))
+    }
+
+    private func zoomChanged() {
+        layoutTextField()
+        needsDisplay = true
+        onZoomChange?()
     }
 
     private func imagePoint(for event: NSEvent) -> CGPoint {
@@ -530,19 +632,25 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = AnnotationRenderer.textFont(fittingLineHeight: lineHeight * zoom)
         field.textColor = color.nsColor
         field.placeholderString = "Type, then press Return"
         field.delegate = self
         field.setAccessibilityLabel("Annotation text")
-        field.sizeToFit()
-        field.frame = CGRect(origin: viewPoint(imageOrigin), size: CGSize(width: max(field.frame.width, 200), height: field.frame.height))
         addSubview(field)
         textField = field
         textFieldOrigin = imageOrigin
         textFieldLineHeight = lineHeight
+        layoutTextField()
         window?.makeFirstResponder(field)
         needsDisplay = true
+    }
+
+    /// Text typed into a zoomed canvas grows and moves with the image under it.
+    private func layoutTextField() {
+        guard let field = textField else { return }
+        field.font = AnnotationRenderer.textFont(fittingLineHeight: textFieldLineHeight * zoom)
+        field.sizeToFit()
+        field.frame = CGRect(origin: viewPoint(textFieldOrigin), size: CGSize(width: max(field.frame.width, 200), height: field.frame.height))
     }
 
     private func endTextEditing(commit: Bool) {
