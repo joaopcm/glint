@@ -45,6 +45,15 @@ public final class AnnotationDocument {
         }
     }
 
+    public func setObscuringSize(_ id: UUID, _ size: CGFloat) {
+        guard let kind = annotation(id)?.kind, kind.obscuringSize != nil else { return }
+        update(id, actionName: "Change \(kind.name) Intensity") { annotation in
+            var changed = annotation
+            changed.kind = kind.obscuring(size: size)
+            return changed
+        }
+    }
+
     public func delete(_ id: UUID) {
         commit(annotations.filter { $0.id != id }, crop: crop, actionName: "Delete")
     }

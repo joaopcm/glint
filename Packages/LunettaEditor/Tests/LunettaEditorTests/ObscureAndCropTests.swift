@@ -8,7 +8,7 @@ struct ObscureAndCropTests {
     let stripes = stripedImage(width: 200, height: 100)
     let region = CGRect(x: 40, y: 20, width: 80, height: 60)
 
-    @Test(arguments: [Annotation.Kind.blur, .pixelate])
+    @Test(arguments: [Annotation.Kind.blur(sigma: 24), .pixelate(block: 24)])
     func obscuredPixelsDoNotMatchTheOriginal(kind: Annotation.Kind) throws {
         let layer = Annotation(kind: kind, start: region.origin, end: CGPoint(x: region.maxX, y: region.maxY), lineWidth: 6)
         let original = Pixels(stripes)
@@ -17,7 +17,7 @@ struct ObscureAndCropTests {
         #expect(flat.matchingShare(original, in: CGRect(x: 150, y: 0, width: 50, height: 100)) == 1)
     }
 
-    @Test(arguments: [Annotation.Kind.blur, .pixelate])
+    @Test(arguments: [Annotation.Kind.blur(sigma: 24), .pixelate(block: 24)])
     func obscuringRendersFromTheBaseNotFromLayersBelow(kind: Annotation.Kind) throws {
         let ink = Annotation(kind: .highlighter, start: region.origin, end: CGPoint(x: region.maxX, y: region.maxY), lineWidth: 6)
         let layer = Annotation(kind: kind, start: region.origin, end: CGPoint(x: region.maxX, y: region.maxY), lineWidth: 6)
@@ -28,7 +28,7 @@ struct ObscureAndCropTests {
 
     @Test func movingABlurLeavesTheOldSpotUntouchedAndBlursTheNewOne() throws {
         let document = AnnotationDocument(base: stripes)
-        let layer = Annotation(kind: .blur, start: region.origin, end: CGPoint(x: region.maxX, y: region.maxY), lineWidth: 6)
+        let layer = Annotation(kind: .blur(sigma: 24), start: region.origin, end: CGPoint(x: region.maxX, y: region.maxY), lineWidth: 6)
         document.add(layer)
         document.move(layer.id, by: CGSize(width: 70, height: 0))
         let original = Pixels(stripes)
@@ -82,7 +82,7 @@ struct ObscureAndCropTests {
 
     @Test func blurAndPixelateUndoLikeTheOtherTools() {
         let document = AnnotationDocument(base: stripes)
-        document.add(Annotation(kind: .pixelate, start: .zero, end: CGPoint(x: 10, y: 10), lineWidth: 6))
+        document.add(Annotation(kind: .pixelate(block: 24), start: .zero, end: CGPoint(x: 10, y: 10), lineWidth: 6))
         #expect(document.undoManager.undoActionName == "Add Pixelate")
         document.undoManager.undo()
         #expect(document.annotations.isEmpty)
@@ -91,8 +91,8 @@ struct ObscureAndCropTests {
     @Test func croppedFlattenMatchesFullFlattenThenCropWithObscureAndInk() throws {
         let crop = CGRect(x: 30, y: 15, width: 90, height: 65)
         let annotations = [
-            Annotation(kind: .blur, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 70, y: 60), lineWidth: 6),
-            Annotation(kind: .pixelate, start: CGPoint(x: 60, y: 30), end: CGPoint(x: 110, y: 75), lineWidth: 6),
+            Annotation(kind: .blur(sigma: 24), start: CGPoint(x: 10, y: 10), end: CGPoint(x: 70, y: 60), lineWidth: 6),
+            Annotation(kind: .pixelate(block: 24), start: CGPoint(x: 60, y: 30), end: CGPoint(x: 110, y: 75), lineWidth: 6),
             Annotation(kind: .arrow, start: CGPoint(x: 20, y: 20), end: CGPoint(x: 100, y: 70), lineWidth: 4),
             Annotation(kind: .rectangle, start: CGPoint(x: 150, y: 10), end: CGPoint(x: 190, y: 90), lineWidth: 4),
         ]
