@@ -2,6 +2,8 @@ import AVFoundation
 import XCTest
 
 final class RecordingPanelUITests: LunettaUITestCase {
+    override var pinsRecordingChoices: Bool { false }
+
     /// The panel saves to Lunetta's real defaults, which every later test launches with; none of these may leak.
     private static let panelKeys = [
         "recordSystemAudio", "recordMicrophone", "recordingInputID", "recordingInputName",
@@ -82,21 +84,37 @@ final class RecordingPanelUITests: LunettaUITestCase {
     @MainActor private func waitUntilSaved(_ key: String, is expected: Bool) -> Bool {
         let deadline = Date().addingTimeInterval(Self.captureTimeout)
         while Date() < deadline {
-            if Self.savedValue(key) as? Bool == expected { return true }
+            if Self.savedValue(key) == (expected ? "1" : "0") { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         return false
     }
 
-    private static func savedValue(_ key: String) -> Any? {
-        CFPreferencesAppSynchronize(lunettaBundleID as CFString)
-        return CFPreferencesCopyAppValue(key as CFString, lunettaBundleID as CFString)
+    /// A fresh `defaults` process each time: the runner's own CFPreferences cache kept answering with what it read
+    /// before Lunetta saved, so a saved choice looked missing and deleting it did nothing (run 45816994479).
+    private static func savedValue(_ key: String) -> String {
+        defaults(["read", lunettaBundleID, key])
     }
 
     private static func forgetPanelChoices() {
         for key in panelKeys {
-            CFPreferencesSetAppValue(key as CFString, nil, lunettaBundleID as CFString)
+            defaults(["delete", lunettaBundleID, key])
         }
-        CFPreferencesAppSynchronize(lunettaBundleID as CFString)
+    }
+
+    @discardableResult private static func defaults(_ arguments: [String]) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+        process.arguments = arguments
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+        do {
+            try process.run()
+        } catch {
+            return "defaults \(arguments.joined(separator: " ")) didn't run: \(error.localizedDescription)"
+        }
+        process.waitUntilExit()
+        return String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
