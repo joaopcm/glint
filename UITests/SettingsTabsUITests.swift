@@ -80,12 +80,23 @@ final class SettingsTabsUITests: LunettaUITestCase {
         }
     }
 
-    /// `adjust(toNormalizedSliderPosition:)` left the SwiftUI slider at its 64 pt default (run 45814761757), so drag it like a
-    /// pointer would, past the track's end so the knob stops at the bound.
+    /// `LunettaSettings.windowWallpaperPaddingRange`'s upper bound.
+    static let maxPadding: Double = 256
+    /// The knob is 20 pt wide in run 45817668878's screen recording, so its center stops 10 pt in from each end of the track.
+    static let sliderKnobInset: CGFloat = 10
+
+    /// `adjust(toNormalizedSliderPosition:)` left the slider at 64 pt (run 45814761757), and so did pressing the middle of the
+    /// track: this tick-marked slider only moves when the knob is grabbed (run 45817668878's recording). So grab the knob where
+    /// the readout puts it and drag past the track's end, where it stops at the bound.
     @MainActor private func drag(_ slider: XCUIElement, toNormalizedX x: CGFloat) {
-        let start = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        guard let padding = Double(paddingReadout.prefix { $0.isNumber }) else {
+            XCTFail("the padding readout says \(paddingReadout), not a number of points")
+            return
+        }
+        let knob = Self.sliderKnobInset + (slider.frame.width - 2 * Self.sliderKnobInset) * CGFloat(padding / Self.maxPadding)
+        let trackStart = slider.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
         let target = slider.coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.5))
-        start.press(forDuration: 0.1, thenDragTo: target)
+        trackStart.withOffset(CGVector(dx: knob, dy: 0)).press(forDuration: 0.1, thenDragTo: target)
     }
 
     @MainActor private var paddingReadout: String {
