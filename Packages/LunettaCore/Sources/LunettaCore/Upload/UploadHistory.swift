@@ -41,6 +41,7 @@ public final class UploadHistory {
     }
 
     public func add(_ uploaded: UploadedCapture, at date: Date = Date()) {
+        records.removeAll { $0.key == uploaded.key }
         records.append(UploadRecord(key: uploaded.key, link: uploaded.link, date: date, bucket: uploaded.bucket))
         records.sort { $0.date > $1.date }
         save()

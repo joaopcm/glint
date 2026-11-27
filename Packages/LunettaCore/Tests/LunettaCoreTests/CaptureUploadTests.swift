@@ -170,3 +170,49 @@ private func client(_ transport: FakeTransport, publicBaseURL: String = "") thro
     #expect(uploaded.link.absoluteString == "https://shots.example.com/\(uploaded.key)")
     #expect(transport.requests.first?.url.absoluteString == "http://localhost:9000/shots/\(uploaded.key)")
 }
+
+@MainActor private func shotsAccess(_ transport: FakeTransport) -> BucketAccess {
+    let settings = LunettaSettings(store: MemoryStore(), defaultSaveFolder: URL(filePath: "/tmp"))
+    settings.bucketEndpoint = "http://localhost:9000"
+    settings.bucketRegion = "us-east-1"
+    settings.bucketName = "shots"
+    settings.bucketPathStyle = true
+    return BucketAccess(settings: settings, credentialStore: MemoryCredentialStore(testCredentials), transport: transport)
+}
+
+@MainActor @Test func replacingAnUploadPutsOverItsKeySoTheSharedLinkShowsTheNewBytes() async throws {
+    let transport = FakeTransport([ok()])
+    let body = Data("annotated png bytes".utf8)
+    let file = try temporaryPNG(body)
+    defer { try? FileManager.default.removeItem(at: file) }
+    let earlier = UploadedCapture(
+        key: "Ab3.png",
+        link: URL(string: "http://localhost:9000/shots/Ab3.png")!,
+        bucket: BucketIdentity(endpoint: URL(string: "http://localhost:9000")!, bucket: "shots")
+    )
+
+    let uploaded = try await shotsAccess(transport).upload(file, replacing: earlier)
+
+    #expect(uploaded == earlier)
+    let request = try #require(transport.requests.first)
+    #expect(request.method == "PUT")
+    #expect(request.url.absoluteString == "http://localhost:9000/shots/Ab3.png")
+    #expect(request.body == body)
+}
+
+@MainActor @Test func replacingAnUploadFromAnotherBucketUploadsANewObject() async throws {
+    let transport = FakeTransport([ok()])
+    let file = try temporaryPNG()
+    defer { try? FileManager.default.removeItem(at: file) }
+    let elsewhere = UploadedCapture(
+        key: "Ab3.png",
+        link: URL(string: "http://localhost:9000/old/Ab3.png")!,
+        bucket: BucketIdentity(endpoint: URL(string: "http://localhost:9000")!, bucket: "old")
+    )
+
+    let uploaded = try await shotsAccess(transport).upload(file, replacing: elsewhere)
+
+    #expect(uploaded.key != elsewhere.key)
+    #expect(uploaded.bucket.bucket == "shots")
+    #expect(transport.requests.first?.url.absoluteString == "http://localhost:9000/shots/\(uploaded.key)")
+}

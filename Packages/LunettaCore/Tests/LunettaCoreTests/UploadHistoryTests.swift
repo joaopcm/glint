@@ -34,6 +34,15 @@ private struct DeleteRefused: Error, LocalizedError {
     #expect(history.error == nil)
 }
 
+@MainActor @Test func reuploadingTheSameKeyKeepsOneRowDatedByTheLatestUpload() {
+    let history = UploadHistory(file: temporaryHistoryFile())
+    history.add(uploaded("a"), at: Date(timeIntervalSince1970: 100))
+    history.add(uploaded("b"), at: Date(timeIntervalSince1970: 200))
+    history.add(uploaded("a"), at: Date(timeIntervalSince1970: 300))
+    #expect(history.records.map(\.key) == ["lunetta/a.png", "lunetta/b.png"])
+    #expect(history.records.first?.date == Date(timeIntervalSince1970: 300))
+}
+
 @MainActor @Test func historySurvivesARelaunch() {
     let file = temporaryHistoryFile()
     let history = UploadHistory(file: file)

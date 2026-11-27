@@ -86,6 +86,11 @@ extension S3Client {
     public static let singlePutLimit = 5 * 1024 * 1024 * 1024
 
     public func upload(_ file: URL, id: String = ObjectID.random()) async throws(UploadError) -> UploadedCapture {
+        let ext = file.pathExtension.lowercased()
+        return try await upload(file, key: configuration.objectKey(forName: ext.isEmpty ? id : "\(id).\(ext)"))
+    }
+
+    public func upload(_ file: URL, key: String) async throws(UploadError) -> UploadedCapture {
         let size: NSNumber?
         do {
             size = try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber
@@ -100,10 +105,8 @@ extension S3Client {
         } catch {
             throw .unreadable(path: file.path, reason: error.localizedDescription)
         }
-        let ext = file.pathExtension.lowercased()
-        let key = configuration.objectKey(forName: ext.isEmpty ? id : "\(id).\(ext)")
         do {
-            try await put(key: key, body: body, contentType: Self.contentType(forExtension: ext), contentDisposition: "inline")
+            try await put(key: key, body: body, contentType: Self.contentType(forExtension: file.pathExtension.lowercased()), contentDisposition: "inline")
         } catch {
             throw .request(error)
         }
@@ -120,7 +123,9 @@ extension S3Client {
 }
 
 extension BucketAccess {
-    public func upload(_ file: URL) async throws(UploadError) -> UploadedCapture {
+    /// Replacing an earlier upload PUTs over its key, so the link already shared shows the new bytes. One from a bucket
+    /// Settings > Upload no longer points at goes up as a new object instead.
+    public func upload(_ file: URL, replacing earlier: UploadedCapture? = nil) async throws(UploadError) -> UploadedCapture {
         let client: S3Client?
         do {
             client = try self.client()
@@ -128,6 +133,9 @@ extension BucketAccess {
             throw .setup(error)
         }
         guard let client else { throw .notConfigured }
+        if let earlier, earlier.bucket == client.configuration.identity {
+            return try await client.upload(file, key: earlier.key)
+        }
         return try await client.upload(file)
     }
 }

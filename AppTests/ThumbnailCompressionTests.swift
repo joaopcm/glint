@@ -10,7 +10,7 @@ import Testing
     var uploaded: [URL] = []
     let presenter = ThumbnailPresenter(
         settings: settings,
-        upload: { file in
+        upload: { file, _ in
             uploaded.append(file)
             return UploadedCapture(
                 key: "shots/Ab3.png",

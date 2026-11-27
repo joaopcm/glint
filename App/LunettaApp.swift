@@ -64,9 +64,9 @@ final class AppState {
         #endif
         thumbnail = ThumbnailPresenter(
             settings: settings,
-            upload: { [weak self] url in
+            upload: { [weak self] url, earlier in
                 guard let self else { throw UploadError.notConfigured }
-                return try await self.bucket.upload(url)
+                return try await self.bucket.upload(url, replacing: earlier)
             },
             onUploaded: { [weak self] uploaded in
                 guard let self else { return }
