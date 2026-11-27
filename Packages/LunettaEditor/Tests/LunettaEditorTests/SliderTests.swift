@@ -206,8 +206,13 @@ struct SliderTests {
     func anOpenSliderFitsTheSmallestWindow(tool: EditorCanvas.Tool) throws {
         let editor = makeEditor(width: 200, height: 100)
         let content = try #require(editor.window.contentView)
+        let minimum = editor.window.contentMinSize.width
         editor.canvas.tool = tool
         content.layoutSubtreeIfNeeded()
+        #expect(
+            content.bounds.width == minimum,
+            "the open dock (\(editor.dock.fittingSize.width) pt) grew a \(minimum) pt window to \(content.bounds.width) pt"
+        )
         let drawer = tool == .arrow ? editor.thicknessDrawer : editor.intensityDrawer
         let dock = editor.dock.convert(editor.dock.bounds, to: nil)
         let slider = drawer.slider.convert(drawer.slider.bounds, to: nil)
