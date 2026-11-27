@@ -520,6 +520,10 @@ for app in [lunetta, cleanShot] {
 }
 let ours = results[0]
 let theirs = results[1]
+let inputDuringRun = ownerInput.count
+let desktopUse = inputDuringRun == 0
+    ? "nobody used the Mac during the run: 0 keyboard or mouse events"
+    : "the owner used the Mac during the run: \(inputDuringRun) keyboard and mouse events (counts per launch below)"
 
 let commit = lunetta.bundle.infoDictionary?["LunettaCommit"] as? String ?? "unknown"
 let osVersion = {
@@ -548,7 +552,7 @@ Idle numbers are medians of \(launchesPerApp) launches, latency the median of \(
 
 - \(sysctlString("hw.model")) (\(sysctlString("machdep.cpu.brand_string"))), macOS \(osVersion)
 - displays: \(displayDescription()). \(windowCount) visible windows
-- normal desktop load, not a clean boot, and the owner may have used the Mac during the run (input counts below)
+- normal desktop load, not a clean boot. \(desktopUse)
 - Lunetta: Release build of `\(builtFrom)` at \(commit), `\(lunettaURL.path)`, the owner's settings with area hotkey \
 pinned to `⇧⌘2`, freeze screen and compress copied media pinned to their default off. other toggles the owner has saved: \
 \(lunettaToggles)

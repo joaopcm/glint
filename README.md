@@ -15,7 +15,7 @@ Open source screenshot and screen recording app for macOS.
 
 ## Performance
 
-Measured 2026-11-27 on an M4 Pro, macOS 27.2.1, against CleanShot X 5.0.4: idle memory 18 MB vs 58 MB, idle CPU 0.001% vs 0.006%, area overlay 18.4 ms median from hotkey vs 94.8 ms, app size 7 MB vs 71 MB. Both apps got the same synthetic hotkey with freeze screen off, and latency is to the window server ordering in each app's full-display capture window, not to photons on screen. Details in [docs/perf/2026-11-27.md](docs/perf/2026-11-27.md).
+Measured 2026-11-27 on an M4 Pro, macOS 27.2.1, against CleanShot X 5.0.4: idle memory 18 MB vs 57 MB, idle CPU 0.001% vs 0.003%, area overlay 29.1 ms median from hotkey vs 88.1 ms, app size 7 MB vs 71 MB. Both apps got the same synthetic hotkey with freeze screen off, and latency is to the window server ordering in each app's full-display capture window, not to photons on screen. Details in [docs/perf/2026-11-27.md](docs/perf/2026-11-27.md).
 
 ## Status
 
