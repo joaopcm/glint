@@ -15,7 +15,7 @@ Open source screenshot and screen recording app for macOS.
 
 ## Performance
 
-Measured 2026-11-24 on an M4 Pro, macOS 27.2.1: idle memory 19 MB vs 55 MB for CleanShot X (median of 3 launches); area overlay 36.1 ms median from hotkey vs 100.5 ms for CleanShot X. Latency is to the window server showing the overlay, not to photons on screen, and CleanShot X was triggered through its URL API, which adds time to its number only. Details in [#3](https://github.com/joaopcm/glint/issues/3#issuecomment-7145993290).
+Measured 2026-11-27 on an M4 Pro, macOS 27.2.1, against CleanShot X 5.0.2: idle memory 18 MB vs 54 MB, idle CPU 0.04% vs 0.01%, area overlay 34.7 ms median from hotkey vs 89.2 ms, app size 7 MB vs 74 MB. Both apps got the same synthetic hotkey with freeze screen off, and latency is to the window server ordering in each app's full-display capture window, not to photons on screen. Details in [docs/perf/2026-11-27.md](docs/perf/2026-11-27.md).
 
 ## Status
 

@@ -63,16 +63,12 @@ enum Modifier: CaseIterable {
     }
 }
 
-enum Trigger {
-    case hotkey(key: CGKeyCode, modifiers: [Modifier], label: String)
-    case url(URL)
+struct Hotkey {
+    let key: CGKeyCode
+    let modifiers: [Modifier]
+    let chord: String
 
-    var label: String {
-        switch self {
-        case .hotkey(_, _, let label): "`\(label)` hotkey"
-        case .url(let url): "`\(url.absoluteString)`"
-        }
-    }
+    var label: String { "`\(chord)` hotkey" }
 }
 
 struct App {
@@ -80,7 +76,7 @@ struct App {
     let bundleID: String
     let url: URL
     let launchArguments: [String]
-    let trigger: Trigger
+    let trigger: Hotkey
 
     var bundle: Bundle {
         guard let bundle = Bundle(url: url) else { fail("\(url.path) is not an app bundle") }
@@ -169,14 +165,13 @@ func bounds(of window: [String: Any]) -> CGRect? {
     return CGRect(dictionaryRepresentation: dictionary as CFDictionary)
 }
 
-func fullDisplayOverlays(of pid: pid_t, displayBounds: [CGRect]) -> Int {
-    onScreenWindows().filter { window in
+func fullDisplayWindows(of pid: pid_t, displayBounds: [CGRect]) -> Set<Int> {
+    Set(onScreenWindows().compactMap { window in
         guard (window[kCGWindowOwnerPID as String] as? Int32) == pid,
-              let layer = window[kCGWindowLayer as String] as? Int, layer > 0,
-              let rect = bounds(of: window)
-        else { return false }
-        return displayBounds.contains(rect)
-    }.count
+              let rect = bounds(of: window), displayBounds.contains(rect)
+        else { return nil }
+        return window[kCGWindowNumber as String] as? Int
+    })
 }
 
 let eventSource = CGEventSource(stateID: .hidSystemState)
@@ -189,29 +184,20 @@ func postKey(_ code: CGKeyCode, down: Bool, flags: CGEventFlags) {
     event.post(tap: .cghidEventTap)
 }
 
-func fire(_ trigger: Trigger) -> UInt64 {
-    switch trigger {
-    case .hotkey(let key, let modifiers, _):
-        var flags: CGEventFlags = []
-        for modifier in modifiers {
-            flags.insert(modifier.flag)
-            postKey(modifier.keyCode, down: true, flags: flags)
-        }
-        let start = uptimeNanoseconds()
-        postKey(key, down: true, flags: flags)
-        postKey(key, down: false, flags: flags)
-        for modifier in modifiers.reversed() {
-            flags.remove(modifier.flag)
-            postKey(modifier.keyCode, down: false, flags: flags)
-        }
-        return start
-    case .url(let url):
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = false
-        let start = uptimeNanoseconds()
-        NSWorkspace.shared.open(url, configuration: configuration)
-        return start
+func fire(_ hotkey: Hotkey) -> UInt64 {
+    var flags: CGEventFlags = []
+    for modifier in hotkey.modifiers {
+        flags.insert(modifier.flag)
+        postKey(modifier.keyCode, down: true, flags: flags)
     }
+    let start = uptimeNanoseconds()
+    postKey(hotkey.key, down: true, flags: flags)
+    postKey(hotkey.key, down: false, flags: flags)
+    for modifier in hotkey.modifiers.reversed() {
+        flags.remove(modifier.flag)
+        postKey(modifier.keyCode, down: false, flags: flags)
+    }
+    return start
 }
 
 func measureLatency(of app: App, pid: pid_t) -> [Double] {
@@ -220,13 +206,13 @@ func measureLatency(of app: App, pid: pid_t) -> [Double] {
     let escape: CGKeyCode = 53
     var latencies: [Double] = []
     for press in 1...pressesPerApp {
-        guard fullDisplayOverlays(of: pid, displayBounds: displayBounds) == 0 else {
-            fail("\(app.name) already shows a full-display overlay before press \(press); dismiss it and rerun")
-        }
+        let before = fullDisplayWindows(of: pid, displayBounds: displayBounds)
         let start = fire(app.trigger)
+        var overlay: Set<Int> = []
         var shownAt: UInt64?
         while uptimeNanoseconds() - start < timeout {
-            if fullDisplayOverlays(of: pid, displayBounds: displayBounds) > 0 {
+            overlay = fullDisplayWindows(of: pid, displayBounds: displayBounds).subtracting(before)
+            if !overlay.isEmpty {
                 shownAt = uptimeNanoseconds()
                 break
             }
@@ -234,15 +220,15 @@ func measureLatency(of app: App, pid: pid_t) -> [Double] {
         }
         guard let shownAt else {
             fail("""
-                \(app.name) showed no full-display window above layer 0 within \(overlayTimeoutSeconds)s of \
-                \(app.trigger.label) on press \(press). check the trigger still opens its area capture
+                \(app.name) showed no new full-display window within \(overlayTimeoutSeconds)s of \
+                \(app.trigger.label) on press \(press). check \(app.trigger.chord) is still its area capture shortcut in its settings
                 """)
         }
         latencies.append(Double(shownAt - start) / 1e6)
         postKey(escape, down: true, flags: [])
         postKey(escape, down: false, flags: [])
         let dismissStart = uptimeNanoseconds()
-        while fullDisplayOverlays(of: pid, displayBounds: displayBounds) > 0 {
+        while !fullDisplayWindows(of: pid, displayBounds: displayBounds).isDisjoint(with: overlay) {
             if uptimeNanoseconds() - dismissStart > timeout {
                 fail("\(app.name)'s overlay still up \(overlayTimeoutSeconds)s after Esc on press \(press)")
             }
@@ -349,26 +335,28 @@ let cleanShotURL = URL(fileURLWithPath: argument("--cleanshot"))
 let reportURL = URL(fileURLWithPath: argument("--report"))
 let readmeURL = URL(fileURLWithPath: argument("--readme"))
 
-// Pinned through the argument domain so a shortcut rebound in Settings can't make every press miss, and so a
-// freeze screen turned on in Settings can't slow the overlay down: on, it measured 103–218 ms against 27–42 ms off.
+// Pinned through the argument domain so a shortcut or freeze screen changed in Settings can't change what's measured.
+// Freeze screen is off for both, Lunetta's default. Plist `<false/>`, not NO: the argument domain passes NO as a
+// string, and CleanShot X reads strings as off (YES included), so only a plist bool really pins it.
 let lunetta = App(
     name: "Lunetta",
     bundleID: "com.joaopcm.lunetta",
     url: lunettaURL,
     launchArguments: [
         "-KeyboardShortcuts_captureArea", #""{\"carbonKeyCode\":19,\"carbonModifiers\":768}""#,
-        "-freezeScreenWhileSelecting", "NO",
+        "-freezeScreenWhileSelecting", "<false/>",
     ],
-    trigger: .hotkey(key: 19, modifiers: [.shift, .command], label: "⇧⌘2")
+    trigger: Hotkey(key: 19, modifiers: [.shift, .command], chord: "⇧⌘2")
 )
-// CleanShot X ignores synthetic key events (#3), so its URL API is the only trigger that works.
+// CleanShot X keeps its shortcuts in its group container, out of reach of the argument domain, so this relies on
+// Capture Area still being its default ⇧⌘4.
 guard let cleanShotBundleID = Bundle(url: cleanShotURL)?.bundleIdentifier else { fail("\(cleanShotURL.path) is not an app bundle") }
 let cleanShot = App(
     name: "CleanShot X",
     bundleID: cleanShotBundleID,
     url: cleanShotURL,
-    launchArguments: [],
-    trigger: .url(URL(string: "cleanshot://capture-area")!)
+    launchArguments: ["-freezeScreen", "<false/>"],
+    trigger: Hotkey(key: 21, modifiers: [.shift, .command], chord: "⇧⌘4")
 )
 
 struct Result {
@@ -431,7 +419,8 @@ Idle numbers are medians of \(launchesPerApp) launches, latency the median of \(
 - displays: \(displayDescription()). \(windowCount) visible windows
 - normal desktop load, not a clean boot
 - Lunetta: Release build of `main` at \(commit), `\(lunettaURL.path)`, default settings, area hotkey pinned to `⇧⌘2` and freeze screen pinned off
-- CleanShot X: \(cleanShot.version) (`\(cleanShot.bundleID)`), the owner's settings
+- CleanShot X: \(cleanShot.version) (`\(cleanShot.bundleID)`), the owner's settings except freeze screen pinned off, area hotkey \
+its default `⇧⌘4`
 
 ## idle
 
@@ -446,9 +435,12 @@ number `footprint <pid>` reports.
 
 ## trigger to overlay on screen
 
-\(pressesPerApp) presses per app, \(Int(pressGapSeconds)) s apart, Esc after each. t0 is taken right before the trigger is posted, \
-then `CGWindowListCopyWindowInfo` is polled every \(pollIntervalMicroseconds) µs. t1 is the first poll with an on-screen window \
-from the app above layer 0 that covers a whole display.
+\(pressesPerApp) presses per app, \(Int(pressGapSeconds)) s apart, Esc after each. both apps get the same input: `CGEvent` key \
+events from a `.hidSystemState` source posted at the HID event tap, modifiers as separate presses, through each app's own \
+area hotkey. right before it, the app's on-screen windows are snapshotted. t0 is taken right before the main key-down, then \
+`CGWindowListCopyWindowInfo` is polled every \(pollIntervalMicroseconds) µs. t1 is the first poll with an on-screen window from \
+the app that covers a whole display, on any layer, and wasn't in the snapshot. after Esc, the same windows have to leave the \
+screen before the next press.
 
 | app | trigger | median | min | max |
 | --- | --- | --- | --- | --- |
@@ -458,9 +450,12 @@ from the app above layer 0 that covers a whole display.
 ## what's off about this comparison
 
 - the number is trigger to window-server order-in, not to photons. display scan-out is left out for both apps
-- CleanShot X ignores synthetic key events, so it's triggered through `cleanshot://capture-area` with `NSWorkspace.open`, \
-no activation. that adds LaunchServices URL dispatch to CleanShot's number only, which favors Lunetta
-- CleanShot X runs with its owner's settings (freeze screen and all), Lunetta with defaults (freeze screen off)
+- the hotkeys are synthetic events, not a physical keyboard. both apps take the same path, so the comparison holds, but \
+the absolute numbers leave out the keyboard and HID driver
+- both run with freeze screen off. that way CleanShot X shows nothing you can see except the cursor: its full-display \
+window sits at layer -2147483600, behind other apps' windows. so for CleanShot X, t1 is when it enters area capture, not \
+when something is drawn. with freeze on, that window orders in in the same poll as its visible overlay (3 of 3 presses \
+checked), so it's the same moment either way
 - app size counts what each bundle ships. CleanShot X's Setapp build also needs the Setapp agent, which isn't counted
 
 generated by `scripts/bench.sh`. method from [#3](https://github.com/joaopcm/glint/issues/3#issuecomment-7145993290).
@@ -477,10 +472,10 @@ let reportLink = reportURL.path.replacingOccurrences(of: readmeURL.deletingLastP
 let summary = """
 Measured \(date) on an \(chip), macOS \(osVersion), \
 against CleanShot X \(cleanShot.version): idle memory \(format(ours.footprint, 0)) MB vs \(format(theirs.footprint, 0)) MB, \
-idle CPU \(format(ours.cpu, 2))% vs \(format(theirs.cpu, 2))%, area overlay \(format(ours.latency)) ms median from trigger vs \
-\(format(theirs.latency)) ms, app size \(format(ours.sizeMB, 0)) MB vs \(format(theirs.sizeMB, 0)) MB. Latency is to the window \
-server showing the overlay, not to photons on screen, and CleanShot X was triggered through its URL API, which adds time to its \
-number only. Details in [\(reportLink)](\(reportLink)).
+idle CPU \(format(ours.cpu, 2))% vs \(format(theirs.cpu, 2))%, area overlay \(format(ours.latency)) ms median from hotkey vs \
+\(format(theirs.latency)) ms, app size \(format(ours.sizeMB, 0)) MB vs \(format(theirs.sizeMB, 0)) MB. Both apps got the same \
+synthetic hotkey with freeze screen off, and latency is to the window server ordering in each app's full-display capture \
+window, not to photons on screen. Details in [\(reportLink)](\(reportLink)).
 """
 
 guard let readme = try? String(contentsOf: readmeURL, encoding: .utf8) else { fail("could not read \(readmeURL.path)") }
