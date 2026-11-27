@@ -7,19 +7,54 @@ private let area = CGRect(x: 200, y: 100, width: 800, height: 600)
 
 @Test func theBubbleStartsInTheBottomRightCornerOnTheKeysMargin() {
     let frame = CameraBubbleGeometry.initialFrame(in: area)
-    #expect(frame == CGRect(x: 1000 - 24 - 150, y: 100 + 24, width: 150, height: 150))
+    #expect(frame == CGRect(x: 1000 - 24 - 240, y: 100 + 24, width: 240, height: 240))
 }
 
-@Test func theBubbleIsAQuarterOfTheShorterSideUpToTheCap() {
-    #expect(CameraBubbleGeometry.diameter(in: area) == 150)
-    #expect(CameraBubbleGeometry.diameter(in: screen) == 180)
-    #expect(CameraBubbleGeometry.diameter(in: CGRect(x: 0, y: 0, width: 2000, height: 80)) == 20)
+@Test func aSavedSizeStartsTheBubbleAtThatSize() {
+    #expect(CameraBubbleGeometry.initialFrame(in: area, diameter: 300).size == CGSize(width: 300, height: 300))
+}
+
+@Test func theBubbleIsAtMostHalfTheAreasShorterSideAndNeverPastTheLimits() {
+    #expect(CameraBubbleGeometry.diameters(in: screen) == 96...360)
+    #expect(CameraBubbleGeometry.diameters(in: area) == 96...300)
+    #expect(CameraBubbleGeometry.diameters(in: CGRect(x: 0, y: 0, width: 2000, height: 120)) == 60...60)
+    #expect(CameraBubbleGeometry.initialFrame(in: CGRect(x: 0, y: 0, width: 400, height: 300)).width == 150)
 }
 
 @Test func aTinyAreaStillHoldsTheWholeBubble() {
     let tiny = CGRect(x: 10, y: 10, width: 30, height: 30)
-    let frame = CameraBubbleGeometry.initialFrame(in: tiny)
-    #expect(tiny.contains(frame))
+    #expect(tiny.contains(CameraBubbleGeometry.initialFrame(in: tiny)))
+}
+
+@Test func onlyTheRingAlongTheEdgeResizes() {
+    let frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+    #expect(CameraBubbleGeometry.isOnEdge(CGPoint(x: 199, y: 100), of: frame))
+    #expect(CameraBubbleGeometry.isOnEdge(CGPoint(x: 100, y: 13), of: frame), "13 pt in from the bottom edge")
+    #expect(!CameraBubbleGeometry.isOnEdge(CGPoint(x: 100, y: 100), of: frame), "the middle moves the bubble")
+    #expect(!CameraBubbleGeometry.isOnEdge(CGPoint(x: 150, y: 100), of: frame), "36 pt in from the edge moves the bubble")
+    #expect(!CameraBubbleGeometry.isOnEdge(CGPoint(x: 2, y: 2), of: frame), "the square's corner is outside the circle")
+}
+
+@Test func pullingTheEdgeOutGrowsTheBubbleAroundItsCenter() {
+    let frame = CGRect(x: 400, y: 300, width: 200, height: 200)
+    let grown = CameraBubbleGeometry.resized(frame, grabbedAt: CGPoint(x: 595, y: 400), pointer: CGPoint(x: 625, y: 400), within: area)
+    #expect(grown == CGRect(x: 370, y: 270, width: 260, height: 260))
+}
+
+@Test func pushingTheEdgeInShrinksItButNotPastTheSmallestSize() {
+    let frame = CGRect(x: 400, y: 300, width: 200, height: 200)
+    let shrunk = CameraBubbleGeometry.resized(frame, grabbedAt: CGPoint(x: 500, y: 495), pointer: CGPoint(x: 500, y: 475), within: area)
+    #expect(shrunk.size == CGSize(width: 160, height: 160))
+    let smallest = CameraBubbleGeometry.resized(frame, grabbedAt: CGPoint(x: 500, y: 495), pointer: CGPoint(x: 500, y: 400), within: area)
+    #expect(smallest.size == CGSize(width: 96, height: 96))
+    #expect(smallest.midX == frame.midX && smallest.midY == frame.midY)
+}
+
+@Test func growingIntoTheAreasEdgeShiftsTheBubbleBackInsideAndStopsAtTheLargestSize() {
+    let corner = CameraBubbleGeometry.initialFrame(in: area)
+    let grown = CameraBubbleGeometry.resized(corner, grabbedAt: CGPoint(x: corner.maxX - 2, y: corner.midY), pointer: CGPoint(x: 5000, y: corner.midY), within: area)
+    #expect(grown.width == 300)
+    #expect(area.contains(grown))
 }
 
 @Test func aDragMovesTheBubbleByThePointersOffset() {

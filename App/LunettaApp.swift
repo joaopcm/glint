@@ -48,7 +48,7 @@ final class AppState {
     private let microphone = SystemMicrophoneAccess()
     private let keystrokes = KeystrokeOverlay()
     private let clickRings = ClickRingOverlay()
-    private let camera = CameraBubble()
+    private lazy var camera = CameraBubble(settings: settings)
     private lazy var recordingStage = RecordingStage(
         model: RecordingStageModel(
             settings: settings,

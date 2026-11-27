@@ -126,6 +126,7 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(changeIsSeen(\.recordingSounds, becomes: false))
     #expect(changeIsSeen(\.recordingInput, becomes: AudioInput(id: "usb-1", name: "Desk Mic")))
     #expect(changeIsSeen(\.recordCamera, becomes: true))
+    #expect(changeIsSeen(\.cameraBubbleDiameter, becomes: 300))
     #expect(changeIsSeen(\.recordingCamera, becomes: CameraInput(id: "usb-cam", name: "Desk Cam")))
     #expect(changeIsSeen(\.showPressedKeys, becomes: true))
     #expect(changeIsSeen(\.showMouseClicks, becomes: true))
@@ -245,6 +246,20 @@ private final class ChangeFlag: @unchecked Sendable {
     settings.recordingInput = nil
     #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).recordingInput == nil)
     #expect(store.string(forKey: "recordingInputName") == nil)
+}
+
+@MainActor @Test func cameraBubbleDiameterDefaultsRoundTripsAndClamps() {
+    let store = MemoryStore()
+    let settings = LunettaSettings(store: store, defaultSaveFolder: desktop)
+    #expect(settings.cameraBubbleDiameter == 240)
+    settings.cameraBubbleDiameter = 300
+    #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).cameraBubbleDiameter == 300)
+    settings.cameraBubbleDiameter = 5000
+    #expect(settings.cameraBubbleDiameter == 360)
+    settings.cameraBubbleDiameter = 10
+    #expect(settings.cameraBubbleDiameter == 96)
+    store.set(Double.nan, forKey: "cameraBubbleDiameter")
+    #expect(settings.cameraBubbleDiameter == 240)
 }
 
 @MainActor @Test func choosingTheSystemCameraForgetsTheSavedOne() {
