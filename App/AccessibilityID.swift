@@ -31,6 +31,7 @@ enum AccessibilityID {
     static let recordingStageCancel = "lunetta.recordingStage.cancel"
     static let pressedKeys = "lunetta.pressedKeys"
     static let recordingFormat = "lunetta.recordingFormat"
+    static let recordingFrameRate = "lunetta.recordingFrameRate"
     static let wallpaperPaddingSlider = "lunetta.wallpaperPaddingSlider"
     static let wallpaperPaddingValue = "lunetta.wallpaperPaddingValue"
     static let wallpaperPaddingPreview = "lunetta.wallpaperPaddingPreview"

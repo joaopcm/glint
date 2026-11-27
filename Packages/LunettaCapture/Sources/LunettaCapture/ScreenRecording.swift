@@ -12,6 +12,7 @@ public enum RecordingTarget: Sendable, Equatable {
 
 public struct RecordingOptions: Sendable, Equatable {
     public var codec: VideoCodec
+    public var frameRate: RecordingFrameRate
     public var systemAudio: Bool
     public var microphone: Bool
     /// nil records the system default input.
@@ -20,12 +21,14 @@ public struct RecordingOptions: Sendable, Equatable {
 
     public init(
         codec: VideoCodec,
+        frameRate: RecordingFrameRate = .sixty,
         systemAudio: Bool,
         microphone: Bool,
         microphoneID: String? = nil,
         showsClicks: Bool = false
     ) {
         self.codec = codec
+        self.frameRate = frameRate
         self.systemAudio = systemAudio
         self.microphone = microphone
         self.microphoneID = microphoneID
@@ -94,6 +97,7 @@ extension ScreenCapturer {
 
     static func apply(_ options: RecordingOptions, to configuration: SCStreamConfiguration) {
         configuration.showsCursor = true
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(options.frameRate.rawValue))
         configuration.capturesAudio = options.systemAudio
         configuration.excludesCurrentProcessAudio = true
         configuration.captureMicrophone = options.microphone

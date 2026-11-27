@@ -18,6 +18,10 @@ public enum VideoCodec: String, CaseIterable, Sendable {
     case h264, hevc
 }
 
+public enum RecordingFrameRate: Int, CaseIterable, Sendable {
+    case thirty = 30, sixty = 60
+}
+
 @MainActor @Observable
 public final class LunettaSettings {
     private enum Key {
@@ -32,6 +36,7 @@ public final class LunettaSettings {
         static let windowCaptureWallpaper = "windowCaptureWallpaper"
         static let windowWallpaperPadding = "windowWallpaperPadding"
         static let recordingCodec = "recordingCodec"
+        static let recordingFrameRate = "recordingFrameRate"
         static let recordSystemAudio = "recordSystemAudio"
         static let recordMicrophone = "recordMicrophone"
         static let recordingInputID = "recordingInputID"
@@ -184,6 +189,15 @@ public final class LunettaSettings {
             return store.string(forKey: Key.recordingCodec).flatMap(VideoCodec.init(rawValue:)) ?? .h264
         }
         set { withMutation(keyPath: \.recordingCodec) { store.set(newValue.rawValue, forKey: Key.recordingCodec) } }
+    }
+
+    /// 60 fps by default: scrolling and pointer motion stay smooth, and 30 fps is there for smaller files.
+    public var recordingFrameRate: RecordingFrameRate {
+        get {
+            access(keyPath: \.recordingFrameRate)
+            return store.double(forKey: Key.recordingFrameRate).flatMap { RecordingFrameRate(rawValue: Int($0)) } ?? .sixty
+        }
+        set { withMutation(keyPath: \.recordingFrameRate) { store.set(Double(newValue.rawValue), forKey: Key.recordingFrameRate) } }
     }
 
     /// Off by default: a recording only picks up sound when the user asks for it (#18).
