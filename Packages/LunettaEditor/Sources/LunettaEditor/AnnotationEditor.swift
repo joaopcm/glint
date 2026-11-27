@@ -146,7 +146,6 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
             self?.updateCaption(fading: true)
         }
         canvas.tool = .arrow
-        Task { await document.loadTextLayout() }
         canvas.documentChanged()
         updateUndoButtons()
         syncColorUI()

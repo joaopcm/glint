@@ -38,6 +38,7 @@ enum CaptureEditor {
         )
         editor.canvas.setAccessibilityIdentifier(AccessibilityID.editorCanvas)
         editor.show(on: screen)
+        Task { await document.loadTextLayout() }
         return editor
     }
 
