@@ -28,7 +28,7 @@ extension ScreenCapturer: Recording {
 
 @MainActor
 struct SystemMicrophoneAccess: MicrophoneAccess {
-    var status: MicrophoneStatus {
+    var status: DeviceAccess {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized: .authorized
         case .notDetermined: .notDetermined

@@ -87,6 +87,33 @@ final class RecordingStageUITests: LunettaUITestCase {
         XCTAssertTrue(files.isEmpty, "the stage left \(files.map(\.lastPathComponent)) in \(saveFolder.path) without recording")
     }
 
+    /// CI's runners have no camera and never granted one, so Camera on always leaves the stage something to point out.
+    @MainActor func testTheCameraPickerFollowsTheCameraToggleAndRecordWaitsForACameraThatCanShow() throws {
+        press(.recordScreen)
+        waitForOverlay(after: .recordScreen)
+        selectRecordingArea()
+        XCTAssertTrue(stage.waitForExistence(timeout: Self.captureTimeout), "no stage after picking an area with \(Hotkey.recordScreen.rawValue)")
+
+        let picker = stageControl(AccessibilityID.recordingStageCameraInput)
+        XCTAssertEqual(picker.label, "Camera: System Default", "the camera button doesn't say which camera shows")
+        XCTAssertFalse(picker.isEnabled, "the camera picker is enabled while Camera is off")
+        XCTAssertTrue(stageControl(AccessibilityID.recordingStageRecord).isEnabled, "Record is disabled with every option off")
+
+        center(of: stageControl(AccessibilityID.recordingStageCamera)).click()
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: picker)
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: Self.captureTimeout), .completed, "turning Camera on left its picker disabled")
+        let explanation = app.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", "turn off Camera")).firstMatch
+        XCTAssertTrue(explanation.waitForExistence(timeout: Self.captureTimeout), "the stage didn't say what keeps the camera from showing")
+        XCTAssertFalse(stageControl(AccessibilityID.recordingStageRecord).isEnabled, "Record stayed enabled although no camera can show")
+        keepScreenshot(named: "stage with the camera on")
+
+        center(of: stageControl(AccessibilityID.recordingStageCamera)).click()
+        let disabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == false"), object: picker)
+        XCTAssertEqual(XCTWaiter.wait(for: [disabled], timeout: Self.captureTimeout), .completed, "turning Camera off left its picker enabled")
+        XCTAssertTrue(stageControl(AccessibilityID.recordingStageRecord).isEnabled, "Record stayed disabled after Camera went off")
+        center(of: stageControl(AccessibilityID.recordingStageCancel)).click()
+    }
+
     /// Pixels between each edge of `element` and the nearest column that differs from the background at its edges:
     /// where its icon and title start and stop.
     @MainActor private func contentMargins(of element: XCUIElement) -> (leading: Int, trailing: Int)? {

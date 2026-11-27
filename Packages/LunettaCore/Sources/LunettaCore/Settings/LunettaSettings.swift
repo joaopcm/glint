@@ -41,6 +41,9 @@ public final class LunettaSettings {
         static let recordMicrophone = "recordMicrophone"
         static let recordingInputID = "recordingInputID"
         static let recordingInputName = "recordingInputName"
+        static let recordCamera = "recordCamera"
+        static let recordingCameraID = "recordingCameraID"
+        static let recordingCameraName = "recordingCameraName"
         static let showPressedKeys = "showPressedKeys"
         static let showMouseClicks = "showMouseClicks"
         static let recordingCountdown = "recordingCountdown"
@@ -232,6 +235,30 @@ public final class LunettaSettings {
         }
     }
 
+    /// Off by default: the camera shows the user's face in the video, so they ask for it.
+    public var recordCamera: Bool {
+        get {
+            access(keyPath: \.recordCamera)
+            return store.bool(forKey: Key.recordCamera) ?? false
+        }
+        set { withMutation(keyPath: \.recordCamera) { store.set(newValue, forKey: Key.recordCamera) } }
+    }
+
+    /// nil shows the system's preferred camera. The name stays with the ID so a missing camera can still be named.
+    public var recordingCamera: CameraInput? {
+        get {
+            access(keyPath: \.recordingCamera)
+            guard let id = store.string(forKey: Key.recordingCameraID), !id.isEmpty else { return nil }
+            return CameraInput(id: id, name: store.string(forKey: Key.recordingCameraName) ?? id)
+        }
+        set {
+            withMutation(keyPath: \.recordingCamera) {
+                store.set(newValue?.id, forKey: Key.recordingCameraID)
+                store.set(newValue?.name, forKey: Key.recordingCameraName)
+            }
+        }
+    }
+
     /// Off by default: showing keys needs Input Monitoring, and typed text ends up in the video.
     public var showPressedKeys: Bool {
         get {
@@ -254,6 +281,8 @@ public final class LunettaSettings {
             systemAudio: recordSystemAudio,
             microphone: recordMicrophone,
             input: recordingInput,
+            camera: recordCamera,
+            cameraInput: recordingCamera,
             showsKeys: showPressedKeys,
             showsClicks: showMouseClicks
         )
