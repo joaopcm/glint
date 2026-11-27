@@ -20,18 +20,19 @@ for id in $cleanshot_ids; do
   if [[ -n "$cleanshot_app" ]]; then break; fi
 done
 [[ -n "$cleanshot_app" ]] || die "CleanShot X not found (looked for bundle ids: $cleanshot_ids). install it, through Setapp or directly, and rerun"
+cleanshot_process="$(plutil -extract CFBundleExecutable raw "$cleanshot_app/Contents/Info.plist")"
 
 work="$(mktemp -d)"
 lunetta_was_running=false
 cleanshot_was_running=false
 pgrep -x Lunetta >/dev/null && lunetta_was_running=true
-pgrep -x "CleanShot X" >/dev/null && cleanshot_was_running=true
+pgrep -x "$cleanshot_process" >/dev/null && cleanshot_was_running=true
 
 restore() {
   git -C "$repo_root" worktree remove --force "$work/main" 2>/dev/null || true
   rm -rf "$work"
   if [[ "$lunetta_was_running" == true ]] && ! pgrep -x Lunetta >/dev/null; then open -g "$lunetta_app"; fi
-  if [[ "$cleanshot_was_running" == true ]] && ! pgrep -x "CleanShot X" >/dev/null; then open -g "$cleanshot_app"; fi
+  if [[ "$cleanshot_was_running" == true ]] && ! pgrep -x "$cleanshot_process" >/dev/null; then open -g "$cleanshot_app"; fi
 }
 trap restore EXIT
 
