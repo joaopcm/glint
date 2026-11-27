@@ -31,7 +31,7 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
             ToolItem(tool: .arrow, symbol: "arrow.up.right", label: "Arrow", hint: "Drag to draw an arrow"),
             ToolItem(tool: .rectangle, symbol: "rectangle", label: "Rectangle", hint: "Drag to draw a rectangle"),
             ToolItem(tool: .text, symbol: "textformat", label: "Text", hint: "Click where you want to type"),
-            ToolItem(tool: .highlighter, symbol: "highlighter", label: "Highlighter", hint: "Drag across what you want to highlight"),
+            ToolItem(tool: .highlighter, symbol: "highlighter", label: "Highlighter", hint: "Drag across text to highlight it, or anywhere to highlight an area"),
         ],
         [
             ToolItem(tool: .blur, symbol: "drop.halffull", label: "Blur", hint: "Drag over anything you want to blur"),
