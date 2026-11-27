@@ -44,6 +44,7 @@ public final class LunettaSettings {
         static let recordCamera = "recordCamera"
         static let recordingCameraID = "recordingCameraID"
         static let recordingCameraName = "recordingCameraName"
+        static let cameraBubbleDiameter = "cameraBubbleDiameter"
         static let showPressedKeys = "showPressedKeys"
         static let showMouseClicks = "showMouseClicks"
         static let recordingCountdown = "recordingCountdown"
@@ -257,6 +258,21 @@ public final class LunettaSettings {
                 store.set(newValue?.name, forKey: Key.recordingCameraName)
             }
         }
+    }
+
+    /// The camera bubble's size in points, as last resized, clamped to `CameraBubbleGeometry`'s limits. A small area
+    /// shrinks the bubble further while it's shown, without changing what's saved.
+    public var cameraBubbleDiameter: Double {
+        get {
+            access(keyPath: \.cameraBubbleDiameter)
+            return Self.clampDiameter(store.double(forKey: Key.cameraBubbleDiameter) ?? Double(CameraBubbleGeometry.defaultDiameter))
+        }
+        set { withMutation(keyPath: \.cameraBubbleDiameter) { store.set(Self.clampDiameter(newValue), forKey: Key.cameraBubbleDiameter) } }
+    }
+
+    private static func clampDiameter(_ diameter: Double) -> Double {
+        guard diameter.isFinite else { return Double(CameraBubbleGeometry.defaultDiameter) }
+        return min(max(diameter, Double(CameraBubbleGeometry.minDiameter)), Double(CameraBubbleGeometry.maxDiameter))
     }
 
     /// Off by default: showing keys needs Input Monitoring, and typed text ends up in the video.
