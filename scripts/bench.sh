@@ -14,6 +14,18 @@ die() {
 
 [[ "$(uname)" == Darwin ]] || die "the benchmark runs on macOS only"
 
+ref="origin/main"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --ref)
+      [[ $# -ge 2 ]] || die "--ref needs a git ref, e.g. --ref my-branch"
+      ref="$2"
+      shift 2
+      ;;
+    *) die "unknown argument: $1. usage: scripts/bench.sh [--ref <git ref>] (default: origin/main)" ;;
+  esac
+done
+
 cleanshot_app=""
 for id in $cleanshot_ids; do
   cleanshot_app="$(mdfind "kMDItemCFBundleIdentifier == '$id'" | head -n 1)"
@@ -29,7 +41,7 @@ pgrep -x Lunetta >/dev/null && lunetta_was_running=true
 pgrep -x "$cleanshot_process" >/dev/null && cleanshot_was_running=true
 
 restore() {
-  git -C "$repo_root" worktree remove --force "$work/main" 2>/dev/null || true
+  git -C "$repo_root" worktree remove --force "$work/build" 2>/dev/null || true
   rm -rf "$work"
   if [[ "$lunetta_was_running" == true ]] && ! pgrep -x Lunetta >/dev/null; then open -g "$lunetta_app"; fi
   if [[ "$cleanshot_was_running" == true ]] && ! pgrep -x "$cleanshot_process" >/dev/null; then open -g "$cleanshot_app"; fi
@@ -40,13 +52,14 @@ swiftc -O -swift-version 5 "$repo_root/scripts/bench/benchtool.swift" -o "$work/
 "$work/benchtool" check
 
 git fetch --quiet origin main
-git worktree add --detach --quiet "$work/main" origin/main
-"$work/main/scripts/install-local.sh"
+git worktree add --detach --quiet "$work/build" "$ref"
+"$work/build/scripts/install-local.sh"
 
 report="$repo_root/docs/perf/$(date +%Y-%m-%d).md"
-echo "measuring, about 15 min. hands off the keyboard and mouse until it's done" >&2
+echo "measuring, about 15 min. you can keep working: each hotkey press waits for 3 s without input, and full-screen overlays flash briefly" >&2
 "$work/benchtool" run \
   --lunetta "$lunetta_app" \
+  --built-from "$ref" \
   --cleanshot "$cleanshot_app" \
   --report "$report" \
   --readme "$repo_root/README.md" >/dev/null

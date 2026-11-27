@@ -15,6 +15,12 @@ let overlayTimeoutSeconds = 3.0
 let quitTimeoutSeconds = 10.0
 // Measured open to process at 0.18–0.21 s over 3 launches each of Lunetta and CleanShot X; 10 s only trips when the app never starts.
 let launchTimeoutSeconds = 10.0
+// A 5 min trace of the owner's normal use (7,829 input events) had 99% of gaps between inputs under 0.4 s, so 3 s
+// without input is a pause, not a gap between keystrokes.
+let quietSecondsBeforePress = 3.0
+// Same trace: after 3 s of quiet, input arrived within the next 0.5 s (one press) 63 times in 863 (7.3%). 10 presses in
+// a row cut short is about 1 in 10^11, so reaching it means something sends input nonstop.
+let retriesPerPress = 10
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("error: \(message)\n".utf8))
@@ -200,49 +206,145 @@ func fire(_ hotkey: Hotkey) -> UInt64 {
     return start
 }
 
-func measureLatency(of app: App, pid: pid_t) -> [Double] {
-    let displayBounds = displays().map(CGDisplayBounds)
+/// Keyboard and mouse input that isn't this tool's own posts: the owner's, or another app's acting for them.
+final class OwnerInput: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastAt: UInt64 = 0
+    private var total = 0
+
+    var last: UInt64 { lock.withLock { lastAt } }
+    var count: Int { lock.withLock { total } }
+
+    func record() {
+        lock.withLock {
+            lastAt = uptimeNanoseconds()
+            total += 1
+        }
+    }
+}
+
+let ownerInput = OwnerInput()
+var inputTap: CFMachPort?
+
+/// Our own posts carry this process's pid in `eventSourceUnixProcessID`, the keyboard and mouse carry 0. The idle clocks
+/// can't tell them apart: `HIDIdleTime` and `CGEventSource.secondsSinceLastEventType` both reset on some of our posts.
+func watchOwnerInput() {
+    let types: [CGEventType] = [
+        .keyDown, .keyUp, .flagsChanged, .mouseMoved, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+        .otherMouseDown, .otherMouseUp, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel,
+    ]
+    let mask = types.reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
+    inputTap = CGEvent.tapCreate(
+        tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly, eventsOfInterest: mask,
+        callback: { _, type, event, _ in
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if let inputTap { CGEvent.tapEnable(tap: inputTap, enable: true) }
+            } else if event.getIntegerValueField(.eventSourceUnixProcessID) != Int64(getpid()) {
+                ownerInput.record()
+            }
+            return Unmanaged.passUnretained(event)
+        },
+        userInfo: nil
+    )
+    guard let inputTap else { fail("could not watch keyboard and mouse input. run `benchtool check` for the permission it needs") }
+    Thread {
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), CFMachPortCreateRunLoopSource(nil, inputTap, 0), .commonModes)
+        CGEvent.tapEnable(tap: inputTap, enable: true)
+        CFRunLoopRun()
+    }.start()
+}
+
+func waitForQuiet(before hotkey: Hotkey) {
+    var announced = false
+    while true {
+        let quietFor = Double(uptimeNanoseconds() - ownerInput.last) / 1e9
+        if quietFor >= quietSecondsBeforePress { return }
+        if !announced {
+            log("waiting for \(Int(quietSecondsBeforePress)) s without input to press \(hotkey.chord)…")
+            announced = true
+        }
+        Thread.sleep(forTimeInterval: quietSecondsBeforePress - quietFor)
+    }
+}
+
+enum Press {
+    case shown(milliseconds: Double)
+    case noOverlay
+    case overlayStuck
+}
+
+func press(_ app: App, pid: pid_t, displayBounds: [CGRect]) -> Press {
     let timeout = UInt64(overlayTimeoutSeconds * 1e9)
     let escape: CGKeyCode = 53
+    let before = fullDisplayWindows(of: pid, displayBounds: displayBounds)
+    let start = fire(app.trigger)
+    var overlay: Set<Int> = []
+    var shownAt: UInt64?
+    while uptimeNanoseconds() - start < timeout {
+        overlay = fullDisplayWindows(of: pid, displayBounds: displayBounds).subtracting(before)
+        if !overlay.isEmpty {
+            shownAt = uptimeNanoseconds()
+            break
+        }
+        usleep(pollIntervalMicroseconds)
+    }
+    guard let shownAt else { return .noOverlay }
+    postKey(escape, down: true, flags: [])
+    postKey(escape, down: false, flags: [])
+    let dismissStart = uptimeNanoseconds()
+    while !fullDisplayWindows(of: pid, displayBounds: displayBounds).isDisjoint(with: overlay) {
+        if uptimeNanoseconds() - dismissStart > timeout { return .overlayStuck }
+        usleep(pollIntervalMicroseconds)
+    }
+    return .shown(milliseconds: Double(shownAt - start) / 1e6)
+}
+
+func measureLatency(of app: App, pid: pid_t) -> (latencies: [Double], redone: Int) {
+    let displayBounds = displays().map(CGDisplayBounds)
     var latencies: [Double] = []
-    for press in 1...pressesPerApp {
-        let before = fullDisplayWindows(of: pid, displayBounds: displayBounds)
-        let start = fire(app.trigger)
-        var overlay: Set<Int> = []
-        var shownAt: UInt64?
-        while uptimeNanoseconds() - start < timeout {
-            overlay = fullDisplayWindows(of: pid, displayBounds: displayBounds).subtracting(before)
-            if !overlay.isEmpty {
-                shownAt = uptimeNanoseconds()
-                break
+    var redone = 0
+    for number in 1...pressesPerApp {
+        var interrupted = 0
+        while true {
+            waitForQuiet(before: app.trigger)
+            let pressStart = uptimeNanoseconds()
+            let outcome = press(app, pid: pid, displayBounds: displayBounds)
+            if ownerInput.last >= pressStart {
+                interrupted += 1
+                redone += 1
+                guard interrupted <= retriesPerPress else {
+                    fail("""
+                        keyboard or mouse input cut press \(number) of \(app.trigger.chord) short \(interrupted) times in a row, \
+                        past retriesPerPress=\(retriesPerPress). something is sending input nonstop; stop it and rerun
+                        """)
+                }
+                log("input during press \(number) of \(app.trigger.chord), redoing it")
+                Thread.sleep(forTimeInterval: pressGapSeconds)
+                continue
             }
-            usleep(pollIntervalMicroseconds)
-        }
-        guard let shownAt else {
-            fail("""
-                \(app.name) showed no new full-display window within \(overlayTimeoutSeconds)s of \
-                \(app.trigger.label) on press \(press). check \(app.trigger.chord) is still its area capture shortcut in its settings
-                """)
-        }
-        latencies.append(Double(shownAt - start) / 1e6)
-        postKey(escape, down: true, flags: [])
-        postKey(escape, down: false, flags: [])
-        let dismissStart = uptimeNanoseconds()
-        while !fullDisplayWindows(of: pid, displayBounds: displayBounds).isDisjoint(with: overlay) {
-            if uptimeNanoseconds() - dismissStart > timeout {
-                fail("\(app.name)'s overlay still up \(overlayTimeoutSeconds)s after Esc on press \(press)")
+            switch outcome {
+            case .shown(let milliseconds):
+                latencies.append(milliseconds)
+            case .noOverlay:
+                fail("""
+                    \(app.name) showed no new full-display window within \(overlayTimeoutSeconds)s of \
+                    \(app.trigger.label) on press \(number). check \(app.trigger.chord) is still its area capture shortcut in its settings
+                    """)
+            case .overlayStuck:
+                fail("\(app.name)'s overlay still up \(overlayTimeoutSeconds)s after Esc on press \(number)")
             }
-            usleep(pollIntervalMicroseconds)
+            break
         }
         Thread.sleep(forTimeInterval: pressGapSeconds)
     }
-    return latencies
+    return (latencies, redone)
 }
 
 struct IdleSample {
     let footprintMB: Double
     let cpuPercent: Double
     let wakeupsPerSecond: Double
+    let inputEvents: Int
 }
 
 func measureIdle(of app: App) -> (samples: [IdleSample], pid: pid_t) {
@@ -251,7 +353,8 @@ func measureIdle(of app: App) -> (samples: [IdleSample], pid: pid_t) {
     for launch in 1...launchesPerApp {
         app.quit()
         pid = app.launch()
-        log("\(app.name): launch \(launch)/\(launchesPerApp), hands off for \(Int(idleSettleSeconds + idleSampleSeconds))s")
+        log("\(app.name): launch \(launch)/\(launchesPerApp), measuring idle for \(Int(idleSettleSeconds + idleSampleSeconds))s")
+        let inputBefore = ownerInput.count
         Thread.sleep(forTimeInterval: idleSettleSeconds)
         let settled = usage(of: pid, app: app.name)
         Thread.sleep(forTimeInterval: idleSampleSeconds)
@@ -259,7 +362,8 @@ func measureIdle(of app: App) -> (samples: [IdleSample], pid: pid_t) {
         samples.append(IdleSample(
             footprintMB: Double(settled.footprintBytes) / 1_048_576,
             cpuPercent: Double(sampled.cpuNanoseconds - settled.cpuNanoseconds) / (idleSampleSeconds * 1e9) * 100,
-            wakeupsPerSecond: Double(sampled.wakeups - settled.wakeups) / idleSampleSeconds
+            wakeupsPerSecond: Double(sampled.wakeups - settled.wakeups) / idleSampleSeconds,
+            inputEvents: ownerInput.count - inputBefore
         ))
     }
     return (samples, pid)
@@ -303,6 +407,19 @@ func visibleWindowCount() -> Int {
     }.count
 }
 
+/// Only booleans: the owner's other settings include bucket names and URLs that don't belong in a public report.
+func savedToggles(of bundleID: String, except pinned: [String]) -> String {
+    let keys = CFPreferencesCopyKeyList(bundleID as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String] ?? []
+    let toggles = keys.sorted().compactMap { key -> String? in
+        guard !pinned.contains(key), !key.hasPrefix("NS"), !key.hasPrefix("com_apple_"),
+              let value = CFPreferencesCopyAppValue(key as CFString, bundleID as CFString),
+              CFGetTypeID(value) == CFBooleanGetTypeID()
+        else { return nil }
+        return "`\(key)` \(CFBooleanGetValue((value as! CFBoolean)) ? "on" : "off")"
+    }
+    return toggles.isEmpty ? "none" : toggles.joined(separator: ", ")
+}
+
 func format(_ value: Double, _ digits: Int = 1) -> String { String(format: "%.\(digits)f", value) }
 
 func ratio(_ theirs: Double, _ ours: Double) -> String {
@@ -313,7 +430,7 @@ func ratio(_ theirs: Double, _ ours: Double) -> String {
 func argument(_ name: String) -> String {
     let arguments = CommandLine.arguments
     guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else {
-        fail("missing \(name). usage: benchtool check | benchtool run --lunetta <app> --cleanshot <app> --report <md> --readme <md>")
+        fail("missing \(name). usage: benchtool check | benchtool run --lunetta <app> --built-from <git ref> --cleanshot <app> --report <md> --readme <md>")
     }
     return arguments[index + 1]
 }
@@ -325,19 +442,29 @@ if CommandLine.arguments.dropFirst().first == "check" {
             Accessibility (the app that runs the shell, e.g. Terminal or T3 Code), then rerun
             """)
     }
+    guard CGPreflightListenEventAccess() else {
+        fail("""
+            this terminal can't watch keyboard and mouse input, which the run needs to wait for you to stop typing before \
+            each press. grant it Input Monitoring in System Settings > Privacy & Security > Input Monitoring (the app that \
+            runs the shell, e.g. Terminal or T3 Code), then rerun
+            """)
+    }
     exit(0)
 }
 
 guard CommandLine.arguments.dropFirst().first == "run" else { _ = argument("--lunetta"); exit(1) }
 
 let lunettaURL = URL(fileURLWithPath: argument("--lunetta"))
+let builtFrom = argument("--built-from")
 let cleanShotURL = URL(fileURLWithPath: argument("--cleanshot"))
 let reportURL = URL(fileURLWithPath: argument("--report"))
 let readmeURL = URL(fileURLWithPath: argument("--readme"))
 
 // Pinned through the argument domain so a shortcut or freeze screen changed in Settings can't change what's measured.
 // Freeze screen is off for both, Lunetta's default. Plist `<false/>`, not NO: the argument domain passes NO as a
-// string, and CleanShot X reads strings as off (YES included), so only a plist bool really pins it.
+// string, and CleanShot X reads strings as off (YES included), so only a plist bool really pins it. Compress copied
+// media is pinned to its default off too: on, it checks the clipboard while the owner uses the Mac during the run.
+let lunettaPinned = ["freezeScreenWhileSelecting", "compressCopiedMedia"]
 let lunetta = App(
     name: "Lunetta",
     bundleID: "com.joaopcm.lunetta",
@@ -345,6 +472,7 @@ let lunetta = App(
     launchArguments: [
         "-KeyboardShortcuts_captureArea", #""{\"carbonKeyCode\":19,\"carbonModifiers\":768}""#,
         "-freezeScreenWhileSelecting", "<false/>",
+        "-compressCopiedMedia", "<false/>",
     ],
     trigger: Hotkey(key: 19, modifiers: [.shift, .command], chord: "⇧⌘2")
 )
@@ -363,6 +491,7 @@ struct Result {
     let app: App
     let idle: [IdleSample]
     let latencies: [Double]
+    let redone: Int
     let sizeMB: Double
 
     var footprint: Double { median(idle.map(\.footprintMB)) }
@@ -377,15 +506,17 @@ let date = {
     return formatter.string(from: Date())
 }()
 let windowCount = visibleWindowCount()
+let lunettaToggles = savedToggles(of: lunetta.bundleID, except: lunettaPinned)
+watchOwnerInput()
 
 var results: [Result] = []
 for app in [lunetta, cleanShot] {
     for other in [lunetta, cleanShot] where other.bundleID != app.bundleID { other.quit() }
     let (idle, pid) = measureIdle(of: app)
     log("\(app.name): \(pressesPerApp) presses of \(app.trigger.label), \(Int(pressGapSeconds))s apart")
-    let latencies = measureLatency(of: app, pid: pid)
+    let (latencies, redone) = measureLatency(of: app, pid: pid)
     app.quit()
-    results.append(Result(app: app, idle: idle, latencies: latencies, sizeMB: bundleSizeMB(app.url)))
+    results.append(Result(app: app, idle: idle, latencies: latencies, redone: redone, sizeMB: bundleSizeMB(app.url)))
 }
 let ours = results[0]
 let theirs = results[1]
@@ -396,8 +527,8 @@ let osVersion = {
     return "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
 }()
 
-func samples(_ values: [Double], unit: String) -> String {
-    values.map { "\(format($0)) \(unit)" }.joined(separator: ", ")
+func samples(_ values: [Double], digits: Int = 1, suffix: String) -> String {
+    values.map { format($0, digits) + suffix }.joined(separator: ", ")
 }
 
 let report = """
@@ -406,8 +537,8 @@ let report = """
 | | Lunetta | CleanShot X | CleanShot X / Lunetta |
 | --- | --- | --- | --- |
 | idle memory | \(format(ours.footprint)) MB | \(format(theirs.footprint)) MB | \(ratio(theirs.footprint, ours.footprint)) |
-| idle CPU | \(format(ours.cpu, 2))% | \(format(theirs.cpu, 2))% | \(ratio(theirs.cpu, ours.cpu)) |
-| idle wakeups | \(format(ours.wakeups))/s | \(format(theirs.wakeups))/s | \(ratio(theirs.wakeups, ours.wakeups)) |
+| idle CPU | \(format(ours.cpu, 3))% | \(format(theirs.cpu, 3))% | \(ratio(theirs.cpu, ours.cpu)) |
+| idle wakeups | \(format(ours.wakeups, 2))/s | \(format(theirs.wakeups, 2))/s | \(ratio(theirs.wakeups, ours.wakeups)) |
 | area overlay, trigger to screen | \(format(ours.latency)) ms | \(format(theirs.latency)) ms | \(ratio(theirs.latency, ours.latency)) |
 | app size on disk | \(format(ours.sizeMB)) MB | \(format(theirs.sizeMB)) MB | \(ratio(theirs.sizeMB, ours.sizeMB)) |
 
@@ -417,8 +548,10 @@ Idle numbers are medians of \(launchesPerApp) launches, latency the median of \(
 
 - \(sysctlString("hw.model")) (\(sysctlString("machdep.cpu.brand_string"))), macOS \(osVersion)
 - displays: \(displayDescription()). \(windowCount) visible windows
-- normal desktop load, not a clean boot
-- Lunetta: Release build of `main` at \(commit), `\(lunettaURL.path)`, default settings, area hotkey pinned to `⇧⌘2` and freeze screen pinned off
+- normal desktop load, not a clean boot, and the owner may have used the Mac during the run (input counts below)
+- Lunetta: Release build of `\(builtFrom)` at \(commit), `\(lunettaURL.path)`, the owner's settings with area hotkey \
+pinned to `⇧⌘2`, freeze screen and compress copied media pinned to their default off. other toggles the owner has saved: \
+\(lunettaToggles)
 - CleanShot X: \(cleanShot.version) (`\(cleanShot.bundleID)`), the owner's settings except freeze screen pinned off, area hotkey \
 its default `⇧⌘4`
 
@@ -426,12 +559,13 @@ its default `⇧⌘4`
 
 each app quit and relaunched in the background, the other one quit. footprint read \(Int(idleSettleSeconds)) s after launch, \
 CPU time and wakeups counted over the next \(Int(idleSampleSeconds)) s, all from `proc_pid_rusage`. footprint is the same \
-number `footprint <pid>` reports.
+number `footprint <pid>` reports. the owner may use the Mac meanwhile; the last column counts their keyboard and mouse \
+events in those \(Int(idleSettleSeconds + idleSampleSeconds)) s, so a busy launch can be told from a quiet one.
 
-| app | footprint | CPU | wakeups |
-| --- | --- | --- | --- |
-| Lunetta | \(samples(ours.idle.map(\.footprintMB), unit: "MB")) | \(ours.idle.map { format($0.cpuPercent, 2) + "%" }.joined(separator: ", ")) | \(samples(ours.idle.map(\.wakeupsPerSecond), unit: "/s")) |
-| CleanShot X | \(samples(theirs.idle.map(\.footprintMB), unit: "MB")) | \(theirs.idle.map { format($0.cpuPercent, 2) + "%" }.joined(separator: ", ")) | \(samples(theirs.idle.map(\.wakeupsPerSecond), unit: "/s")) |
+| app | footprint | CPU | wakeups | input events |
+| --- | --- | --- | --- | --- |
+| Lunetta | \(samples(ours.idle.map(\.footprintMB), suffix: " MB")) | \(ours.idle.map { format($0.cpuPercent, 3) + "%" }.joined(separator: ", ")) | \(samples(ours.idle.map(\.wakeupsPerSecond), digits: 2, suffix: "/s")) | \(ours.idle.map { String($0.inputEvents) }.joined(separator: ", ")) |
+| CleanShot X | \(samples(theirs.idle.map(\.footprintMB), suffix: " MB")) | \(theirs.idle.map { format($0.cpuPercent, 3) + "%" }.joined(separator: ", ")) | \(samples(theirs.idle.map(\.wakeupsPerSecond), digits: 2, suffix: "/s")) | \(theirs.idle.map { String($0.inputEvents) }.joined(separator: ", ")) |
 
 ## trigger to overlay on screen
 
@@ -442,10 +576,14 @@ area hotkey. right before it, the app's on-screen windows are snapshotted. t0 is
 the app that covers a whole display, on any layer, and wasn't in the snapshot. after Esc, the same windows have to leave the \
 screen before the next press.
 
-| app | trigger | median | min | max |
-| --- | --- | --- | --- | --- |
-| Lunetta area | \(lunetta.trigger.label) | \(format(ours.latency)) ms | \(format(ours.latencies.min()!)) ms | \(format(ours.latencies.max()!)) ms |
-| CleanShot X area | \(cleanShot.trigger.label) | \(format(theirs.latency)) ms | \(format(theirs.latencies.min()!)) ms | \(format(theirs.latencies.max()!)) ms |
+each press waits for \(Int(quietSecondsBeforePress)) s without keyboard or mouse input from the owner, and a press their \
+input lands in, from trigger to dismissal, is thrown away and done again. their input is told from the tool's own posts by \
+the posting pid, through a listen-only event tap.
+
+| app | trigger | median | min | max | redone |
+| --- | --- | --- | --- | --- | --- |
+| Lunetta area | \(lunetta.trigger.label) | \(format(ours.latency)) ms | \(format(ours.latencies.min()!)) ms | \(format(ours.latencies.max()!)) ms | \(ours.redone) |
+| CleanShot X area | \(cleanShot.trigger.label) | \(format(theirs.latency)) ms | \(format(theirs.latencies.min()!)) ms | \(format(theirs.latencies.max()!)) ms | \(theirs.redone) |
 
 ## what's off about this comparison
 
@@ -472,7 +610,7 @@ let reportLink = reportURL.path.replacingOccurrences(of: readmeURL.deletingLastP
 let summary = """
 Measured \(date) on an \(chip), macOS \(osVersion), \
 against CleanShot X \(cleanShot.version): idle memory \(format(ours.footprint, 0)) MB vs \(format(theirs.footprint, 0)) MB, \
-idle CPU \(format(ours.cpu, 2))% vs \(format(theirs.cpu, 2))%, area overlay \(format(ours.latency)) ms median from hotkey vs \
+idle CPU \(format(ours.cpu, 3))% vs \(format(theirs.cpu, 3))%, area overlay \(format(ours.latency)) ms median from hotkey vs \
 \(format(theirs.latency)) ms, app size \(format(ours.sizeMB, 0)) MB vs \(format(theirs.sizeMB, 0)) MB. Both apps got the same \
 synthetic hotkey with freeze screen off, and latency is to the window server ordering in each app's full-display capture \
 window, not to photons on screen. Details in [\(reportLink)](\(reportLink)).
