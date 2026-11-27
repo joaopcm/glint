@@ -143,6 +143,21 @@ public struct Annotation: Identifiable, Equatable, Sendable {
         return recolored
     }
 
+    /// What the dock slider sets, in image pixels: an arrow's line width or a blur's or pixelate's `obscuringSize`.
+    var sliderSize: CGFloat? {
+        kind == .arrow ? lineWidth : kind.obscuringSize
+    }
+
+    func withSliderSize(_ size: CGFloat) -> Annotation {
+        var changed = self
+        if kind == .arrow {
+            changed.lineWidth = size
+        } else {
+            changed.kind = kind.obscuring(size: size)
+        }
+        return changed
+    }
+
     public func contains(_ point: CGPoint, tolerance: CGFloat) -> Bool {
         switch kind {
         case .arrow:

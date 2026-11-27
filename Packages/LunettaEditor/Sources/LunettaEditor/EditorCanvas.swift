@@ -3,14 +3,24 @@ import Carbon.HIToolbox
 
 @MainActor
 public final class EditorCanvas: NSView, NSTextFieldDelegate {
-    public enum Tool: CaseIterable {
+    public enum Tool: CaseIterable, Sendable {
         case select, arrow, rectangle, text, highlighter, blur, pixelate, crop
 
-        init?(obscuring kind: Annotation.Kind) {
+        /// The tool that draws `kind`, if the dock slider adjusts it.
+        init?(sliding kind: Annotation.Kind) {
             switch kind {
+            case .arrow: self = .arrow
             case .blur: self = .blur
             case .pixelate: self = .pixelate
-            case .arrow, .rectangle, .text, .highlighter: return nil
+            case .rectangle, .text, .highlighter: return nil
+            }
+        }
+
+        var sliderScale: SliderScale? {
+            switch self {
+            case .arrow: .arrowThickness
+            case .blur, .pixelate: .obscuring
+            case .select, .rectangle, .text, .highlighter, .crop: nil
             }
         }
 
@@ -33,7 +43,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case moving(UUID, from: CGPoint, to: CGPoint)
         case resizing(UUID, Annotation.Handle, to: CGPoint)
         case cropping(from: CGPoint, to: CGPoint)
-        case restyling(UUID, Annotation.Kind)
+        case restyling(Annotation)
         case highlightingText(from: TextLayout.Position, to: TextLayout.Position, Annotation)
     }
 
@@ -72,14 +82,15 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     let document: AnnotationDocument
     private let pixelsPerPoint: CGFloat
     private let lineWidth: CGFloat
-    private let arrowLineWidth: CGFloat
     private let textLineHeight: CGFloat
     private var gesture: Gesture?
     private var textField: NSTextField?
     private var editingTextID: UUID?
     private var textFieldOrigin: CGPoint = .zero
     private var textFieldLineHeight: CGFloat = 0
-    private var intensities: [Tool: Double] = [.blur: ObscuringIntensity.standard, .pixelate: ObscuringIntensity.standard]
+    private var sliderLevels: [Tool: Double] = Dictionary(uniqueKeysWithValues: Tool.allCases.compactMap { tool in
+        tool.sliderScale.map { (tool, $0.standard) }
+    })
     /// The image point shown at the middle of the available rect, before `clamped(_:)` keeps the image covering it.
     private var focus: CGPoint
 
@@ -101,8 +112,6 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         self.document = document
         self.pixelsPerPoint = pixelsPerPoint
         lineWidth = 3 * pixelsPerPoint
-        // About half the cursor's width, measured against the cursor in the reference arrow the redesign copies.
-        arrowLineWidth = 6 * pixelsPerPoint
         textLineHeight = 28 * pixelsPerPoint
         focus = CGPoint(x: CGFloat(document.base.width) / 2, y: CGFloat(document.base.height) / 2)
         super.init(frame: .zero)
@@ -284,13 +293,8 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
             return document.annotations.map { $0.id == id ? $0.resized(handle, to: to) : $0 }
         case .cropping:
             return document.annotations
-        case .restyling(let id, let kind):
-            return document.annotations.map { annotation in
-                guard annotation.id == id else { return annotation }
-                var restyled = annotation
-                restyled.kind = kind
-                return restyled
-            }
+        case .restyling(let restyled):
+            return document.annotations.map { $0.id == restyled.id ? restyled : $0 }
         }
     }
 
@@ -408,37 +412,37 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         border.stroke()
     }
 
-    // MARK: Intensity
+    // MARK: Slider
 
-    /// What the intensity slider adjusts: the selected blur or pixelate, else the next one the current tool draws.
-    var intensityTarget: (tool: Tool, level: Double)? {
-        if let selected = selectedObscuring, let size = selected.annotation.kind.obscuringSize {
-            return (selected.tool, ObscuringIntensity.level(of: size, pixelsPerPoint: pixelsPerPoint))
+    /// What the dock slider adjusts: the selected arrow, blur or pixelate, else the next one the current tool draws.
+    var sliderTarget: (tool: Tool, level: Double)? {
+        if let selected = selectedSliding, let size = selected.annotation.sliderSize, let scale = selected.tool.sliderScale {
+            return (selected.tool, scale.level(of: size, pixelsPerPoint: pixelsPerPoint))
         }
-        guard let level = intensities[tool] else { return nil }
+        guard let level = sliderLevels[tool] else { return nil }
         return (tool, level)
     }
 
-    /// A selected blur or pixelate, unless the current tool is the other one of the two.
-    private var selectedObscuring: (annotation: Annotation, tool: Tool)? {
+    /// A selected arrow, blur or pixelate, unless the current tool draws another of the three.
+    private var selectedSliding: (annotation: Annotation, tool: Tool)? {
         guard let selectedID, let annotation = document.annotation(selectedID),
-              let owner = Tool(obscuring: annotation.kind),
-              intensities[tool] == nil || tool == owner
+              let owner = Tool(sliding: annotation.kind),
+              sliderLevels[tool] == nil || tool == owner
         else { return nil }
         return (annotation, owner)
     }
 
     /// While the slider is dragged, only the canvas shows the change; `committing` writes it as one undo step.
-    func setIntensity(_ level: Double, committing: Bool) {
-        guard let target = intensityTarget else { return }
-        intensities[target.tool] = level
-        if let selected = selectedObscuring?.annotation {
-            let size = ObscuringIntensity.size(at: level, pixelsPerPoint: pixelsPerPoint)
+    func setSliderLevel(_ level: Double, committing: Bool) {
+        guard let target = sliderTarget, let scale = target.tool.sliderScale else { return }
+        sliderLevels[target.tool] = level
+        if let selected = selectedSliding?.annotation {
+            let size = scale.size(at: level, pixelsPerPoint: pixelsPerPoint)
             if committing {
                 gesture = nil
-                document.setObscuringSize(selected.id, size)
+                document.setSliderSize(selected.id, size)
             } else {
-                gesture = .restyling(selected.id, selected.kind.obscuring(size: size))
+                gesture = .restyling(selected.withSliderSize(size))
             }
         }
         needsDisplay = true
@@ -450,13 +454,14 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         case .arrow: .arrow
         case .rectangle: .rectangle
         case .highlighter: .highlighter
-        case .blur: .blur(sigma: nextObscuringSize(for: .blur))
-        case .pixelate: .pixelate(block: nextObscuringSize(for: .pixelate))
+        case .blur: .blur(sigma: nextSliderSize(for: .blur))
+        case .pixelate: .pixelate(block: nextSliderSize(for: .pixelate))
         }
     }
 
-    private func nextObscuringSize(for tool: Tool) -> CGFloat {
-        ObscuringIntensity.size(at: intensities[tool] ?? ObscuringIntensity.standard, pixelsPerPoint: pixelsPerPoint)
+    private func nextSliderSize(for tool: Tool) -> CGFloat {
+        guard let scale = tool.sliderScale else { return lineWidth }
+        return scale.size(at: sliderLevels[tool] ?? scale.standard, pixelsPerPoint: pixelsPerPoint)
     }
 
     // MARK: Cursor
@@ -533,7 +538,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
                     kind: $0,
                     start: point,
                     end: point,
-                    lineWidth: $0 == .arrow ? arrowLineWidth : lineWidth,
+                    lineWidth: $0 == .arrow ? nextSliderSize(for: .arrow) : lineWidth,
                     color: color
                 ))
             }

@@ -64,13 +64,10 @@ public final class AnnotationDocument {
         }
     }
 
-    public func setObscuringSize(_ id: UUID, _ size: CGFloat) {
-        guard let kind = annotation(id)?.kind, kind.obscuringSize != nil else { return }
-        update(id, actionName: "Change \(kind.name) Intensity") { annotation in
-            var changed = annotation
-            changed.kind = kind.obscuring(size: size)
-            return changed
-        }
+    public func setSliderSize(_ id: UUID, _ size: CGFloat) {
+        guard let current = annotation(id), current.sliderSize != nil else { return }
+        let quantity = current.kind == .arrow ? "Thickness" : "Intensity"
+        update(id, actionName: "Change \(current.kind.name) \(quantity)") { $0.withSliderSize(size) }
     }
 
     public func delete(_ id: UUID) {
