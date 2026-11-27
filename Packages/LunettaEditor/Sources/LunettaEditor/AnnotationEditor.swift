@@ -238,7 +238,9 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
 
         let content = NSView()
         dockCenter = dock.centerXAnchor.constraint(equalTo: content.centerXAnchor)
-        dockCenter.priority = .defaultHigh // the edges win, so an open slider never pushes the dock off a narrow window
+        // The edges win, so an open slider never pushes the dock off a narrow window. At `.defaultHigh` the offset
+        // grew a 620 pt window to 708 pt instead: anything above `windowSizeStayPut` may resize the window.
+        dockCenter.priority = .dragThatCannotResizeWindow
         for view in [canvas, dock, captionHost] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
