@@ -50,10 +50,7 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     private static let captionGap: CGFloat = 8
     private static let dockSpacing: CGFloat = 8
     private static let captionFadeOut: TimeInterval = 0.2
-    private static let intensityReveal: TimeInterval = 0.2
-    // The open dock still has to fit the minimum window: `openIntensitySliderFitsTheSmallestWindow` trips first.
-    private static let intensitySliderWidth: CGFloat = 88
-    private static let intensityInset: CGFloat = 6
+    private static let sliderReveal: TimeInterval = 0.2
     private static let captionFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
     private static let zoomFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
     private static let easeOut = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
@@ -79,10 +76,9 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     private var toolsBar: NSView!
     private(set) var dock: NSStackView!
     private var dockCenter: NSLayoutConstraint!
-    let intensitySlider = IntensitySlider()
-    private let intensityHost = NSView()
-    private var intensityHostWidth: NSLayoutConstraint!
-    private(set) var isIntensityOpen = false
+    let thicknessDrawer = SliderDrawer(tools: [.arrow], quantity: "thickness", side: .before)
+    let intensityDrawer = SliderDrawer(tools: [.blur, .pixelate], quantity: "intensity", side: .after)
+    private var drawers: [SliderDrawer] { [thicknessDrawer, intensityDrawer] }
     let zoomSlider = NSSlider()
     let zoomButton = NSButton(title: "", target: nil, action: nil)
     private(set) var zoomControl: NSView!
@@ -129,11 +125,11 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         canvas.onToolChange = { [weak self] tool in
             self?.closeColorPalette()
             self?.showSelectedTool(tool)
-            self?.updateIntensityControl()
+            self?.updateSliders()
             self?.updateCaption()
         }
         canvas.onSelectionChange = { [weak self] in
-            self?.updateIntensityControl()
+            self?.updateSliders()
             self?.syncColorUI()
         }
         canvas.onSave = { [weak self] in self?.saveAndClose() }
@@ -141,7 +137,7 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         document.onChange = { [weak self] in
             self?.canvas.documentChanged()
             self?.updateUndoButtons()
-            self?.updateIntensityControl()
+            self?.updateSliders()
             self?.syncColorUI()
             self?.updateCaption(fading: true)
         }
@@ -179,16 +175,18 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     private func makeContent() -> NSView {
         canvas.contentInsets = Self.canvasInsets
 
+        drawers.forEach(wire)
         var toolItems: [NSView] = []
         for (index, group) in Self.toolGroups.enumerated() {
             if index > 0 { toolItems.append(Glass.divider()) }
             for item in group {
+                if item.tool == .arrow { toolItems.append(thicknessDrawer.host) }
                 let button = iconButton(item.symbol, item.label, shortcut: item.tool.shortcut.uppercased(), #selector(chooseTool(_:)))
                 button.setButtonType(.pushOnPushOff)
                 button.tag = Self.tools.firstIndex { $0.tool == item.tool }!
                 toolButtons[item.tool] = button
                 toolItems.append(button)
-                if item.tool == .pixelate { toolItems.append(makeIntensityHost()) }
+                if item.tool == .pixelate { toolItems.append(intensityDrawer.host) }
             }
         }
         let undoControl = iconButton(Self.undoSymbol, "Undo", shortcut: "⌘Z", #selector(undo))
@@ -215,8 +213,10 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         trackHover(of: saveButton, caption: caption("Save", detail: "⌘S"))
 
         let tools = Glass.toolbar(toolItems, blending: .withinWindow)
-        // The toolbar gaps both sides of anything that isn't a button; the host carries its own inset so it closes to nothing.
-        (intensityHost.superview as? NSStackView)?.setCustomSpacing(0, after: toolButtons[.pixelate]!)
+        // The toolbar gaps both sides of anything that isn't a button; a drawer carries its own inset so it closes to nothing.
+        let toolStack = intensityDrawer.host.superview as? NSStackView
+        toolStack?.setCustomSpacing(0, after: thicknessDrawer.host)
+        toolStack?.setCustomSpacing(0, after: toolButtons[.pixelate]!)
         let colors = Glass.toolbar([pickerControl], blending: .withinWindow)
         let history = Glass.toolbar([undoControl, redoControl], blending: .withinWindow)
         let saving = Glass.toolbar([saveButton], tint: .controlAccentColor, blending: .withinWindow)
@@ -238,7 +238,7 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
 
         let content = NSView()
         dockCenter = dock.centerXAnchor.constraint(equalTo: content.centerXAnchor)
-        dockCenter.priority = .defaultHigh // the edges win, so an open intensity slider never pushes the dock off a narrow window
+        dockCenter.priority = .defaultHigh // the edges win, so an open slider never pushes the dock off a narrow window
         for view in [canvas, dock, captionHost] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
@@ -291,15 +291,15 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         ).size().width
 
         let row = NSStackView(views: [zoomSlider, zoomButton])
-        row.spacing = Self.intensityInset
+        row.spacing = SliderDrawer.inset
         NSLayoutConstraint.activate([
-            zoomSlider.widthAnchor.constraint(equalToConstant: Self.intensitySliderWidth),
+            zoomSlider.widthAnchor.constraint(equalToConstant: SliderDrawer.sliderWidth),
             zoomButton.widthAnchor.constraint(equalToConstant: ceil(widestPercent)),
         ])
         let capsule = Glass.capsule(holding: row, blending: .withinWindow)
         zoomControl = capsule
         // Accessories are sized by frame, so the capsule's width is added up rather than measured.
-        let width = Self.intensitySliderWidth + Self.intensityInset + ceil(widestPercent) + 2 * Glass.titlePadding
+        let width = SliderDrawer.sliderWidth + SliderDrawer.inset + ceil(widestPercent) + 2 * Glass.titlePadding
         let host = NSView(frame: CGRect(x: 0, y: 0, width: width + Self.chromeMargin, height: Self.titlebarHeight))
         capsule.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(capsule)
@@ -330,36 +330,19 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         return button
     }
 
-    private func makeIntensityHost() -> NSView {
-        intensitySlider.minValue = 0
-        intensitySlider.maxValue = 1
-        intensitySlider.isContinuous = true
-        intensitySlider.controlSize = .small
-        intensitySlider.target = self
-        intensitySlider.action = #selector(intensityChanged)
-        intensitySlider.alphaValue = 0
-        intensitySlider.isHidden = true
-        intensitySlider.onHoverChange = { [weak self] hovered in
-            guard let self else { return }
-            hoverChanged(intensitySlider, hovered)
+    private func wire(_ drawer: SliderDrawer) {
+        let slider = drawer.slider
+        slider.target = self
+        slider.action = #selector(sliderChanged(_:))
+        slider.onHoverChange = { [weak self, weak slider] hovered in
+            guard let self, let slider else { return }
+            hoverChanged(slider, hovered)
         }
-        intensitySlider.onTrackingEnd = { [weak self] in
-            guard let self else { return }
-            canvas.setIntensity(intensitySlider.doubleValue, committing: true)
+        slider.onTrackingEnd = { [weak self, weak slider] in
+            guard let self, let slider else { return }
+            canvas.setSliderLevel(slider.doubleValue, committing: true)
             window.makeFirstResponder(canvas)
         }
-        intensitySlider.translatesAutoresizingMaskIntoConstraints = false
-        intensityHost.addSubview(intensitySlider)
-        intensityHost.clipsToBounds = true
-        intensityHostWidth = intensityHost.widthAnchor.constraint(equalToConstant: 0)
-        NSLayoutConstraint.activate([
-            intensityHostWidth,
-            intensityHost.heightAnchor.constraint(equalToConstant: Glass.buttonSide),
-            intensitySlider.leadingAnchor.constraint(equalTo: intensityHost.leadingAnchor, constant: Self.intensityInset),
-            intensitySlider.widthAnchor.constraint(equalToConstant: Self.intensitySliderWidth),
-            intensitySlider.centerYAnchor.constraint(equalTo: intensityHost.centerYAnchor),
-        ])
-        return intensityHost
     }
 
     private func sizeWindow(pixelsPerPoint: CGFloat) {
@@ -413,12 +396,12 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         updateCaption()
     }
 
-    /// The slider's caption reads out its position, so a drag with nothing selected still shows what it changed.
+    /// A slider's caption reads out its position, so a drag with nothing selected still shows what it changed.
     private func hoverCaption(for control: NSView) -> NSAttributedString? {
-        guard control === intensitySlider else { return captions[ObjectIdentifier(control)] }
-        guard let target = canvas.intensityTarget else { return nil }
-        let percent = Int((intensitySlider.doubleValue * 100).rounded())
-        return caption("\(Self.label(of: target.tool)) intensity", detail: "\(percent)%")
+        guard let drawer = drawers.first(where: { $0.slider === control }) else { return captions[ObjectIdentifier(control)] }
+        guard let target = canvas.sliderTarget else { return nil }
+        let percent = Int((drawer.slider.doubleValue * 100).rounded())
+        return caption("\(Self.label(of: target.tool)) \(drawer.quantity)", detail: "\(percent)%")
     }
 
     private static func label(of tool: EditorCanvas.Tool) -> String {
@@ -624,47 +607,39 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         }
     }
 
-    private func updateIntensityControl() {
-        guard let target = canvas.intensityTarget else { return setIntensityOpen(false) }
-        intensitySlider.setAccessibilityLabel("\(Self.label(of: target.tool)) intensity")
-        if !intensitySlider.isTracking { intensitySlider.doubleValue = target.level }
-        setIntensityOpen(true)
-    }
-
-    private func setIntensityOpen(_ open: Bool) {
-        guard open != isIntensityOpen else { return }
-        isIntensityOpen = open
-        let width = open ? Self.intensityInset + Self.intensitySliderWidth : 0
-        // Moving the dock right by half keeps everything left of the slider still, so the Blur or Pixelate button
-        // that opened it stays under the pointer.
-        let dockOffset = width / 2
-        intensitySlider.isHidden = false
+    /// Opens the drawer whose slider adjusts the canvas's slider target, closing any other.
+    private func updateSliders() {
+        let target = canvas.sliderTarget
+        let opening = target.flatMap { target in drawers.first { $0.tools.contains(target.tool) } }
+        if let target, let opening {
+            opening.slider.setAccessibilityLabel("\(Self.label(of: target.tool)) \(opening.quantity)")
+            if !opening.slider.isTracking { opening.slider.doubleValue = target.level }
+        }
+        let changed = drawers.filter { ($0 === opening) != $0.isOpen }
+        guard !changed.isEmpty else { return }
+        changed.forEach { $0.setOpen(!$0.isOpen) }
+        let dockOffset = drawers.reduce(0) { $0 + $1.dockOffset }
         // A tool picked from the keyboard is picked dozens of times a session, so only a click gets the reveal.
         let animates = window.isVisible && NSApp.currentEvent?.type != .keyDown && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         guard animates else {
-            intensityHostWidth.constant = width
+            changed.forEach { $0.show(animated: false) }
             dockCenter.constant = dockOffset
-            intensitySlider.alphaValue = open ? 1 : 0
-            intensitySlider.isHidden = !open
             return
         }
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = Self.intensityReveal
+            context.duration = Self.sliderReveal
             context.timingFunction = Self.easeOut
-            intensityHostWidth.animator().constant = width
+            changed.forEach { $0.show(animated: true) }
             dockCenter.animator().constant = dockOffset
-            intensitySlider.animator().alphaValue = open ? 1 : 0
-        }, completionHandler: { [weak self] in
+        }, completionHandler: {
             MainActor.assumeIsolated {
-                // Hidden once closed, so VoiceOver doesn't find a slider clipped to nothing; reopening mid-close wins.
-                guard let self, !self.isIntensityOpen else { return }
-                self.intensitySlider.isHidden = true
+                changed.forEach { $0.hideIfClosed() }
             }
         })
     }
 
-    @objc private func intensityChanged() {
-        canvas.setIntensity(intensitySlider.doubleValue, committing: !intensitySlider.isTracking)
+    @objc private func sliderChanged(_ sender: DockSlider) {
+        canvas.setSliderLevel(sender.doubleValue, committing: !sender.isTracking)
         updateCaption()
     }
 
