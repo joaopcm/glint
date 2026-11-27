@@ -3,7 +3,7 @@ import LunettaCore
 import Testing
 @testable import Lunetta
 
-@MainActor let noUpload: @MainActor (URL) async throws -> UploadedCapture = { _ in
+@MainActor let noUpload: @MainActor (URL, UploadedCapture?) async throws -> UploadedCapture = { _, _ in
     Issue.record("a thumbnail uploaded without being asked to")
     throw UploadError.notConfigured
 }
@@ -11,7 +11,14 @@ import Testing
 @MainActor private final class UploadLog {
     var files: [URL] = []
     var reported: [UploadedCapture] = []
+    var replacing: [UploadedCapture?] = []
 }
+
+private let shotsUpload = UploadedCapture(
+    key: "shots/Ab3.png",
+    link: URL(string: "https://shots.example.com/shots/Ab3.png")!,
+    bucket: BucketIdentity(endpoint: URL(string: "http://localhost:9000")!, bucket: "shots")
+)
 
 @MainActor @Test func uploadAfterCaptureUploadsTheNewCaptureReportsItsLinkAndKeepsTheCard() async throws {
     let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
@@ -24,7 +31,7 @@ import Testing
     )
     let presenter = ThumbnailPresenter(
         settings: settings,
-        upload: { file in
+        upload: { file, _ in
             log.files.append(file)
             return uploaded
         },
@@ -74,7 +81,7 @@ import Testing
     )
     let presenter = ThumbnailPresenter(
         settings: settings,
-        upload: { _ in
+        upload: { _, _ in
             for await _ in bucketAnswers.stream { break }
             return uploaded
         },
@@ -93,4 +100,72 @@ import Testing
     #expect(presenter.count == 1)
     try await Task.sleep(for: .milliseconds(400))
     #expect(presenter.count == 0) // the finished upload hands the card back to auto-hide
+}
+
+@MainActor @Test func savingAnnotationsOnAnUploadedCapturePutsThemBehindTheSameLink() async throws {
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    settings.uploadAfterCapture = true
+    let log = UploadLog()
+    let presenter = ThumbnailPresenter(
+        settings: settings,
+        upload: { _, earlier in
+            log.replacing.append(earlier)
+            return shotsUpload
+        },
+        onUploaded: { log.reported.append($0) },
+        pointerLocation: { offScreen }
+    )
+    let png = try writePNG()
+    presenter.show(png)
+    try await Task.sleep(for: .milliseconds(200))
+
+    presenter.annotationsSaved(to: png, try CaptureEditor.image(at: png))
+    try await Task.sleep(for: .milliseconds(200))
+
+    #expect(log.replacing == [nil, shotsUpload])
+    #expect(log.reported == [shotsUpload, shotsUpload])
+    #expect(presenter.count == 1)
+}
+
+@MainActor @Test func annotationsSavedDuringTheFirstUploadGoUpOnceItFinishes() async throws {
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    settings.uploadAfterCapture = true
+    let log = UploadLog()
+    let bucketAnswers = AsyncStream<Void>.makeStream()
+    let presenter = ThumbnailPresenter(
+        settings: settings,
+        upload: { _, earlier in
+            log.replacing.append(earlier)
+            if earlier == nil {
+                for await _ in bucketAnswers.stream { break }
+            }
+            return shotsUpload
+        },
+        onUploaded: { log.reported.append($0) },
+        pointerLocation: { offScreen }
+    )
+    let png = try writePNG()
+    presenter.show(png)
+    try await Task.sleep(for: .milliseconds(100))
+
+    presenter.annotationsSaved(to: png, try CaptureEditor.image(at: png))
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(log.replacing == [nil])
+
+    bucketAnswers.continuation.yield()
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(log.replacing == [nil, shotsUpload])
+    #expect(log.reported == [shotsUpload, shotsUpload])
+}
+
+@MainActor @Test func savingAnnotationsOnACaptureNeverUploadedKeepsItOnThisMac() async throws {
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let presenter = ThumbnailPresenter(settings: settings, upload: noUpload, onUploaded: { _ in }, pointerLocation: { offScreen })
+    let png = try writePNG()
+    presenter.show(png)
+
+    presenter.annotationsSaved(to: png, try CaptureEditor.image(at: png))
+    try await Task.sleep(for: .milliseconds(200))
+
+    #expect(presenter.count == 1)
 }

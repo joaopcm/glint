@@ -52,7 +52,7 @@ final class ThumbnailPresenter {
     private var isDraggingOut = false
     private var isRunningModal = false
     private let pointerLocation: @MainActor () -> CGPoint
-    private let uploadFile: @MainActor (URL) async throws -> UploadedCapture
+    private let uploadFile: @MainActor (URL, _ replacing: UploadedCapture?) async throws -> UploadedCapture
     private let onUploaded: @MainActor (UploadedCapture) -> Void
     private var observers: [NSObjectProtocol] = []
     private var liveWidth: CGFloat?
@@ -62,7 +62,7 @@ final class ThumbnailPresenter {
     // ponytail: fixed 6 s when auto-hide is on; make the delay a setting if someone asks.
     init(
         settings: LunettaSettings,
-        upload: @escaping @MainActor (URL) async throws -> UploadedCapture,
+        upload: @escaping @MainActor (URL, _ replacing: UploadedCapture?) async throws -> UploadedCapture,
         onUploaded: @escaping @MainActor (UploadedCapture) -> Void,
         autoDismissDelay: Duration = .seconds(6),
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation }
@@ -421,16 +421,33 @@ final class ThumbnailPresenter {
         refreshHover()
         Task {
             do {
-                let uploaded = try await uploadFile(item.url)
+                let uploaded = try await uploadFile(item.url, item.uploaded)
+                item.uploaded = uploaded
                 item.isUploading = false
                 if closingCard { remove(item) }
                 layout()
                 onUploaded(uploaded)
+                if item.uploadAgainWhenDone {
+                    item.uploadAgainWhenDone = false
+                    upload(item, closingCard: false)
+                }
             } catch {
                 item.isUploading = false
+                item.uploadAgainWhenDone = false
                 showError("Lunetta couldn't upload the screenshot", error)
             }
             refreshHover()
+        }
+    }
+
+    /// An uploaded capture's link is already out, so saving annotations puts the new bytes behind that same link.
+    func annotationsSaved(to url: URL, _ image: CGImage) {
+        guard let item = items.first(where: { $0.url == url }) else { return }
+        item.reloadThumbnail(from: image)
+        if item.isUploading {
+            item.uploadAgainWhenDone = true
+        } else if item.uploaded != nil {
+            upload(item, closingCard: false)
         }
     }
 
@@ -477,7 +494,7 @@ final class ThumbnailPresenter {
                 savingTo: url,
                 on: item.screen,
                 settings: settings,
-                onSaved: { [weak self] savedImage in self?.items.first { $0.url == url }?.reloadThumbnail(from: savedImage) },
+                onSaved: { [weak self] savedImage in self?.annotationsSaved(to: url, savedImage) },
                 onClose: { [weak self] in
                     self?.editors[url] = nil
                     self?.refreshHover()
@@ -548,6 +565,9 @@ private final class ThumbnailItem {
     /// Where layout() put the panel (nil = hidden). Used for hover, since animated frames lag behind.
     var targetFrame: CGRect?
     var annotations: AnnotationDocument?
+    var uploaded: UploadedCapture?
+    /// Annotations saved while an upload was running; that upload may have read the file before them.
+    var uploadAgainWhenDone = false
     var hasEntered = false
     var isUploading = false {
         didSet { view.isUploading = isUploading }
