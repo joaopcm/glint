@@ -46,7 +46,7 @@ enum RecordingEvent: Equatable {
 
 @MainActor
 protocol MicrophoneAccess {
-    var status: MicrophoneStatus { get }
+    var status: DeviceAccess { get }
     var inputs: [AudioInput] { get }
     func requestAccess() async -> Bool
     func openSettings()
@@ -61,6 +61,17 @@ protocol KeystrokeShowing {
     func openSettings()
 }
 
+/// The camera bubble shown in a recorded area, and the Camera access it needs. `camera` nil shows the system's camera.
+@MainActor
+protocol CameraShowing {
+    var access: DeviceAccess { get }
+    var cameras: [CameraInput] { get }
+    func requestAccess() async -> Bool
+    func openSettings()
+    func show(over region: CGRect, camera: CameraInput?) throws
+    func hide()
+}
+
 /// The rings drawn under the pointer on each click in a recorded area.
 @MainActor
 protocol ClickShowing {
@@ -72,7 +83,8 @@ protocol ClickShowing {
 private struct RecordingOverlays {
     var keys = false
     var clicks = false
-    var isEmpty: Bool { !keys && !clicks }
+    var camera = false
+    var cameraInput: CameraInput?
 }
 
 @MainActor
@@ -113,12 +125,16 @@ struct CaptureAlert: Equatable {
         case openSystemSettings = "Open System Settings"
         case allowMicrophone = "Allow Microphone"
         case openMicrophoneSettings = "Open Microphone Settings"
+        case allowCamera = "Allow Camera"
+        case openCameraSettings = "Open Camera Settings"
         case openInputMonitoringSettings = "Open Input Monitoring Settings"
 
         init(_ fix: RecordingFix) {
             self = switch fix {
             case .allowMicrophone: .allowMicrophone
             case .openMicrophoneSettings: .openMicrophoneSettings
+            case .allowCamera: .allowCamera
+            case .openCameraSettings: .openCameraSettings
             case .openInputMonitoringSettings: .openInputMonitoringSettings
             }
         }
@@ -208,6 +224,7 @@ final class CaptureCoordinator {
     private let microphone: any MicrophoneAccess
     private let keystrokes: any KeystrokeShowing
     private let clickRings: any ClickShowing
+    private let camera: any CameraShowing
     private let stager: any RecordingStaging
     private let selector: any Selecting
     private let alerts: any AlertPresenting
@@ -234,6 +251,7 @@ final class CaptureCoordinator {
         microphone: any MicrophoneAccess,
         keystrokes: any KeystrokeShowing,
         clickRings: any ClickShowing,
+        camera: any CameraShowing,
         stager: any RecordingStaging,
         selector: any Selecting,
         alerts: any AlertPresenting,
@@ -254,6 +272,7 @@ final class CaptureCoordinator {
         self.microphone = microphone
         self.keystrokes = keystrokes
         self.clickRings = clickRings
+        self.camera = camera
         self.stager = stager
         self.selector = selector
         self.alerts = alerts
@@ -344,7 +363,12 @@ final class CaptureCoordinator {
                 microphoneID: input?.id,
                 showsClicks: choices.showsClicks && !drawsClicks
             )
-            overlays = RecordingOverlays(keys: choices.showsKeys, clicks: drawsClicks)
+            overlays = RecordingOverlays(
+                keys: choices.showsKeys,
+                clicks: drawsClicks,
+                camera: choices.camera,
+                cameraInput: choices.camera ? choices.cameraInput : nil
+            )
             try show(overlays, over: region)
             let status = RecordingStatus(region: region, dimsOutside: mode == .area)
             try await record(target, status: status, options: options, overlays: overlays, input: input)
@@ -375,11 +399,13 @@ final class CaptureCoordinator {
     private func show(_ overlays: RecordingOverlays, over region: CGRect) throws {
         if overlays.keys { try keystrokes.show(over: region) }
         if overlays.clicks { clickRings.show(over: region) }
+        if overlays.camera { try camera.show(over: region, camera: overlays.cameraInput) }
     }
 
     private func hide(_ overlays: RecordingOverlays) {
         if overlays.keys { keystrokes.hide() }
         if overlays.clicks { clickRings.hide() }
+        if overlays.camera { camera.hide() }
     }
 
     private func record(
@@ -415,8 +441,10 @@ final class CaptureCoordinator {
             mode: mode,
             choices: settings.recordingChoices,
             microphone: microphone.status,
+            camera: camera.access,
             inputMonitoringAllowed: keystrokes.isAllowed,
-            connectedInputs: settings.recordMicrophone ? microphone.inputs : []
+            connectedInputs: settings.recordMicrophone ? microphone.inputs : [],
+            connectedCameras: settings.recordCamera ? camera.cameras : []
         )
     }
 
@@ -424,6 +452,8 @@ final class CaptureCoordinator {
         switch fix {
         case .allowMicrophone: _ = await microphone.requestAccess()
         case .openMicrophoneSettings: microphone.openSettings()
+        case .allowCamera: _ = await camera.requestAccess()
+        case .openCameraSettings: camera.openSettings()
         case .openInputMonitoringSettings: keystrokes.openSettings()
         }
     }
@@ -738,6 +768,10 @@ final class CaptureCoordinator {
             Task { await self.fix(.allowMicrophone) }
         case .openMicrophoneSettings:
             microphone.openSettings()
+        case .allowCamera:
+            Task { await self.fix(.allowCamera) }
+        case .openCameraSettings:
+            camera.openSettings()
         case .openInputMonitoringSettings:
             keystrokes.openSettings()
         }

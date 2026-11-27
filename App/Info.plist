@@ -22,6 +22,8 @@
 	<string>$(LUNETTA_COMMIT)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Lunetta shows your camera in a circle over screen recordings when Camera is on in the Record Screen… toolbar.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Lunetta records your microphone into screen recordings when Microphone is on in the Record Screen… toolbar.</string>
 	<key>LSUIElement</key>

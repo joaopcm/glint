@@ -125,6 +125,8 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(changeIsSeen(\.recordingCountdown, becomes: false))
     #expect(changeIsSeen(\.recordingSounds, becomes: false))
     #expect(changeIsSeen(\.recordingInput, becomes: AudioInput(id: "usb-1", name: "Desk Mic")))
+    #expect(changeIsSeen(\.recordCamera, becomes: true))
+    #expect(changeIsSeen(\.recordingCamera, becomes: CameraInput(id: "usb-cam", name: "Desk Cam")))
     #expect(changeIsSeen(\.showPressedKeys, becomes: true))
     #expect(changeIsSeen(\.showMouseClicks, becomes: true))
     #expect(changeIsSeen(\.annotationColor, becomes: "#30D158"))
@@ -225,11 +227,14 @@ private final class ChangeFlag: @unchecked Sendable {
     first.recordSystemAudio = true
     first.recordMicrophone = true
     first.recordingInput = AudioInput(id: "usb-1", name: "Desk Mic")
+    first.recordCamera = true
+    first.recordingCamera = CameraInput(id: "usb-cam", name: "Desk Cam")
     first.showPressedKeys = true
     first.showMouseClicks = true
     let next = LunettaSettings(store: store, defaultSaveFolder: desktop)
     #expect(next.recordingChoices == RecordingChoices(
-        systemAudio: true, microphone: true, input: AudioInput(id: "usb-1", name: "Desk Mic"), showsKeys: true, showsClicks: true
+        systemAudio: true, microphone: true, input: AudioInput(id: "usb-1", name: "Desk Mic"),
+        camera: true, cameraInput: CameraInput(id: "usb-cam", name: "Desk Cam"), showsKeys: true, showsClicks: true
     ))
 }
 
@@ -240,6 +245,16 @@ private final class ChangeFlag: @unchecked Sendable {
     settings.recordingInput = nil
     #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).recordingInput == nil)
     #expect(store.string(forKey: "recordingInputName") == nil)
+}
+
+@MainActor @Test func choosingTheSystemCameraForgetsTheSavedOne() {
+    let store = MemoryStore()
+    let settings = LunettaSettings(store: store, defaultSaveFolder: desktop)
+    #expect(settings.recordCamera == false && settings.recordingCamera == nil)
+    settings.recordingCamera = CameraInput(id: "usb-cam", name: "Desk Cam")
+    settings.recordingCamera = nil
+    #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).recordingCamera == nil)
+    #expect(store.string(forKey: "recordingCameraName") == nil)
 }
 
 @MainActor @Test func anInputSavedWithoutANameIsNamedByItsID() {

@@ -10,20 +10,24 @@ final class RecordingStageModel {
     let settings: LunettaSettings
     private(set) var problems: [RecordingProblem] = []
     private(set) var connectedInputs: [AudioInput] = []
+    private(set) var connectedCameras: [CameraInput] = []
     var onChange: (@MainActor () -> Void)?
     private let checkProblems: @MainActor () -> [RecordingProblem]
     private let listInputs: @MainActor () -> [AudioInput]
+    private let listCameras: @MainActor () -> [CameraInput]
     private let applyFix: @MainActor (RecordingFix) async -> Void
 
     init(
         settings: LunettaSettings,
         problems: @escaping @MainActor () -> [RecordingProblem],
         inputs: @escaping @MainActor () -> [AudioInput],
+        cameras: @escaping @MainActor () -> [CameraInput],
         fix: @escaping @MainActor (RecordingFix) async -> Void
     ) {
         self.settings = settings
         checkProblems = problems
         listInputs = inputs
+        listCameras = cameras
         applyFix = fix
     }
 
@@ -33,12 +37,22 @@ final class RecordingStageModel {
         return connectedInputs + [saved]
     }
 
+    var pickableCameras: [CameraInput] {
+        guard let saved = settings.recordingCamera, !connectedCameras.contains(saved) else { return connectedCameras }
+        return connectedCameras + [saved]
+    }
+
     func isConnected(_ input: AudioInput) -> Bool {
         connectedInputs.contains { $0.id == input.id }
     }
 
+    func isConnected(_ camera: CameraInput) -> Bool {
+        connectedCameras.contains { $0.id == camera.id }
+    }
+
     func refresh() {
         connectedInputs = listInputs()
+        connectedCameras = listCameras()
         problems = checkProblems()
         onChange?()
     }
@@ -166,18 +180,10 @@ private final class RecordingStageView: NSView {
 
     private lazy var systemAudioButton = toggle("speaker.wave.2.fill", "System Audio", AccessibilityID.recordingStageSystemAudio, #selector(toggleSystemAudio(_:)))
     private lazy var microphoneButton = toggle("mic.fill", "Microphone", AccessibilityID.recordingStageMicrophone, #selector(toggleMicrophone(_:)))
-    /// The chosen input's name, then the up-and-down chevron macOS puts on every pop-up button.
-    private lazy var inputButton: GlassButton = {
-        // At the title's own size and the symbol's small scale, the chevron centers on the text like a menu's does;
-        // a 9 pt symbol beside 13 pt text sat off its middle.
-        let chevron = NSImage(systemSymbolName: "chevron.up.chevron.down", accessibilityDescription: nil)!
-            .withSymbolConfiguration(.init(pointSize: NSFont.systemFontSize, weight: .semibold, scale: .small))!
-        let button = GlassButton(title: "System Default", image: chevron, target: self, action: #selector(chooseInput(_:)))
-        button.imagePosition = .imageTrailing
-        button.setAccessibilityIdentifier(AccessibilityID.recordingStageInput)
-        return button
-    }()
-    private var inputWidth: NSLayoutConstraint?
+    private lazy var inputButton = picker(AccessibilityID.recordingStageInput, #selector(chooseInput(_:)))
+    private lazy var cameraButton = toggle("video.fill", "Camera", AccessibilityID.recordingStageCamera, #selector(toggleCamera(_:)))
+    private lazy var cameraInputButton = picker(AccessibilityID.recordingStageCameraInput, #selector(chooseCamera(_:)))
+    private var pickerWidths: [ObjectIdentifier: NSLayoutConstraint] = [:]
     private lazy var keysButton = toggle("keyboard", "Show Pressed Keys", AccessibilityID.recordingStagePressedKeys, #selector(toggleKeys(_:)))
     private lazy var clicksButton = toggle("cursorarrow.click.2", "Highlight Clicks", AccessibilityID.recordingStageClicks, #selector(toggleClicks(_:)))
     private lazy var recordButton: GlassButton = {
@@ -190,7 +196,8 @@ private final class RecordingStageView: NSView {
     }()
     private lazy var cancelButton = button("xmark", "Cancel (Esc)", AccessibilityID.recordingStageCancel, #selector(cancel))
     private lazy var toolbar = Glass.toolbar([
-        systemAudioButton, microphoneButton, inputButton, Glass.divider(), keysButton, clicksButton, Glass.divider(), recordButton, cancelButton,
+        systemAudioButton, microphoneButton, inputButton, Glass.divider(), cameraButton, cameraInputButton, Glass.divider(),
+        keysButton, clicksButton, Glass.divider(), recordButton, cancelButton,
     ])
     private var notice: NSView?
     private var chrome: StageChrome?
@@ -244,18 +251,20 @@ private final class RecordingStageView: NSView {
 
         toolbar.wantsLayer = true
         addSubview(toolbar)
-        // `Glass.toolbar` fixes a titled button's width to its title at creation; the input's name changes.
-        inputButton.constraints.filter { $0.firstAttribute == .width && $0.secondItem == nil && type(of: $0) == NSLayoutConstraint.self }
-            .forEach { $0.isActive = false }
-        let inputWidth = inputButton.widthAnchor.constraint(equalToConstant: 0)
-        inputWidth.isActive = true
-        self.inputWidth = inputWidth
+        // `Glass.toolbar` fixes a titled button's width to its title at creation; the device names change.
+        for picker in [inputButton, cameraInputButton] {
+            picker.constraints.filter { $0.firstAttribute == .width && $0.secondItem == nil && type(of: $0) == NSLayoutConstraint.self }
+                .forEach { $0.isActive = false }
+            let width = picker.widthAnchor.constraint(equalToConstant: 0)
+            width.isActive = true
+            pickerWidths[ObjectIdentifier(picker)] = width
+        }
         actionLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
         actionLabel.textColor = .labelColor
         actionLabel.setAccessibilityIdentifier(AccessibilityID.recordingStageActionLabel)
         actionLabelCapsule.isHidden = true
         addSubview(actionLabelCapsule)
-        for button in [systemAudioButton, microphoneButton, inputButton, keysButton, clicksButton, recordButton, cancelButton] {
+        for button in [systemAudioButton, microphoneButton, inputButton, cameraButton, cameraInputButton, keysButton, clicksButton, recordButton, cancelButton] {
             button.onHoverChange = { [weak self] button, hovered in self?.hover(button, hovered) }
         }
         layoutArea()
@@ -297,16 +306,23 @@ private final class RecordingStageView: NSView {
         microphoneButton.state = settings.recordMicrophone ? .on : .off
         keysButton.state = settings.showPressedKeys ? .on : .off
         clicksButton.state = settings.showMouseClicks ? .on : .off
+        cameraButton.state = settings.recordCamera ? .on : .off
         inputButton.isEnabled = settings.recordMicrophone
-        let inputName = settings.recordingInput?.name ?? "System Default"
-        inputButton.title = Self.inputTitle(inputName, font: inputButton.font)
-        inputButton.setAccessibilityLabel("Input: \(inputName)")
-        inputWidth?.constant = ceil(inputButton.intrinsicContentSize.width) + 2 * Glass.titlePadding
+        cameraInputButton.isEnabled = settings.recordCamera
+        showDevice(inputButton, role: "Input", name: settings.recordingInput?.name)
+        showDevice(cameraInputButton, role: "Camera", name: settings.recordingCamera?.name)
         updateRecordButton()
         notice?.removeFromSuperview()
         notice = model.problems.isEmpty ? nil : makeNotice(model.problems)
         if let notice { addSubview(notice) }
         layoutChrome()
+    }
+
+    private func showDevice(_ picker: GlassButton, role: String, name device: String?) {
+        let name = device ?? "System Default"
+        picker.title = Self.deviceTitle(name, font: picker.font)
+        picker.setAccessibilityLabel("\(role): \(name)")
+        pickerWidths[ObjectIdentifier(picker)]?.constant = ceil(picker.intrinsicContentSize.width) + 2 * Glass.titlePadding
     }
 
     private var recordablePixelSize: (width: Int, height: Int)? {
@@ -330,6 +346,11 @@ private final class RecordingStageView: NSView {
         model.refresh()
     }
 
+    @objc private func toggleCamera(_ sender: NSButton) {
+        model.settings.recordCamera = sender.state == .on
+        model.refresh()
+    }
+
     @objc private func toggleKeys(_ sender: NSButton) {
         model.settings.showPressedKeys = sender.state == .on
         model.refresh()
@@ -340,31 +361,50 @@ private final class RecordingStageView: NSView {
         model.refresh()
     }
 
-    @objc private func chooseInput(_ sender: NSButton) {
-        let menu = NSMenu()
-        let chosen = model.settings.recordingInput?.id
-        let systemDefault = NSMenuItem(title: "System Default", action: #selector(pickInput(_:)), keyEquivalent: "")
-        systemDefault.target = self
-        systemDefault.state = chosen == nil ? .on : .off
-        menu.addItem(systemDefault)
-        if !model.pickableInputs.isEmpty { menu.addItem(.separator()) }
-        for input in model.pickableInputs {
-            let title = model.isConnected(input) ? input.name : "\(input.name) (not connected)"
-            let item = NSMenuItem(title: title, action: #selector(pickInput(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = input.id
-            item.state = input.id == chosen ? .on : .off
-            menu.addItem(item)
+    @objc private func chooseInput(_ sender: GlassButton) {
+        let devices = model.pickableInputs.map { input in
+            (id: input.id, title: model.isConnected(input) ? input.name : "\(input.name) (not connected)")
         }
-        inputButton.isShowingMenu = true
-        _ = menu.popUp(positioning: nil, at: CGPoint(x: 0, y: sender.bounds.maxY + 6), in: sender)
-        inputButton.isShowingMenu = false
+        popUpDevices(devices, chosen: model.settings.recordingInput?.id, from: sender, action: #selector(pickInput(_:)))
     }
 
     @objc private func pickInput(_ item: NSMenuItem) {
         let id = item.representedObject as? String
         model.settings.recordingInput = model.pickableInputs.first { $0.id == id }
         model.refresh()
+    }
+
+    @objc private func chooseCamera(_ sender: GlassButton) {
+        let devices = model.pickableCameras.map { camera in
+            (id: camera.id, title: model.isConnected(camera) ? camera.name : "\(camera.name) (not connected)")
+        }
+        popUpDevices(devices, chosen: model.settings.recordingCamera?.id, from: sender, action: #selector(pickCamera(_:)))
+    }
+
+    @objc private func pickCamera(_ item: NSMenuItem) {
+        let id = item.representedObject as? String
+        model.settings.recordingCamera = model.pickableCameras.first { $0.id == id }
+        model.refresh()
+    }
+
+    /// System Default first, then each device; an item's represented object is its device ID, nil for System Default.
+    private func popUpDevices(_ devices: [(id: String, title: String)], chosen: String?, from button: GlassButton, action: Selector) {
+        let menu = NSMenu()
+        let systemDefault = NSMenuItem(title: "System Default", action: action, keyEquivalent: "")
+        systemDefault.target = self
+        systemDefault.state = chosen == nil ? .on : .off
+        menu.addItem(systemDefault)
+        if !devices.isEmpty { menu.addItem(.separator()) }
+        for device in devices {
+            let item = NSMenuItem(title: device.title, action: action, keyEquivalent: "")
+            item.target = self
+            item.representedObject = device.id
+            item.state = device.id == chosen ? .on : .off
+            menu.addItem(item)
+        }
+        button.isShowingMenu = true
+        _ = menu.popUp(positioning: nil, at: CGPoint(x: 0, y: button.bounds.maxY + 6), in: button)
+        button.isShowingMenu = false
     }
 
     @objc private func applyFix(_ sender: NSButton) {
@@ -422,13 +462,13 @@ private final class RecordingStageView: NSView {
 
     /// 140 pt of name is about 22 characters at the toolbar's 13 pt, enough for "MacBook Pro Microphone", the
     /// built-in input on Apple silicon MacBook Pros. A longer name ends in an ellipsis; the hover label has it whole.
-    private static let inputNameMaxWidth: CGFloat = 140
+    private static let deviceNameMaxWidth: CGFloat = 140
 
     /// Shortened here, not by the cell: a cell truncates until the title fills the whole button, which pushed the name
     /// and chevron against both edges.
-    private static func inputTitle(_ name: String, font: NSFont?) -> String {
+    private static func deviceTitle(_ name: String, font: NSFont?) -> String {
         let font = font ?? .systemFont(ofSize: NSFont.systemFontSize)
-        return TextTruncation.tail(name, fitting: Double(inputNameMaxWidth)) { Double(($0 as NSString).size(withAttributes: [.font: font]).width) }
+        return TextTruncation.tail(name, fitting: Double(deviceNameMaxWidth)) { Double(($0 as NSString).size(withAttributes: [.font: font]).width) }
     }
 
     // MARK: Area
@@ -628,6 +668,18 @@ private final class RecordingStageView: NSView {
         let button = GlassButton(image: Self.symbol(symbol, label), target: self, action: action)
         button.imagePosition = .imageOnly
         button.setAccessibilityLabel(label)
+        button.setAccessibilityIdentifier(id)
+        return button
+    }
+
+    /// The chosen device's name, then the up-and-down chevron macOS puts on every pop-up button.
+    private func picker(_ id: String, _ action: Selector) -> GlassButton {
+        // At the title's own size and the symbol's small scale, the chevron centers on the text like a menu's does;
+        // a 9 pt symbol beside 13 pt text sat off its middle.
+        let chevron = NSImage(systemSymbolName: "chevron.up.chevron.down", accessibilityDescription: nil)!
+            .withSymbolConfiguration(.init(pointSize: NSFont.systemFontSize, weight: .semibold, scale: .small))!
+        let button = GlassButton(title: "System Default", image: chevron, target: self, action: action)
+        button.imagePosition = .imageTrailing
         button.setAccessibilityIdentifier(id)
         return button
     }

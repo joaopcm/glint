@@ -27,6 +27,7 @@ targets:
       # xcodegen writes this file from `properties`; without them it rewrites it empty (#84).
       properties:
         com.apple.security.device.audio-input: true
+        com.apple.security.device.camera: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.lunetta

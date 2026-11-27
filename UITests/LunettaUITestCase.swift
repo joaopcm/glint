@@ -114,8 +114,8 @@ class LunettaUITestCase: XCTestCase {
     private var recordingChoiceArguments: [String] {
         guard pinsRecordingChoices else { return [] }
         let off: KeyValuePairs<String, String> = [
-            "recordSystemAudio": "NO", "recordMicrophone": "NO", "recordingInputID": "", "showPressedKeys": "NO",
-            "showMouseClicks": "NO",
+            "recordSystemAudio": "NO", "recordMicrophone": "NO", "recordingInputID": "", "recordCamera": "NO",
+            "recordingCameraID": "", "showPressedKeys": "NO", "showMouseClicks": "NO",
         ]
         return off.filter { !extraLaunchArguments.contains("-\($0.key)") }.flatMap { ["-\($0.key)", $0.value] }
     }

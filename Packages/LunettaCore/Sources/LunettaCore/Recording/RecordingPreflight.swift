@@ -4,7 +4,8 @@ public enum RecordingMode: String, CaseIterable, Sendable {
     case area, window
 }
 
-public enum MicrophoneStatus: Sendable {
+/// Whether macOS lets Lunetta use a microphone or a camera.
+public enum DeviceAccess: Sendable {
     case notDetermined, authorized, denied
 }
 
@@ -19,18 +20,42 @@ public struct AudioInput: Hashable, Identifiable, Sendable {
     }
 }
 
-/// What the recording panel sets, and the record hotkeys reuse. `input` is nil for the system default input.
+/// A camera, as macOS lists it. `id` is the device's unique ID.
+public struct CameraInput: Hashable, Identifiable, Sendable {
+    public let id: String
+    public let name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
+/// What the recording panel sets, and the record hotkeys reuse. `input` and `cameraInput` are nil for the system's
+/// default device.
 public struct RecordingChoices: Equatable, Sendable {
     public var systemAudio: Bool
     public var microphone: Bool
     public var input: AudioInput?
+    public var camera: Bool
+    public var cameraInput: CameraInput?
     public var showsKeys: Bool
     public var showsClicks: Bool
 
-    public init(systemAudio: Bool, microphone: Bool, input: AudioInput?, showsKeys: Bool, showsClicks: Bool) {
+    public init(
+        systemAudio: Bool,
+        microphone: Bool,
+        input: AudioInput?,
+        camera: Bool = false,
+        cameraInput: CameraInput? = nil,
+        showsKeys: Bool,
+        showsClicks: Bool
+    ) {
         self.systemAudio = systemAudio
         self.microphone = microphone
         self.input = input
+        self.camera = camera
+        self.cameraInput = cameraInput
         self.showsKeys = showsKeys
         self.showsClicks = showsClicks
     }
@@ -39,6 +64,8 @@ public struct RecordingChoices: Equatable, Sendable {
 public enum RecordingFix: String, Sendable {
     case allowMicrophone = "Allow Microphone"
     case openMicrophoneSettings = "Open Microphone Settings"
+    case allowCamera = "Allow Camera"
+    case openCameraSettings = "Open Camera Settings"
     case openInputMonitoringSettings = "Open Input Monitoring Settings"
 }
 
@@ -47,6 +74,11 @@ public enum RecordingProblem: Error, LocalizedError, Hashable, Sendable {
     case microphoneNotAllowedYet
     case microphoneDenied
     case inputMissing(AudioInput)
+    case cameraNotAllowedYet
+    case cameraDenied
+    case cameraMissing(CameraInput)
+    case noCamera
+    case cameraNeedsArea
     case keysNeedArea
     case inputMonitoringDenied
 
@@ -58,6 +90,16 @@ public enum RecordingProblem: Error, LocalizedError, Hashable, Sendable {
             "Microphone is on, but Lunetta isn't allowed to use the microphone. Turn on Lunetta in System Settings > Privacy & Security > Microphone, or turn off Microphone in the Record Screen… toolbar."
         case .inputMissing(let input):
             "The input \"\(input.name)\" isn't connected. Connect it, or pick another input in the Record Screen… toolbar."
+        case .cameraNotAllowedYet:
+            "Camera is on, but macOS hasn't asked yet whether Lunetta may use the camera. Click Allow Camera and choose Allow, or turn off Camera in the Record Screen… toolbar."
+        case .cameraDenied:
+            "Camera is on, but Lunetta isn't allowed to use the camera. Turn on Lunetta in System Settings > Privacy & Security > Camera, or turn off Camera in the Record Screen… toolbar."
+        case .cameraMissing(let camera):
+            "The camera \"\(camera.name)\" isn't connected. Connect it, or pick another camera in the Record Screen… toolbar."
+        case .noCamera:
+            "Camera is on, but no camera is connected. Connect one, or turn off Camera in the Record Screen… toolbar."
+        case .cameraNeedsArea:
+            "Camera only works in area recordings: a window recording captures that window alone, without the camera Lunetta shows over it. Record an area, or turn off Camera in the Record Screen… toolbar."
         case .keysNeedArea:
             "Show Pressed Keys only works in area recordings: a window recording captures that window alone, without the keys Lunetta draws over it. Record an area, or turn off Show Pressed Keys in the Record Screen… toolbar."
         case .inputMonitoringDenied:
@@ -69,8 +111,10 @@ public enum RecordingProblem: Error, LocalizedError, Hashable, Sendable {
         switch self {
         case .microphoneNotAllowedYet: .allowMicrophone
         case .microphoneDenied: .openMicrophoneSettings
+        case .cameraNotAllowedYet: .allowCamera
+        case .cameraDenied: .openCameraSettings
         case .inputMonitoringDenied: .openInputMonitoringSettings
-        case .inputMissing, .keysNeedArea: nil
+        case .inputMissing, .cameraMissing, .noCamera, .cameraNeedsArea, .keysNeedArea: nil
         }
     }
 }
@@ -80,9 +124,11 @@ public enum RecordingPreflight {
     public static func problems(
         mode: RecordingMode,
         choices: RecordingChoices,
-        microphone: MicrophoneStatus,
+        microphone: DeviceAccess,
+        camera: DeviceAccess = .authorized,
         inputMonitoringAllowed: Bool,
-        connectedInputs: [AudioInput]
+        connectedInputs: [AudioInput],
+        connectedCameras: [CameraInput] = []
     ) -> [RecordingProblem] {
         var problems: [RecordingProblem] = []
         if choices.microphone {
@@ -94,6 +140,19 @@ public enum RecordingPreflight {
             if let input = choices.input, !connectedInputs.contains(where: { $0.id == input.id }) {
                 problems.append(.inputMissing(input))
             }
+        }
+        if choices.camera {
+            switch camera {
+            case .authorized: break
+            case .notDetermined: problems.append(.cameraNotAllowedYet)
+            case .denied: problems.append(.cameraDenied)
+            }
+            if let chosen = choices.cameraInput {
+                if !connectedCameras.contains(where: { $0.id == chosen.id }) { problems.append(.cameraMissing(chosen)) }
+            } else if connectedCameras.isEmpty {
+                problems.append(.noCamera)
+            }
+            if mode == .window { problems.append(.cameraNeedsArea) }
         }
         if choices.showsKeys {
             if mode == .window { problems.append(.keysNeedArea) }

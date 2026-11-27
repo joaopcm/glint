@@ -110,14 +110,16 @@ jobs:
           xcodebuild -scheme Lunetta -configuration Release -destination 'platform=macOS' -derivedDataPath build COMPILATION_CACHE_ENABLE_CACHING="$COMPILATION_CACHE_ENABLE_CACHING" \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} LUNETTA_COMMIT=${{ steps.sha.outputs.short }} build
           plutil -p build/Build/Products/Release/Lunetta.app/Contents/Info.plist
-      # Hardened runtime blocks the mic without this entitlement, and CI has no mic to notice (#84).
-      - name: Check the mic entitlement
+      # Hardened runtime blocks the mic and the camera without these entitlements, and CI has neither to notice (#84).
+      - name: Check the mic and camera entitlements
         env:
           APP: build/Build/Products/Release/Lunetta.app
         run: |
           codesign -d --entitlements - --xml "$APP" > "$RUNNER_TEMP/entitlements.plist"
-          value=$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' "$RUNNER_TEMP/entitlements.plist" 2>&1) || true
-          [ "$value" = true ] || { echo "::error::$APP is missing com.apple.security.device.audio-input=true (got: $value). Add it under entitlements.properties in project.yml"; exit 1; }
+          for key in com.apple.security.device.audio-input com.apple.security.device.camera; do
+            value=$(/usr/libexec/PlistBuddy -c "Print :$key" "$RUNNER_TEMP/entitlements.plist" 2>&1) || true
+            [ "$value" = true ] || { echo "::error::$APP is missing $key=true (got: $value). Add it under entitlements.properties in project.yml"; exit 1; }
+          done
       - name: Check the app icon
         env:
           APP: build/Build/Products/Release/Lunetta.app

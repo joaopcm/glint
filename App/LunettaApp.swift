@@ -48,11 +48,13 @@ final class AppState {
     private let microphone = SystemMicrophoneAccess()
     private let keystrokes = KeystrokeOverlay()
     private let clickRings = ClickRingOverlay()
+    private let camera = CameraBubble()
     private lazy var recordingStage = RecordingStage(
         model: RecordingStageModel(
             settings: settings,
             problems: { [unowned self] in coordinator.recordingProblems(for: .area) },
             inputs: { [microphone] in microphone.inputs },
+            cameras: { [camera] in camera.cameras },
             fix: { [unowned self] fix in await coordinator.fix(fix) }
         )
     )
@@ -93,6 +95,7 @@ final class AppState {
             microphone: microphone,
             keystrokes: keystrokes,
             clickRings: clickRings,
+            camera: camera,
             stager: recordingStage,
             selector: SelectionOverlayController(
                 showsMagnifier: { [settings] in settings.showMagnifierWhileSelecting },
@@ -132,7 +135,7 @@ final class AppState {
         watchInputs()
     }
 
-    /// A recording's input going away ends it, and the stage's input menu follows what's plugged in.
+    /// A recording's input going away ends it, and the stage's input and camera menus follow what's plugged in.
     private func watchInputs() {
         for name in [AVCaptureDevice.wasConnectedNotification, AVCaptureDevice.wasDisconnectedNotification] {
             _ = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
@@ -154,6 +157,8 @@ final class AppState {
         settings.recordSystemAudio = false
         settings.recordMicrophone = false
         settings.recordingInput = nil
+        settings.recordCamera = false
+        settings.recordingCamera = nil
         settings.showPressedKeys = false
         settings.showMouseClicks = false
     }

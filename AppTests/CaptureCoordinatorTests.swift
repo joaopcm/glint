@@ -168,13 +168,13 @@ private final class FakeCountdown {
 
 @MainActor
 private final class FakeMicrophone: MicrophoneAccess {
-    var status: MicrophoneStatus
+    var status: DeviceAccess
     var inputs: [AudioInput]
     let grants: Bool
     private(set) var requestCount = 0
     private(set) var settingsOpened = 0
 
-    init(_ status: MicrophoneStatus = .authorized, grants: Bool = true, inputs: [AudioInput] = []) {
+    init(_ status: DeviceAccess = .authorized, grants: Bool = true, inputs: [AudioInput] = []) {
         self.status = status
         self.grants = grants
         self.inputs = inputs
@@ -217,6 +217,40 @@ private final class FakeClickRings: ClickShowing {
 
     func show(over region: CGRect) {
         shownOver.append(region)
+    }
+
+    func hide() { hideCount += 1 }
+}
+
+private let faceTime = CameraInput(id: "facetime", name: "FaceTime HD Camera")
+private let deskCam = CameraInput(id: "usb-cam", name: "Desk Cam")
+
+@MainActor
+private final class FakeCamera: CameraShowing {
+    var access: DeviceAccess
+    var cameras: [CameraInput]
+    var refusal: CameraBubbleError?
+    private(set) var shown: [(region: CGRect, camera: CameraInput?)] = []
+    private(set) var hideCount = 0
+    private(set) var requestCount = 0
+    private(set) var settingsOpened = 0
+
+    init(_ access: DeviceAccess = .authorized, cameras: [CameraInput] = [faceTime, deskCam]) {
+        self.access = access
+        self.cameras = cameras
+    }
+
+    func requestAccess() async -> Bool {
+        requestCount += 1
+        access = .authorized
+        return true
+    }
+
+    func openSettings() { settingsOpened += 1 }
+
+    func show(over region: CGRect, camera: CameraInput?) throws {
+        if let refusal { throw refusal }
+        shown.append((region, camera))
     }
 
     func hide() { hideCount += 1 }
@@ -290,6 +324,7 @@ private struct Harness {
     let microphone: FakeMicrophone
     let keystrokes: FakeKeystrokes
     let clickRings = FakeClickRings()
+    let camera: FakeCamera
     let stager = FakeStager()
     let countdown = FakeCountdown()
     let coordinator: CaptureCoordinator
@@ -299,6 +334,7 @@ private struct Harness {
         recorder: FakeRecorder = FakeRecorder(),
         microphone: FakeMicrophone = FakeMicrophone(),
         keystrokes: FakeKeystrokes = FakeKeystrokes(),
+        camera: FakeCamera = FakeCamera(),
         selection: SelectionResult,
         pointer: CGPoint = .zero,
         createFolder: Bool = true,
@@ -310,6 +346,8 @@ private struct Harness {
         systemAudio: Bool = false,
         recordMicrophone: Bool = false,
         input: AudioInput? = nil,
+        recordCamera: Bool = false,
+        cameraInput: CameraInput? = nil,
         showsKeys: Bool = false,
         showsClicks: Bool = false,
         countsDown: Bool = false,
@@ -340,6 +378,8 @@ private struct Harness {
         settings.recordSystemAudio = systemAudio
         settings.recordMicrophone = recordMicrophone
         settings.recordingInput = input
+        settings.recordCamera = recordCamera
+        settings.recordingCamera = cameraInput
         settings.showPressedKeys = showsKeys
         settings.showMouseClicks = showsClicks
         settings.recordingCountdown = countsDown
@@ -347,6 +387,7 @@ private struct Harness {
         self.settings = settings
         self.microphone = microphone
         self.keystrokes = keystrokes
+        self.camera = camera
         selector = FakeSelector(selection)
         coordinator = CaptureCoordinator(
             capturer: capturer,
@@ -354,6 +395,7 @@ private struct Harness {
             microphone: microphone,
             keystrokes: keystrokes,
             clickRings: clickRings,
+            camera: camera,
             stager: stager,
             selector: selector,
             alerts: alerts,
@@ -1381,6 +1423,79 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     let harness = try Harness(recorder: FakeRecorder(startFailure: failure), selection: .area(recordedArea), showsClicks: true)
     await harness.coordinator.toggleRecording(.area)
     #expect(harness.clickRings.hideCount == 1)
+}
+
+@MainActor @Test func theCameraShowsInTheAreaStaysThroughPausesAndGoesWhenTheRecordingEnds() async throws {
+    let harness = try Harness(selection: .area(recordedArea), recordCamera: true, cameraInput: deskCam)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.camera.shown.map(\.region) == [recordedArea])
+    #expect(harness.camera.shown.map(\.camera) == [deskCam])
+    await harness.coordinator.togglePause()
+    await harness.coordinator.togglePause()
+    #expect(harness.camera.hideCount == 0)
+    await harness.coordinator.stopRecording()
+    #expect(harness.camera.hideCount == 1)
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func theCameraShowsDuringTheCountdownSoTheUserCanSeeThemselvesFirst() async throws {
+    let harness = try Harness(selection: .area(recordedArea), recordCamera: true, countsDown: true)
+    var shownDuringCountdown = 0
+    harness.countdown.during = { shownDuringCountdown = harness.camera.shown.count }
+    await harness.coordinator.toggleRecording(.area)
+    #expect(shownDuringCountdown == 1)
+    #expect(harness.camera.shown.map(\.camera) == [nil], "System Default shows the system's camera")
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func aChosenCameraIsIgnoredWhileTheCameraIsOff() async throws {
+    let harness = try Harness(selection: .area(recordedArea), cameraInput: deskCam)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.camera.shown.isEmpty)
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func startingOverBringsTheCameraBack() async throws {
+    let harness = try Harness(selection: .area(recordedArea), recordCamera: true)
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.startOverRecording()
+    #expect(harness.camera.shown.map(\.region) == [recordedArea, recordedArea])
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func aCameraThatCantShowKeepsTheRecordingFromStartingAndSaysWhy() async throws {
+    let recorder = FakeRecorder()
+    let camera = FakeCamera()
+    camera.refusal = .refused("Desk Cam")
+    let harness = try Harness(recorder: recorder, camera: camera, selection: .area(recordedArea), recordCamera: true, cameraInput: deskCam, showsKeys: true)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(await recorder.starts.isEmpty)
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.message.contains("\"Desk Cam\""))
+    #expect(harness.keystrokes.hideCount == 1, "the keys shown before the camera failed stayed up")
+}
+
+@MainActor @Test func aWindowRecordingWithTheCameraOnSaysTheCameraNeedsAnArea() async throws {
+    let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
+    let recorder = FakeRecorder()
+    let harness = try Harness(capturer: FakeCapturer(windows: [window]), recorder: recorder, selection: .window(42), recordCamera: true)
+    await harness.coordinator.toggleRecording(.window)
+    #expect(await recorder.starts.isEmpty)
+    #expect(harness.alerts.presented.first?.message == RecordingProblem.cameraNeedsArea.localizedDescription)
+    #expect(harness.camera.shown.isEmpty)
+}
+
+@MainActor @Test func cameraAccessIsAskedForFromTheAlert() async throws {
+    let camera = FakeCamera(.notDetermined)
+    let harness = try Harness(camera: camera, selection: .area(recordedArea), recordCamera: true)
+    harness.alerts.answer = .allowCamera
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.alerts.presented.first?.buttons == [.allowCamera, .ok])
+    await harness.coordinator.fix(.openCameraSettings)
+    #expect(camera.settingsOpened == 1)
+    await harness.coordinator.fix(.allowCamera)
+    #expect(camera.requestCount >= 1)
+    #expect(harness.coordinator.recordingProblems(for: .area).isEmpty)
 }
 
 @MainActor @Test func aChosenInputIsIgnoredWhileTheMicrophoneIsOff() async throws {
