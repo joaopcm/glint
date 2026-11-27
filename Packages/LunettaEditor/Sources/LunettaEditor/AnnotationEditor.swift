@@ -124,6 +124,7 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         window.delegate = self
         window.contentMinSize = Self.minimumContentSize
         window.contentView = makeContent()
+        window.addTitlebarAccessoryViewController(makeZoomAccessory())
 
         canvas.onToolChange = { [weak self] tool in
             self?.closeColorPalette()
@@ -236,14 +237,10 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         dock.spacing = Self.dockSpacing
         self.dock = dock
 
-        // In the titlebar's empty trailing end: the bottom row is the dock's, and the canvas insets keep the titlebar clear of the image.
-        let zoom = makeZoomControl()
-        zoomControl = zoom
-
         let content = NSView()
         dockCenter = dock.centerXAnchor.constraint(equalTo: content.centerXAnchor)
         dockCenter.priority = .defaultHigh // the edges win, so an open intensity slider never pushes the dock off a narrow window
-        for view in [canvas, dock, captionHost, zoom] as [NSView] {
+        for view in [canvas, dock, captionHost] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
         }
@@ -265,14 +262,14 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
             captionHost.bottomAnchor.constraint(equalTo: tools.topAnchor, constant: -Self.captionGap),
             captionHost.leadingAnchor.constraint(greaterThanOrEqualTo: content.leadingAnchor, constant: Self.chromeMargin),
             captionHost.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -Self.chromeMargin),
-            zoom.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Self.chromeMargin),
-            zoom.centerYAnchor.constraint(equalTo: content.topAnchor, constant: Self.titlebarHeight / 2),
         ])
         return content
     }
 
     /// A slider for the zoom and the zoom as a percentage, which fits the capture back in the window when clicked.
-    private func makeZoomControl() -> NSView {
+    /// It sits in the titlebar's empty trailing end, since the bottom row is the dock's, and as a titlebar accessory:
+    /// a slider added to the content view under the titlebar dragged the window instead of its knob.
+    private func makeZoomAccessory() -> NSTitlebarAccessoryViewController {
         zoomSlider.minValue = 0
         zoomSlider.maxValue = 1
         zoomSlider.isContinuous = true
@@ -301,11 +298,22 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
             zoomButton.widthAnchor.constraint(equalToConstant: ceil(widestPercent)),
         ])
         let capsule = Glass.capsule(holding: row, blending: .withinWindow)
+        zoomControl = capsule
+        // Accessories are sized by frame, so the capsule's width is added up rather than measured.
+        let width = Self.intensitySliderWidth + Self.intensityInset + ceil(widestPercent) + 2 * Glass.titlePadding
+        let host = NSView(frame: CGRect(x: 0, y: 0, width: width + Self.chromeMargin, height: Self.titlebarHeight))
+        capsule.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(capsule)
         NSLayoutConstraint.activate([
-            capsule.widthAnchor.constraint(equalTo: row.widthAnchor, constant: 2 * Glass.titlePadding),
+            capsule.widthAnchor.constraint(equalToConstant: width),
             capsule.heightAnchor.constraint(equalToConstant: Glass.capsuleHeight),
+            capsule.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            capsule.centerYAnchor.constraint(equalTo: host.centerYAnchor),
         ])
-        return capsule
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.layoutAttribute = .trailing
+        accessory.view = host
+        return accessory
     }
 
     private static func percentText(_ percent: Int) -> String {

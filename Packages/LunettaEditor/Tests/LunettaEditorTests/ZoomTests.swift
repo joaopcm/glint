@@ -98,11 +98,25 @@ struct ZoomTests {
             onClose: {}
         )
         let content = try #require(editor.window.contentView)
-        content.layoutSubtreeIfNeeded()
+        editor.window.layoutIfNeeded()
         let zoom = editor.zoomControl.convert(editor.zoomControl.bounds, to: nil)
         let image = editor.canvas.convert(editor.canvas.imageRect, to: nil)
+        #expect(zoom.width > 0, "zoom control \(zoom) wasn't laid out")
         #expect(!zoom.intersects(image), "zoom control \(zoom) covers image \(image)")
         #expect(zoom.maxX <= content.bounds.width - 16, "zoom control \(zoom) spills out of a \(content.bounds.width) pt window")
+    }
+
+    /// In the content view under the titlebar, dragging the slider knob moved the window instead.
+    @Test func theZoomControlIsATitlebarAccessory() {
+        let editor = AnnotationEditor(
+            document: AnnotationDocument(base: solidImage(width: 200, height: 100)),
+            title: "Test",
+            pixelsPerPoint: 2,
+            save: { _ in },
+            onClose: {}
+        )
+        let accessories = editor.window.titlebarAccessoryViewControllers
+        #expect(accessories.contains { $0.layoutAttribute == .trailing && editor.zoomSlider.isDescendant(of: $0.view) })
     }
 
     private func scrollEvent(lines: Int32, flags: CGEventFlags) -> NSEvent? {
