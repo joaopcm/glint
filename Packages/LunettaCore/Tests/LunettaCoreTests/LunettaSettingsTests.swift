@@ -119,6 +119,7 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(changeIsSeen(\.windowCaptureWallpaper, becomes: true))
     #expect(changeIsSeen(\.windowWallpaperPadding, becomes: 120))
     #expect(changeIsSeen(\.recordingCodec, becomes: .hevc))
+    #expect(changeIsSeen(\.recordingFrameRate, becomes: .thirty))
     #expect(changeIsSeen(\.recordSystemAudio, becomes: true))
     #expect(changeIsSeen(\.recordMicrophone, becomes: true))
     #expect(changeIsSeen(\.recordingCountdown, becomes: false))
@@ -156,6 +157,15 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).recordingCodec == .hevc)
     store.set("prores", forKey: "recordingCodec")
     #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).recordingCodec == .h264)
+}
+
+@MainActor @Test func recordingFrameRateDefaultsTo60RoundTripsAndIgnoresUnknownValues() {
+    let store = MemoryStore()
+    #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).recordingFrameRate == .sixty)
+    LunettaSettings(store: store, defaultSaveFolder: desktop).recordingFrameRate = .thirty
+    #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).recordingFrameRate == .thirty)
+    store.set(24, forKey: "recordingFrameRate")
+    #expect(LunettaSettings(store: store, defaultSaveFolder: desktop).recordingFrameRate == .sixty)
 }
 
 @MainActor @Test func uploadAfterCaptureDefaultsOffAndRoundTrips() {

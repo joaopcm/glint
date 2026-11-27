@@ -306,6 +306,7 @@ private struct Harness {
         uploadOn: Bool = false,
         freezeOn: Bool = false,
         codec: VideoCodec = .h264,
+        frameRate: RecordingFrameRate = .sixty,
         systemAudio: Bool = false,
         recordMicrophone: Bool = false,
         input: AudioInput? = nil,
@@ -335,6 +336,7 @@ private struct Harness {
         settings.compressAfterCapture = compressOn
         settings.freezeScreenWhileSelecting = freezeOn
         settings.recordingCodec = codec
+        settings.recordingFrameRate = frameRate
         settings.recordSystemAudio = systemAudio
         settings.recordMicrophone = recordMicrophone
         settings.recordingInput = input
@@ -919,6 +921,14 @@ private func name(_ event: RecordingEvent) -> String {
     let harness = try Harness(recorder: recorder, selection: .area(recordedArea), codec: .hevc)
     await harness.coordinator.toggleRecording(.area)
     #expect(await recorder.starts.first?.options.codec == .hevc)
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func recordingUsesTheFrameRateFromSettings() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), frameRate: .thirty)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(await recorder.starts.first?.options.frameRate == .thirty)
     await harness.coordinator.stopRecording()
 }
 

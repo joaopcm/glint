@@ -338,6 +338,7 @@ final class CaptureCoordinator {
             let drawsClicks = choices.showsClicks && mode == .area
             let options = RecordingOptions(
                 codec: settings.recordingCodec,
+                frameRate: settings.recordingFrameRate,
                 systemAudio: choices.systemAudio,
                 microphone: choices.microphone,
                 microphoneID: input?.id,

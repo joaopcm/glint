@@ -127,6 +127,11 @@ private struct RecordingSettingsView: View {
                 Text("HEVC").tag(VideoCodec.hevc)
             }
             .accessibilityIdentifier(AccessibilityID.recordingFormat)
+            Picker("Frame rate", selection: $settings.recordingFrameRate) {
+                Text("30 fps").tag(RecordingFrameRate.thirty)
+                Text("60 fps").tag(RecordingFrameRate.sixty)
+            }
+            .accessibilityIdentifier(AccessibilityID.recordingFrameRate)
             Toggle(isOn: $settings.recordingCountdown) {
                 Text("Count down before recording")
                 Text("Counts down \(RecordingHUD.countdownSeconds) seconds over the area before the first frame.")
