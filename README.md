@@ -90,6 +90,14 @@ rm -rf "$d"
 
 `security find-identity -v -p codesigning` should now list `"Glint Local Dev"`.
 
+## Benchmark against CleanShot X
+
+```sh
+scripts/bench.sh
+```
+
+Installs a local build of the latest `origin/main` (same signing as above), then measures it against the CleanShot X on your Mac, Setapp or direct: idle memory, CPU and wakeups, time from trigger to the area overlay on screen, and app size. It writes `docs/perf/<date>.md` and rewrites the Performance line above; commit both. It takes about 15 minutes and presses hotkeys, so leave the keyboard and mouse alone. The app running the shell needs Accessibility to post them. Lunetta and CleanShot X are relaunched afterwards if they were running.
+
 ## Release
 
 Pushing a `v*` tag runs the `release` workflow: it builds Release, signs with Developer ID, notarizes and staples the app and a DMG, checks them with `spctl -a -vv` and `stapler validate`, and publishes `Lunetta-<version>.dmg` to GitHub Releases with the notes in `.github/release-notes.md`. Running it by hand from the Actions tab does the same but uploads the DMG as an artifact instead of publishing. The tag has to match `CFBundleShortVersionString` in `App/Info.plist`, so bump that first.
