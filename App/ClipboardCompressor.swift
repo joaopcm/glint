@@ -101,17 +101,26 @@ final class ClipboardCompressor {
     /// macOS has no clipboard notification, so this polls the change count. 0.5 s is Maccy's default check interval
     /// (https://github.com/p0deje/Maccy), short enough that the card shows before the user pastes.
     static let checkInterval: TimeInterval = 0.5
+    /// Checking stops this long after the last keyboard or mouse input, and the next input starts it again, so an idle
+    /// Mac doesn't wake Lunetta twice a second (2.2 wakeups/s measured with checking on, 0.07 off). A copy lands while
+    /// its app handles the key or click that made it, and an app that takes over 250 ms to handle one is hanging
+    /// (https://developer.apple.com/documentation/xcode/understanding-hangs-in-your-app). 5 s is 20× that.
+    static let stopsCheckingAfter: TimeInterval = 5
 
     private let settings: LunettaSettings
     private let pasteboard: NSPasteboard
     private let scratch: URL
     private let compress: @Sendable (URL) async throws -> CompressionResult?
+    private let secondsSinceInput: @MainActor () -> TimeInterval
+    private let waitForInput: @MainActor (@escaping @MainActor () -> Void) -> () -> Void
     private let show: @MainActor (URL, PendingCompression) -> Void
     private let onProblem: @MainActor (String) -> Void
     private var timer: Timer?
+    private var stopWaiting: (() -> Void)?
     private var lastChangeCount = 0
 
-    var isWatching: Bool { timer != nil }
+    var isWatching: Bool { isChecking || stopWaiting != nil }
+    var isChecking: Bool { timer != nil }
 
     /// The scratch folder sits in the temporary folder, which macOS empties of files left unopened for 3 days.
     init(
@@ -119,6 +128,8 @@ final class ClipboardCompressor {
         pasteboard: NSPasteboard = .general,
         scratch: URL = FileManager.default.temporaryDirectory.appending(path: "com.joaopcm.lunetta/Copied"),
         compress: @escaping @Sendable (URL) async throws -> CompressionResult? = CaptureCompressor.compress,
+        secondsSinceInput: @escaping @MainActor () -> TimeInterval = ClipboardCompressor.secondsSinceUserInput,
+        waitForInput: @escaping @MainActor (@escaping @MainActor () -> Void) -> () -> Void = ClipboardCompressor.nextInput,
         show: @escaping @MainActor (URL, PendingCompression) -> Void,
         onProblem: @escaping @MainActor (String) -> Void
     ) {
@@ -126,6 +137,8 @@ final class ClipboardCompressor {
         self.pasteboard = pasteboard
         self.scratch = scratch
         self.compress = compress
+        self.secondsSinceInput = secondsSinceInput
+        self.waitForInput = waitForInput
         self.show = show
         self.onProblem = onProblem
         followSetting()
@@ -143,17 +156,69 @@ final class ClipboardCompressor {
     private func watch(_ on: Bool) {
         guard on != isWatching else { return }
         guard on else {
-            timer?.invalidate()
-            timer = nil
+            stopChecking()
+            stopWaiting?()
+            stopWaiting = nil
             return
         }
         lastChangeCount = pasteboard.changeCount // what was copied before turning it on stays as it is
+        startChecking()
+    }
+
+    private func startChecking() {
         let timer = Timer.scheduledTimer(withTimeInterval: Self.checkInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { _ = self?.checkForCopy() }
+            MainActor.assumeIsolated { self?.tick() }
         }
         // Apple's Energy Efficiency Guide for Mac Apps: a tolerance of at least 10% of the interval lets the system batch wakeups.
         timer.tolerance = Self.checkInterval / 10
         self.timer = timer
+    }
+
+    private func stopChecking() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    func tick() {
+        checkForCopy()
+        guard secondsSinceInput() >= Self.stopsCheckingAfter else { return }
+        stopChecking()
+        stopWaiting = waitForInput { [weak self] in _ = self?.inputResumed() }
+    }
+
+    /// Returns the work started for a copy made while checking was stopped, so tests can wait for it.
+    @discardableResult
+    func inputResumed() -> Task<Void, Never>? {
+        guard let stopWaiting else { return nil }
+        stopWaiting()
+        self.stopWaiting = nil
+        startChecking()
+        return checkForCopy()
+    }
+
+    static func secondsSinceUserInput() -> TimeInterval {
+        let anyInput = CGEventType(rawValue: ~0)!
+        return CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: anyInput)
+    }
+
+    /// Mouse events reach a global monitor without any permission, key events only with Accessibility, so switching
+    /// apps from the keyboard (⌘Tab) counts as input too.
+    static func nextInput(_ resume: @escaping @MainActor () -> Void) -> () -> Void {
+        let monitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .keyDown]
+        ) { _ in
+            MainActor.assumeIsolated { resume() }
+        }
+        let notifications = NSWorkspace.shared.notificationCenter
+        let observer = notifications.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { resume() }
+        }
+        return {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            notifications.removeObserver(observer)
+        }
     }
 
     /// Returns the work started for a new copy, so tests can wait for it.

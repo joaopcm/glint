@@ -15,7 +15,7 @@ Open source screenshot and screen recording app for macOS.
 
 ## Performance
 
-Measured 2026-11-24 on an M4 Pro, macOS 27.2.1: idle memory 19 MB vs 55 MB for CleanShot X (median of 3 launches); area overlay 36.1 ms median from hotkey vs 100.5 ms for CleanShot X. Latency is to the window server showing the overlay, not to photons on screen, and CleanShot X was triggered through its URL API, which adds time to its number only. Details in [#3](https://github.com/joaopcm/glint/issues/3#issuecomment-7145993290).
+Measured 2026-11-27 on an M4 Pro, macOS 27.2.1, against CleanShot X 5.0.4: idle memory 18 MB vs 57 MB, idle CPU 0.001% vs 0.003%, area overlay 29.1 ms median from hotkey vs 88.1 ms, app size 7 MB vs 71 MB. Both apps got the same synthetic hotkey with freeze screen off, and latency is to the window server ordering in each app's full-display capture window, not to photons on screen. Details in [docs/perf/2026-11-27.md](docs/perf/2026-11-27.md).
 
 ## Status
 
@@ -89,6 +89,16 @@ rm -rf "$d"
 ```
 
 `security find-identity -v -p codesigning` should now list `"Glint Local Dev"`.
+
+## Benchmark against CleanShot X
+
+```sh
+scripts/bench.sh
+```
+
+Installs a local build of the latest `origin/main` (same signing as above; `--ref <git ref>` builds another branch or commit), then measures it against the CleanShot X on your Mac, Setapp or direct: idle memory, CPU and wakeups, time from trigger to the area overlay on screen, and app size. It writes `docs/perf/<date>.md` and rewrites the Performance line above; commit both. It takes about 15 minutes, and Lunetta and CleanShot X are relaunched afterwards if they were running.
+
+You can keep using the Mac while it runs. Each app is quit and relaunched a few times, and the report counts your keyboard and mouse input during the idle minutes, since a busy desktop adds noise to them. For the latency presses it waits until you've stopped typing and moving the mouse for 3 s, prints `waiting for 3 s without input to press ⇧⌘2…` while it does, then flashes each app's full-screen capture overlay for a fraction of a second, 10 times per app. A press your input lands in is thrown away and done again. The app running the shell needs Accessibility to post the hotkeys and Input Monitoring to tell your input from them; the script checks both before it starts.
 
 ## Release
 
