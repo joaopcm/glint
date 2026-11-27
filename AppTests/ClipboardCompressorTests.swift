@@ -197,6 +197,81 @@ private let writeThreeBytes: @Sendable (URL) async throws -> CompressionResult? 
     #expect(!compressor.isWatching)
 }
 
+@MainActor private final class Input {
+    var secondsSinceLast: TimeInterval = 0
+    var resume: (@MainActor () -> Void)?
+}
+
+@MainActor @Test func checkingStopsWhileNobodyTouchesTheMacAndTheNextInputStartsItAgain() async throws {
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+    let seen = Seen()
+    let input = Input()
+    let compressor = ClipboardCompressor(
+        settings: settings,
+        pasteboard: pasteboard,
+        scratch: FileManager.default.temporaryDirectory.appending(path: "lunetta-copied-\(UUID().uuidString)"),
+        compress: writeThreeBytes,
+        secondsSinceInput: { input.secondsSinceLast },
+        waitForInput: { resume in
+            input.resume = resume
+            return { input.resume = nil }
+        },
+        show: { seen.cards.append(($0, $1)) },
+        onProblem: { seen.problems.append($0) }
+    )
+    settings.compressCopiedMedia = true
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(compressor.isChecking)
+
+    compressor.tick()
+    #expect(compressor.isChecking)
+
+    input.secondsSinceLast = ClipboardCompressor.stopsCheckingAfter
+    compressor.tick()
+    #expect(!compressor.isChecking)
+    #expect(compressor.isWatching)
+    #expect(input.resume != nil)
+
+    pasteboard.clearContents()
+    pasteboard.setData(try solidTIFF(), forType: .tiff)
+    await compressor.inputResumed()?.value
+
+    #expect(compressor.isChecking)
+    #expect(input.resume == nil)
+    #expect(seen.cards.count == 1)
+}
+
+@MainActor @Test func turningItOffWhileWaitingForInputStopsWaiting() async throws {
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let pasteboard = NSPasteboard.withUniqueName()
+    defer { pasteboard.releaseGlobally() }
+    let input = Input()
+    input.secondsSinceLast = ClipboardCompressor.stopsCheckingAfter
+    let compressor = ClipboardCompressor(
+        settings: settings,
+        pasteboard: pasteboard,
+        secondsSinceInput: { input.secondsSinceLast },
+        waitForInput: { resume in
+            input.resume = resume
+            return { input.resume = nil }
+        },
+        show: { _, _ in },
+        onProblem: { _ in }
+    )
+    settings.compressCopiedMedia = true
+    try await Task.sleep(for: .milliseconds(50))
+    compressor.tick()
+    #expect(input.resume != nil)
+
+    settings.compressCopiedMedia = false
+    try await Task.sleep(for: .milliseconds(50))
+
+    #expect(!compressor.isWatching)
+    #expect(input.resume == nil)
+}
+
 @MainActor @Test func whatWasOnTheClipboardBeforeTurningItOnStaysAsItIs() async throws {
     let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
     let pasteboard = NSPasteboard.withUniqueName()
