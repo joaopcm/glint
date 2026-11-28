@@ -4,6 +4,9 @@ import LunettaCore
 public struct MemoryBudget: Sendable {
     public static let unlimited = MemoryBudget(limitMB: .max)
 
+    // 2 x the 688.6 MB peak of a 6016x3384 HEVC export, see docs/perf/2026-11-28-render.md
+    public static let render = MemoryBudget(limitMB: 1378)
+
     public let limitMB: Int
 
     public init(limitMB: Int) {
