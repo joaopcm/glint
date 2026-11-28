@@ -27,7 +27,7 @@ public final class StudioFrameRenderer: Sendable {
         self.cursors = cursors
         self.sourceSize = sourceSize
         self.outputSize = outputSize
-        clickTint = Self.color(hex: project.overlays.clickColorHex) ?? Self.macOSDefaultAccent
+        clickTint = SRGBColor(hex: project.overlays.clickColorHex).map { CIColor(red: $0.red, green: $0.green, blue: $0.blue) } ?? Self.macOSDefaultAccent
     }
 
     public func frame(screen: CIImage, camera: CIImage?, part: Int, hostTime: Double) -> CIImage {
@@ -165,15 +165,6 @@ public final class StudioFrameRenderer: Sendable {
 
     private static func color(_ color: CIColor, alpha: Double) -> CIColor {
         CIColor(red: color.red, green: color.green, blue: color.blue, alpha: alpha)
-    }
-
-    private static func color(hex: String) -> CIColor? {
-        guard hex.count == 7, hex.hasPrefix("#"), let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
-        return CIColor(
-            red: CGFloat((value >> 16) & 0xFF) / 255,
-            green: CGFloat((value >> 8) & 0xFF) / 255,
-            blue: CGFloat(value & 0xFF) / 255
-        )
     }
 }
 

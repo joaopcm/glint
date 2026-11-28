@@ -35,6 +35,17 @@ struct CaptureEventLogTests {
         #expect(log.windowFrame(at: 9) == second)
     }
 
+    @Test func cursorImageNamesListEveryCursorTheLogShows() {
+        let log = CaptureEventLog([
+            .cursor(t: 1, image: "a.png", hotspotX: 0, hotspotY: 0),
+            .cursor(t: 2, image: "b.png", hotspotX: 0, hotspotY: 0),
+            .cursor(t: 3, image: "a.png", hotspotX: 0, hotspotY: 0),
+            .pointer(t: 1, x: 0, y: 0),
+        ])
+        #expect(log.cursorImageNames == ["a.png", "b.png"])
+        #expect(CaptureEventLog([]).cursorImageNames.isEmpty)
+    }
+
     @Test func aKeyLingersForOverlayStyleKeysLingerPlusExit() {
         let log = CaptureEventLog([.key(t: 1, label: "A"), .key(t: 1.5, label: "B")])
         #expect(log.key(at: 0.9) == nil)

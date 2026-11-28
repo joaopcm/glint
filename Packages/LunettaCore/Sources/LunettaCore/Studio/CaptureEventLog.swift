@@ -69,6 +69,10 @@ public struct CaptureEventLog: Equatable, Sendable {
         return CaptureEventLog(events)
     }
 
+    public var cursorImageNames: Set<String> {
+        Set(cursors.map(\.value.image))
+    }
+
     public func pointer(at t: Double) -> CGPoint? {
         guard let index = Self.lastIndex(in: pointers, atOrBefore: t) else { return nil }
         let previous = pointers[index]
