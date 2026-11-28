@@ -264,6 +264,9 @@ spike answers it before any stitcher code exists.
 
 ### Task 3: Real-page fixtures and measured tuning
 
+Task 0 recorded only `github-pr` and `notion` (Dia instead of Chrome). `google-doc`, `slack-thread` and the chat-bubble
+page were skipped: record them before Step 2, or drop them from the test arguments. See `docs/perf/2026-11-scrolling-capture.md`.
+
 **Files:**
 - Create: `Packages/LunettaCapture/Tests/LunettaCaptureTests/Fixtures/scrolling/<page>/ground-truth.png`
 - Modify: `Stitcher.swift` (add `StitchTuning.measured`), `StitcherTests.swift`
