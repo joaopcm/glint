@@ -69,7 +69,7 @@ final class CameraBubble: CameraShowing {
     func hide() {
         if let finishing = take, let session {
             session.detach()
-            Task { _ = await finishing.finish() }
+            Task { _ = try? await finishing.finish() }
         }
         take = nil
         session?.stop()
@@ -82,15 +82,15 @@ final class CameraBubble: CameraShowing {
     func startTake(to url: URL) throws {
         guard let session else { throw CameraBubbleError.notShowing }
         let writer = try CameraFileWriter(url: url, session: session.capture)
-        session.attach(writer)
+        try session.attach(writer)
         take = writer
     }
 
-    func endTake() async -> CameraTake? {
+    func endTake() async throws -> CameraTake? {
         guard let writer = take, let session else { return nil }
         take = nil
         session.detach()
-        return await writer.finish()
+        return try await writer.finish()
     }
 
     /// Desk View is left out: it films the desk in front of the Mac, not the person at it.
@@ -120,15 +120,24 @@ final class CameraBubble: CameraShowing {
     }
 }
 
-enum CameraBubbleError: LocalizedError {
+enum CameraBubbleError: LocalizedError, Equatable {
     case refused(String)
     case notShowing
+    case outputRefused
 
     var errorDescription: String? {
         switch self {
         case .refused(let name): "macOS wouldn't hand Lunetta the camera \"\(name)\". Quit any app using it, or pick another camera in the Record Screen… toolbar."
         case .notShowing: "The camera has to be showing before a take can record it. Show the camera bubble first."
+        case .outputRefused: "macOS wouldn't let Lunetta record the camera while showing it. Quit any app using the camera, or turn the camera off in the Record Screen… toolbar."
         }
+    }
+}
+
+extension AVCaptureSession {
+    func attach(_ output: AVCaptureOutput) throws {
+        guard canAddOutput(output) else { throw CameraBubbleError.outputRefused }
+        addOutput(output)
     }
 }
 
@@ -159,12 +168,12 @@ private final class CameraSession: @unchecked Sendable {
         queue.async { self.capture.stopRunning() }
     }
 
-    func attach(_ writer: CameraFileWriter) {
+    func attach(_ writer: CameraFileWriter) throws {
         let output = AVCaptureVideoDataOutput()
         output.setSampleBufferDelegate(writer, queue: queue)
         capture.beginConfiguration()
-        if capture.canAddOutput(output) { capture.addOutput(output) }
-        capture.commitConfiguration()
+        defer { capture.commitConfiguration() }
+        try capture.attach(output)
         self.output = output
     }
 

@@ -71,7 +71,7 @@ protocol CameraShowing {
     func show(over region: CGRect, camera: CameraInput?, excludedFromCapture: Bool, onFrame: @escaping @MainActor (CGRect) -> Void) throws
     func hide()
     func startTake(to url: URL) throws
-    func endTake() async -> CameraTake?
+    func endTake() async throws -> CameraTake?
 }
 
 /// The rings drawn under the pointer on each click in a recorded area.

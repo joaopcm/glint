@@ -56,7 +56,7 @@ final class RawCapture {
     func abandonPart() async {
         guard let part = current else { return }
         current = nil
-        if part.hasCameraTake { _ = await camera?.endTake() }
+        if part.hasCameraTake { _ = try? await camera?.endTake() }
         try? part.events.stop()
         removeFiles(of: part.number)
     }
@@ -64,12 +64,19 @@ final class RawCapture {
     func endPart(screenStartHostTime: Double?) async -> (any Error)? {
         guard let part = current else { return nil }
         current = nil
-        let take = part.hasCameraTake ? await camera?.endTake() : nil
+        var take: CameraTake?
         var failure: (any Error)?
+        if part.hasCameraTake, let camera {
+            do {
+                take = try await camera.endTake()
+            } catch {
+                failure = error
+            }
+        }
         do {
             try part.events.stop()
         } catch {
-            failure = error
+            failure = failure ?? error
         }
         guard let screenStartHostTime, FileManager.default.fileExists(atPath: file(part.number, .screen).path) else {
             removeFiles(of: part.number)

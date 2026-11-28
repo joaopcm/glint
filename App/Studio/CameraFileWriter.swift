@@ -1,5 +1,15 @@
 import AVFoundation
 
+enum CameraTakeError: LocalizedError, Equatable {
+    case writerFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .writerFailed(let reason): "Lunetta couldn't save the camera's video, so that part of the recording has no camera bubble: \(reason)"
+        }
+    }
+}
+
 struct CameraTake: Sendable {
     let url: URL
     let startHostTime: Double
@@ -52,16 +62,24 @@ final class CameraFileWriter: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         input.append(buffer)
     }
 
-    func finish() async -> CameraTake? {
+    func finish() async throws -> CameraTake? {
         let started = lock.withLock {
             finishing = true
             return startHostTime
         }
-        guard let started else { return nil }
-        input.markAsFinished()
-        await writer.finishWriting()
-        guard writer.status == .completed else { return nil }
-        return CameraTake(url: url, startHostTime: started)
+        if writer.status == .writing {
+            input.markAsFinished()
+            await writer.finishWriting()
+        }
+        switch writer.status {
+        case .unknown:
+            return nil
+        case .completed:
+            return started.map { CameraTake(url: url, startHostTime: $0) }
+        default:
+            try? FileManager.default.removeItem(at: url)
+            throw CameraTakeError.writerFailed(writer.error?.localizedDescription ?? "the writer ended with status \(writer.status.rawValue)")
+        }
     }
 
     private func hostSeconds(of time: CMTime) -> Double {

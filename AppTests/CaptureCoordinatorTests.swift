@@ -251,6 +251,7 @@ private final class FakeCamera: CameraShowing {
     var cameras: [CameraInput]
     var refusal: CameraBubbleError?
     var takeFailure: (any Error)?
+    var endTakeFailure: (any Error)?
     var initialBubble: CGRect?
     var takeStartHostTime: Double? = 7
     private(set) var shown: [(region: CGRect, camera: CameraInput?)] = []
@@ -297,9 +298,10 @@ private final class FakeCamera: CameraShowing {
         calls.append("startTake")
     }
 
-    func endTake() async -> CameraTake? {
+    func endTake() async throws -> CameraTake? {
         calls.append("endTake")
         defer { runningTake = nil }
+        if let endTakeFailure { throw endTakeFailure }
         guard let url = runningTake, let takeStartHostTime else { return nil }
         return CameraTake(url: url, startHostTime: takeStartHostTime)
     }
@@ -2230,4 +2232,20 @@ func rawRecordingsShowOverlaysOutOfTheCapture(recordsRaw: Bool) async throws {
     let alert = try #require(harness.alerts.presented.first)
     #expect(alert.title == "Lunetta's recording stopped early")
     #expect(alert.message == InputDisconnected.message(input: deskMic, savedTo: output.path))
+}
+
+@MainActor @Test func aTakeThatFailsToSaveLeavesItsPartWithoutTheCameraAndSaysWhy() async throws {
+    struct DiskFull: LocalizedError { var errorDescription: String? { "The disk is full." } }
+    var recorded: [RecordingProject] = []
+    let camera = FakeCamera()
+    camera.endTakeFailure = DiskFull()
+    let harness = try Harness(camera: camera, selection: .area(recordedArea), recordCamera: true, recordsRaw: true, onRecorded: { project, _ in recorded.append(project) })
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+
+    let part = try #require(recorded.first?.parts.first)
+    #expect(part.camera == nil && part.cameraStartHostTime == nil)
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.title == "Lunetta couldn't finish the recording")
+    #expect(alert.message == "The disk is full.")
 }
