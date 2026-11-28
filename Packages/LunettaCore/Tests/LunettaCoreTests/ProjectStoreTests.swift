@@ -90,6 +90,32 @@ struct ProjectStoreTests {
         #expect(try store.load(oldUnrendered.id) == oldUnrendered)
     }
 
+    @Test func sweepDeletesOldFoldersThatNeverGotAProject() throws {
+        let root = makeRoot()
+        let store = ProjectStore(root: root)
+        let now = Date()
+        let cutoff = now.addingTimeInterval(-100)
+        let old = now.addingTimeInterval(-200)
+        let abandoned = UUID()
+        let inProgress = UUID()
+        for id in [abandoned, inProgress] {
+            try FileManager.default.createDirectory(at: store.folder(for: id).appendingPathComponent("cursors"), withIntermediateDirectories: true)
+        }
+        let stray = root.appendingPathComponent("not-a-uuid", isDirectory: true)
+        try FileManager.default.createDirectory(at: stray, withIntermediateDirectories: true)
+        let unrendered = project()
+        try store.create(unrendered)
+        for folder in [store.folder(for: abandoned), stray, store.folder(for: unrendered.id)] {
+            try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: folder.path)
+        }
+
+        #expect(store.sweep(olderThan: cutoff) == [abandoned])
+        #expect(!FileManager.default.fileExists(atPath: store.folder(for: abandoned).path))
+        #expect(FileManager.default.fileExists(atPath: store.folder(for: inProgress).path))
+        #expect(FileManager.default.fileExists(atPath: stray.path))
+        #expect(try store.load(unrendered.id) == unrendered)
+    }
+
     @Test func deleteRemovesTheFolder() throws {
         let store = ProjectStore(root: makeRoot())
         let project = project()
