@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 public enum CaptureEvent: Codable, Equatable, Sendable {
     case pointer(t: Double, x: Double, y: Double)
