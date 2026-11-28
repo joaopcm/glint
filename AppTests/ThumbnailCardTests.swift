@@ -3,6 +3,7 @@ import CoreGraphics
 import LunettaCapture
 import LunettaCore
 import LunettaUI
+import Synchronization
 import Testing
 @testable import Lunetta
 
@@ -98,6 +99,10 @@ private struct DiskFull: LocalizedError {
     var errorDescription: String? { "The disk is full." }
 }
 
+private final class FailureBox: Sendable {
+    let value = Mutex<(any Error)?>(nil)
+}
+
 /// Renders that run until a test lets them end, so a card can be looked at mid-render.
 @MainActor final class RenderingCardFixture {
     let root = FileManager.default.temporaryDirectory.appending(path: "LunettaCardRender-\(UUID().uuidString)")
@@ -106,6 +111,11 @@ private struct DiskFull: LocalizedError {
     let pasteboard = NSPasteboard.withUniqueName()
     var progress = 0.0
     var failure: (any Error)?
+    private let compressionError = FailureBox()
+    var compressionFailure: (any Error)? {
+        get { compressionError.value.withLock { $0 } }
+        set { compressionError.value.withLock { $0 = newValue } }
+    }
     var renders = 0
     var problems: [String] = []
     private let renderGate = AsyncStream<Void>.makeStream()
@@ -114,10 +124,12 @@ private struct DiskFull: LocalizedError {
 
     init() {
         store = ProjectStore(root: root.appending(path: "Projects"))
+        let renderGate = renderGate, compressionGate = compressionGate, compressionError = compressionError
         queue = RenderQueue(
             store: store,
             settings: settings,
-            render: { [unowned self] _, report in
+            render: { [weak self] _, report in
+                guard let self else { return }
                 renders += 1
                 report(progress)
                 for await _ in renderGate.stream { break }
@@ -126,8 +138,9 @@ private struct DiskFull: LocalizedError {
                     throw failure
                 }
             },
-            compress: { [unowned self] _ in
+            compress: { _ in
                 for await _ in compressionGate.stream { break }
+                if let failure = compressionError.value.withLock({ $0 }) { throw failure }
                 return CompressionResult(originalBytes: 1000, compressedBytes: 380)
             }
         )
@@ -143,7 +156,7 @@ private struct DiskFull: LocalizedError {
             autoDismissDelay: autoDismissDelay,
             pointerLocation: { offScreen },
             pasteboard: pasteboard,
-            reportProblem: { [unowned self] title, message in problems.append("\(title): \(message)") }
+            reportProblem: { [weak self] title, message in self?.problems.append("\(title): \(message)") }
         )
     }
 
@@ -174,6 +187,12 @@ private struct DiskFull: LocalizedError {
     }
 
     func remove() {
+        for _ in 0..<2 {
+            renderGate.continuation.yield()
+            compressionGate.continuation.yield()
+        }
+        renderGate.continuation.finish()
+        compressionGate.continuation.finish()
         try? FileManager.default.removeItem(at: root)
     }
 }
@@ -251,7 +270,7 @@ private struct DiskFull: LocalizedError {
 
     presenter.perform(.retryRender, onCardAt: 0)
     try await Task.sleep(for: .milliseconds(100))
-    #expect(presenter.statusTexts == ["Rendering"] || presenter.statusTexts == ["Rendering 0%"])
+    #expect(presenter.statusTexts == ["Rendering 0%"])
     fixture.finishRender()
     await job.finished()
 
@@ -297,4 +316,43 @@ private struct DiskFull: LocalizedError {
 
 @MainActor @Test func retryRenderIsNotAnActionThatReadsTheFile() {
     #expect(!ThumbnailView.Action.retryRender.readsTheFile)
+}
+
+@MainActor @Test func aRenderThatFailsAfterItsCardClosedStillSaysWhy() async throws {
+    let fixture = RenderingCardFixture()
+    defer { fixture.remove() }
+    fixture.failure = DiskFull()
+    let presenter = fixture.presenter()
+    let job = try fixture.record()
+    presenter.show(fixture.file, precomputedThumbnail: try fixture.firstFrame(), render: job)
+
+    presenter.perform(.close, onCardAt: 0)
+    try await Task.sleep(for: .milliseconds(100))
+    fixture.finishRender()
+    await job.finished()
+    try await Task.sleep(for: .milliseconds(100))
+
+    #expect(fixture.problems == ["Lunetta couldn't render the recording: The disk is full."])
+}
+
+@MainActor @Test func aCompressionFailureAfterTheRenderShowsItAndOffersNoTryAgain() async throws {
+    let fixture = RenderingCardFixture()
+    defer { fixture.remove() }
+    fixture.settings.compressAfterCapture = true
+    fixture.compressionFailure = DiskFull()
+    let presenter = fixture.presenter()
+    let job = try fixture.record()
+    presenter.show(fixture.file, precomputedThumbnail: try fixture.firstFrame(), render: job)
+
+    fixture.finishRender()
+    try await Task.sleep(for: .milliseconds(100))
+    fixture.finishCompression()
+    await job.finished()
+    try await Task.sleep(for: .milliseconds(100))
+
+    #expect(job.phase == .done(nil))
+    #expect(fixture.problems == ["Lunetta couldn't compress the capture: The disk is full."])
+    #expect(presenter.statusTexts != ["Couldn't render"])
+    presenter.perform(.retryRender, onCardAt: 0)
+    #expect(fixture.renders == 1)
 }

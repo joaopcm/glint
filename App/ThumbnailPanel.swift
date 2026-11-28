@@ -199,7 +199,8 @@ final class ThumbnailPresenter {
     }
 
     /// The card follows the render until the file is final, the same way it follows compression. A failed render
-    /// stops here and waits for Try Again; closing the card leaves the render running, and its end still reports.
+    /// stops here and waits for Try Again. The chain keeps the item alive until the job ends, so a card closed mid-render
+    /// still reports a failure and still uploads after capture.
     private func follow(_ job: RenderJob, on item: ThumbnailItem) {
         switch job.phase {
         case .queued:
@@ -231,10 +232,9 @@ final class ThumbnailPresenter {
         refreshHover()
         withObservationTracking {
             _ = job.phase
-        } onChange: { [weak self, weak item] in
+        } onChange: { [weak self] in
             Task { @MainActor in
-                guard let self, let item else { return }
-                self.follow(job, on: item)
+                self?.follow(job, on: item)
             }
         }
     }
@@ -327,7 +327,7 @@ final class ThumbnailPresenter {
         for item in items { item.view.isHovered = item === hovered }
         scheduleFolding(pointerOver: hovered?.screen)
 
-        // Hovering any thumbnail, dragging one out, a modal panel (Save As), an open editor, a running compression or upload pauses auto-hide for the whole overlay.
+        // Hovering any thumbnail, dragging one out, a modal panel (Save As), an open editor, a running render or compression, a failed render or a running upload pauses auto-hide for the whole overlay.
         if hovered != nil || isDraggingOut || isRunningModal || !editors.isEmpty || items.contains(where: { $0.isWorking || $0.hasFailed || $0.isUploading }) {
             cancelAutoDismiss()
             return
@@ -442,7 +442,7 @@ final class ThumbnailPresenter {
                 showError("Lunetta couldn't copy the screenshot", error)
             }
         case .retryRender:
-            guard let job = item.render else { break }
+            guard item.hasFailed, let job = item.render else { break }
             job.retry()
             follow(job, on: item)
         case .upload:
