@@ -199,7 +199,7 @@ The renderer must draw rings, keys and the bubble exactly as the on-screen overl
   - `LunettaSettings.recordsRaw: Bool` (hidden, default `true`) and `LunettaSettings.capsRenderToUHD: Bool` (default `true`).
   - `CaptureCoordinator.init` gains `projects: ProjectStore` and `onRecorded: @MainActor (RecordingProject, _ thumbnail: CGImage?) -> Void`. With `recordsRaw` on, a finished recording calls `onRecorded` instead of `onSaved`. The thumbnail is the first frame of part 1's screen file.
   - Each part writes `part-<n>.screen.mp4`, `part-<n>.camera.mov` (when the camera is on), `part-<n>.events.jsonl`, and its `ProjectPart` host times come from `firstFrameHostTime()` and `CameraTake.startHostTime`.
-  - `RecordingOptions.capturesCursor = !settings.recordsRaw`. Window recordings keep `showsClicks` going to macOS, as today.
+  - `RecordingOptions.capturesCursor = !settings.recordsRaw`. A followed window keeps `showsClicks` going to macOS. A window recorded in place gets Lunetta's rings, which raw mode draws from the log.
 
 - [ ] **Step 1: Write failing tests** (new, alongside the existing ones, which run with `recordsRaw = false` so they keep covering the filmed path):
   - `aRawRecordingHandsOverAProjectWithItsParts`: record, pause, resume, stop. `onRecorded` gets a project with 2 parts and output file `Lunetta <date>.mp4` in the save folder, and nothing gets joined.

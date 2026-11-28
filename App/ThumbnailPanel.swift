@@ -1405,7 +1405,6 @@ enum ThumbnailCentering {
 }
 
 enum ThumbnailDownsampler {
-    /// `keepsWholeFrame` is for video frames: a video card shows its whole frame, like `videoThumbnail`, however tall.
     static func downsample(_ image: CGImage, maxPixelSize: CGFloat, keepsWholeFrame: Bool = false) -> CGImage {
         if !keepsWholeFrame, TallCapture.isTall(width: image.width, height: image.height) {
             return topCrop(image, maxPixelWidth: maxPixelSize)
