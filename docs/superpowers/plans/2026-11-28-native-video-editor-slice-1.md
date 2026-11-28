@@ -16,7 +16,7 @@
 - No new third-party dependencies.
 - LunettaCore must keep building and testing on Linux: no AppKit, AVFoundation, CoreImage or CoreMedia imports there.
 - Output cap: any source bigger than 3840x2160 renders scaled to fit inside it, aspect kept, even dimensions; smaller sources keep their size. A setting turns the cap off (spec decision 5).
-- Default render = today's look: no background, no zoom, system-size cursor, rings and keys only if they were on, camera following the bubble (decision 4). Window recordings keep macOS click circles and keep refusing Camera and Show Pressed Keys in slice 1.
+- Default render = today's look: no background, no zoom, system-size cursor, rings and keys only if they were on, camera following the bubble (decision 4). A window recording with Camera or Show Pressed Keys on is recorded in place (main's #157), a fixed crop of where the window stood, clipped to its display; the raw render draws the camera, keys and rings from the log against that crop. A window followed around keeps macOS click circles.
 - Closing a card never cancels its render (decision 6). A failed render shows its reason and offers Try Again. The raw screen file is never copied to the save folder as a fallback.
 - Every budget failure names the budget, the limit and the ask.
 - Zero code comments except a "why" the code can't carry; move existing comments with the code they explain.
