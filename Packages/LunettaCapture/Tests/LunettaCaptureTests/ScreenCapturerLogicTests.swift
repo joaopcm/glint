@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import LunettaCore
 import ScreenCaptureKit
+import Synchronization
 import Testing
 @testable import LunettaCapture
 
@@ -38,14 +39,27 @@ private let external = DisplayInfo(id: 2, frame: CGRect(x: -1920, y: -200, width
 }
 
 @Test func frameBufferKeepsTheNewestFramesWhenTheConsumerFallsBehind() async throws {
-    let buffer = FrameBuffer(limit: 3)
+    let (buffer, frames) = FrameBuffer.make(limit: 3)
     for value in UInt8(1)...5 {
         buffer.push(Frame(width: 1, height: 1, bytesPerRow: 4, pixels: [value, value, value, 255]))
     }
     buffer.finish()
 
     var received: [UInt8] = []
-    for try await frame in buffer.frames { received.append(frame.pixels[0]) }
+    for try await frame in frames { received.append(frame.pixels[0]) }
     #expect(received == [3, 4, 5])
     #expect(buffer.droppedFrames == 2)
+}
+
+@Test func droppingTheFramesStreamRunsTheTerminationAction() {
+    let terminated = Mutex(false)
+    let buffer: FrameBuffer
+    do {
+        let (made, frames) = FrameBuffer.make(limit: 1)
+        buffer = made
+        buffer.onTermination { terminated.withLock { $0 = true } }
+        withExtendedLifetime(frames) {}
+    }
+    #expect(terminated.withLock { $0 })
+    withExtendedLifetime(buffer) {}
 }

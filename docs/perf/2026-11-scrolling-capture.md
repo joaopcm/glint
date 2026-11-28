@@ -350,9 +350,25 @@ Chosen with the owner: **1/30 s**. Every interval passes normal scrolling (the p
 frame of margin on a 900 pt area, for 24% CPU against 34% at 1/60 s. An area shorter than about 470 pt could lose
 overlap on a flick like this one at 1/30 s.
 
-Queue depth: **3**. At 1/60 s, depth 3 and 8 both had no breaks while scrolling normally, with the same frame gaps
-(16.7 vs 20.8 ms median, content-dependent). `Frame` copies the buffer inside the callback, so SCK never waits on us
-for a surface, and each surface here is 20 MB (2800x1800 BGRA), so the smaller pool is the cheaper one.
+Queue depth: **3**. The hand-scrolled 1/60 s pair above can't separate depths: each run is a different hand scroll,
+and the two differ in median frame gap (16.7 vs 20.8 ms), flick breaks (18 vs 14) and largest jump (666 vs 810 px). So I
+measured depth at the shipped interval without a person. A throwaway local page (5,000 lines of code-like text, white,
+13/21 px Menlo, green/red rows like a diff) scrolls itself at a constant speed through `requestAnimationFrame`. Safari,
+same 1400x900 pt area, 1/30 s, one run each:
+
+| speed | queue depth | frames (fps) | breaks | largest jump | frame gap p50 / p95 / max ms | gaps > 50 ms |
+| --- | --- | --- | --- | --- | --- | --- |
+| 600 pt/s, 12 s | 3 | 374 (29.4) | 0 | 62 px | 33.7 / 40.6 / 77.9 | 1 |
+| 600 pt/s, 12 s | 8 | 356 (29.2) | 0 | 62 px | 33.8 / 40.5 / 87.3 | 2 |
+| 7000 pt/s, 6 s | 3 | 183 (28.5) | 0 | 728 px | 33.7 / 41.8 / 159.3 | 2 |
+| 7000 pt/s, 6 s | 8 | 175 (28.7) | 0 | 714 px | 33.9 / 41.5 / 164.7 | 2 |
+| 14000 pt/s, 6 s | 3 | 177 (29.3) | 0 | 1400 px | 33.7 / 41.0 / 81.3 | 2 |
+| 14000 pt/s, 6 s | 8 | 185 (29.1) | 0 | 1428 px | 33.6 / 40.8 / 104.7 | 3 |
+
+At 2 px per pt and 1/30 s, 7000 pt/s moves 467 px per frame and 14000 pt/s moves 933 px, the hand flick's largest jump
+above (932 px). The largest jumps run past those because a few frames arrive late (gaps over 50 ms carry 1.5–2 frames of
+scroll). Depth 3 and 8 deliver the same frames at every speed. `Frame` copies the buffer inside the callback, so a deeper pool has nothing to absorb, and each surface is 20 MB
+(2800x1800 BGRA): depth 3 is the cheaper one.
 
 A first sweep the same day is discarded. Its stitcher didn't restart after a break: 5 of its 7 runs broke 0.4–1.6 s
 after the first scroll from the top and stayed broken. Before the bands are learned, every refused frame re-learns them

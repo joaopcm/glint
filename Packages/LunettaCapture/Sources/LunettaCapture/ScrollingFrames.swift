@@ -21,8 +21,8 @@ extension ScreenCapturer {
     /// normally at 1/120–1/10 s. On a fast flick 1/10 s lost overlap, 1/20 s jumped 1696 of 1800 px, 1/30 s at most 932
     /// (docs/perf/2026-11-scrolling-capture.md).
     static let scrollingFrameInterval = CMTime(value: 1, timescale: 30)
-    /// Same sweep at 1/60 s: depth 3 and 8 both had no break while scrolling normally and kept a 16.7 ms median frame
-    /// gap; 3 holds fewer 2800x1800 surfaces.
+    /// Auto-scrolling page in Safari, same area, 1/30 s: depth 3 and 8 both delivered ~29 fps (33.6–33.9 ms median gap)
+    /// with no break at 600, 7000 and 14000 pt/s; 3 holds fewer 2800x1800 surfaces (docs/perf/2026-11-scrolling-capture.md).
     static let scrollingQueueDepth = 3
     /// The sweep's slowest `Stitcher.append` was 108.5 ms; 4 frames arrive at 1/30 s in that time, and 8 is twice that.
     /// Full, it holds 161 MB at 2800x1800 and 651 MB for a whole 6016x3384 display, only while the consumer is behind.
@@ -44,7 +44,7 @@ extension ScreenCapturer {
         // colorSpaceName stays unset: ScreenCaptureKit then tags frames with the display's own color space, the same one
         // captureArea's image carries (probe on a Dell S3225QC, docs/perf/2026-11-scrolling-capture.md).
 
-        let buffer = FrameBuffer(limit: Self.scrollingBufferedFrames)
+        let (buffer, frames) = FrameBuffer.make(limit: Self.scrollingBufferedFrames)
         let output = ScrollingFrameOutput(buffer: buffer)
         let stream = SCStream(filter: filter, configuration: configuration, delegate: output)
         try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: output.queue)
@@ -55,7 +55,7 @@ extension ScreenCapturer {
         }
         let capture = ScrollingCapture(stream: stream, output: output, buffer: buffer)
         buffer.onTermination { Task { await capture.stop() } }
-        return ScrollingFrames(frames: buffer.frames, stop: { await capture.stop() })
+        return ScrollingFrames(frames: frames, stop: { await capture.stop() })
     }
 }
 
@@ -99,15 +99,20 @@ private final class ScrollingFrameOutput: NSObject, SCStreamOutput, SCStreamDele
 }
 
 final class FrameBuffer: Sendable {
-    let frames: AsyncThrowingStream<Frame, any Error>
     private let continuation: AsyncThrowingStream<Frame, any Error>.Continuation
     private let limit: Int
     private let dropped = Atomic<Int>(0)
     private static let log = Logger(subsystem: "com.joaopcm.lunetta", category: "scrolling-capture")
 
-    init(limit: Int) {
+    private init(limit: Int, continuation: AsyncThrowingStream<Frame, any Error>.Continuation) {
         self.limit = limit
-        (frames, continuation) = AsyncThrowingStream.makeStream(of: Frame.self, bufferingPolicy: .bufferingNewest(limit))
+        self.continuation = continuation
+    }
+
+    /// The stream is returned rather than kept, so dropping it deinits it and runs `onTermination`.
+    static func make(limit: Int) -> (FrameBuffer, AsyncThrowingStream<Frame, any Error>) {
+        let (frames, continuation) = AsyncThrowingStream.makeStream(of: Frame.self, bufferingPolicy: .bufferingNewest(limit))
+        return (FrameBuffer(limit: limit, continuation: continuation), frames)
     }
 
     var droppedFrames: Int { dropped.load(ordering: .relaxed) }
