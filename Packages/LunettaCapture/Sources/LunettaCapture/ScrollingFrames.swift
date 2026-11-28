@@ -1,6 +1,7 @@
 import CoreMedia
 import Foundation
 import LunettaCore
+import OSLog
 import ScreenCaptureKit
 import Synchronization
 
@@ -23,6 +24,9 @@ extension ScreenCapturer {
     /// Same sweep at 1/60 s: depth 3 and 8 both had no break while scrolling normally and kept a 16.7 ms median frame
     /// gap; 3 holds fewer 2800x1800 surfaces.
     static let scrollingQueueDepth = 3
+    /// The sweep's slowest `Stitcher.append` was 108.5 ms; 4 frames arrive at 1/30 s in that time, and 8 is twice that.
+    /// Full, it holds 161 MB at 2800x1800 and 651 MB for a whole 6016x3384 display, only while the consumer is behind.
+    static let scrollingBufferedFrames = 8
 
     public func scrollingFrames(of selection: CGRect, displays: [DisplayInfo]) async throws -> ScrollingFrames {
         try await scrollingFrames(of: selection, displays: displays, frameInterval: Self.scrollingFrameInterval, queueDepth: Self.scrollingQueueDepth)
@@ -40,8 +44,8 @@ extension ScreenCapturer {
         // colorSpaceName stays unset: ScreenCaptureKit then tags frames with the display's own color space, the same one
         // captureArea's image carries (probe on a Dell S3225QC, docs/perf/2026-11-scrolling-capture.md).
 
-        let (frames, continuation) = AsyncThrowingStream.makeStream(of: Frame.self)
-        let output = ScrollingFrameOutput(continuation: continuation)
+        let buffer = FrameBuffer(limit: Self.scrollingBufferedFrames)
+        let output = ScrollingFrameOutput(buffer: buffer)
         let stream = SCStream(filter: filter, configuration: configuration, delegate: output)
         try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: output.queue)
         do {
@@ -49,48 +53,79 @@ extension ScreenCapturer {
         } catch {
             throw ScrollingFrames.stopError(error)
         }
-        let capture = ScrollingCapture(stream: stream, output: output, continuation: continuation)
-        continuation.onTermination = { _ in Task { await capture.stop() } }
-        return ScrollingFrames(frames: frames, stop: { await capture.stop() })
+        let capture = ScrollingCapture(stream: stream, output: output, buffer: buffer)
+        buffer.onTermination { Task { await capture.stop() } }
+        return ScrollingFrames(frames: buffer.frames, stop: { await capture.stop() })
     }
 }
 
 private final class ScrollingCapture: Sendable {
     private let stream: Mutex<SCStream?>
     private let output: ScrollingFrameOutput
-    private let continuation: AsyncThrowingStream<Frame, any Error>.Continuation
+    private let buffer: FrameBuffer
 
-    init(stream: sending SCStream, output: ScrollingFrameOutput, continuation: AsyncThrowingStream<Frame, any Error>.Continuation) {
+    init(stream: sending SCStream, output: ScrollingFrameOutput, buffer: FrameBuffer) {
         self.stream = Mutex(stream)
         self.output = output
-        self.continuation = continuation
+        self.buffer = buffer
     }
 
     func stop() async {
         guard let stream = self.stream.withLock({ $0.take() }) else { return }
         // Throws when the stream already stopped on its own; didStopWithError has finished the frames with that error.
         try? await stream.stopCapture()
-        continuation.finish()
+        buffer.finish()
     }
 }
 
 private final class ScrollingFrameOutput: NSObject, SCStreamOutput, SCStreamDelegate, Sendable {
     let queue = DispatchQueue(label: "com.joaopcm.lunetta.scrolling-frames")
-    private let continuation: AsyncThrowingStream<Frame, any Error>.Continuation
+    private let buffer: FrameBuffer
 
-    init(continuation: AsyncThrowingStream<Frame, any Error>.Continuation) {
-        self.continuation = continuation
+    init(buffer: FrameBuffer) {
+        self.buffer = buffer
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, sampleBuffer.isCompleteScreenFrame,
               let pixelBuffer = sampleBuffer.imageBuffer, let frame = Frame(pixelBuffer)
         else { return }
-        continuation.yield(frame)
+        buffer.push(frame)
     }
 
     func stream(_ stream: SCStream, didStopWithError error: any Error) {
-        continuation.finish(throwing: ScrollingFrames.stopError(error))
+        buffer.finish(throwing: ScrollingFrames.stopError(error))
+    }
+}
+
+final class FrameBuffer: Sendable {
+    let frames: AsyncThrowingStream<Frame, any Error>
+    private let continuation: AsyncThrowingStream<Frame, any Error>.Continuation
+    private let limit: Int
+    private let dropped = Atomic<Int>(0)
+    private static let log = Logger(subsystem: "com.joaopcm.lunetta", category: "scrolling-capture")
+
+    init(limit: Int) {
+        self.limit = limit
+        (frames, continuation) = AsyncThrowingStream.makeStream(of: Frame.self, bufferingPolicy: .bufferingNewest(limit))
+    }
+
+    var droppedFrames: Int { dropped.load(ordering: .relaxed) }
+
+    func push(_ frame: Frame) {
+        guard case .dropped = continuation.yield(frame) else { return }
+        let count = dropped.add(1, ordering: .relaxed).newValue
+        Self.log.error(
+            "Scrolling capture dropped its oldest frame: the consumer is more than scrollingBufferedFrames=\(self.limit) frames behind (\(count) dropped so far)."
+        )
+    }
+
+    func finish(throwing error: (any Error)? = nil) {
+        continuation.finish(throwing: error)
+    }
+
+    func onTermination(_ action: @escaping @Sendable () -> Void) {
+        continuation.onTermination = { _ in action() }
     }
 }
 

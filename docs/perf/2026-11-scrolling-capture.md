@@ -359,6 +359,15 @@ after the first scroll from the top and stayed broken. Before the bands are lear
 at stride 1 (~65 ms at 2800x1800). The consumer fell behind, and the unbounded frame buffer backed up (1/120 s run: 98%
 CPU, 64 ms median append).
 
-Open: the stream's frame buffer is unbounded. In the sweep, process footprint peaked at 1088 MB during the 1/120 s run.
-That includes the stitched image (about 270 MB per 24,000 rows at 2800 px, before the buffer doubles) and the harness's
-PNG dumps. The backlog itself wasn't measured on its own.
+### frame buffer
+
+`ScrollingFrames.frames` keeps at most **8** frames (`scrollingBufferedFrames`) and drops the oldest past that
+(`bufferingNewest`), so the stitcher always gets the freshest view. Sizing: the slowest `Stitcher.append` in the sweep
+above was 108.5 ms (1/20 s run). At 1/30 s, 4 frames arrive in that time, and 8 is twice that. A consumer that keeps up
+holds 0–1 frames (append p95 16.8 ms against 33.3 ms between frames at 1/30 s). Full, the buffer holds 161 MB at 2800x1800
+and 651 MB for a whole 6016x3384 display, and only while the consumer is behind. Before, it was unbounded: the first
+sweep's stuck runs kept growing it, and footprint peaked at 1088 MB in the 1/120 s run (the stitched image and the
+harness's PNG dumps included).
+
+Every drop logs an error (`com.joaopcm.lunetta`, category `scrolling-capture`) naming `scrollingBufferedFrames`, the
+limit and the drop count. The stitcher then sees a bigger jump, and `.lostOverlap` if the jump is past the overlap.

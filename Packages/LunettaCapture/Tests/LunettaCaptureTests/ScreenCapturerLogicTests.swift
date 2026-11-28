@@ -36,3 +36,16 @@ private let external = DisplayInfo(id: 2, frame: CGRect(x: -1920, y: -200, width
     let other = NSError(domain: SCStreamErrorDomain, code: SCStreamError.Code.attemptToStopStreamState.rawValue)
     #expect((ScrollingFrames.stopError(other) as NSError).code == other.code)
 }
+
+@Test func frameBufferKeepsTheNewestFramesWhenTheConsumerFallsBehind() async throws {
+    let buffer = FrameBuffer(limit: 3)
+    for value in UInt8(1)...5 {
+        buffer.push(Frame(width: 1, height: 1, bytesPerRow: 4, pixels: [value, value, value, 255]))
+    }
+    buffer.finish()
+
+    var received: [UInt8] = []
+    for try await frame in buffer.frames { received.append(frame.pixels[0]) }
+    #expect(received == [3, 4, 5])
+    #expect(buffer.droppedFrames == 2)
+}
