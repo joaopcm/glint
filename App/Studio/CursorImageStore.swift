@@ -16,6 +16,8 @@ enum CursorImageError: Error, LocalizedError {
 
 final class CursorImageStore {
     private let folder: URL
+    private var written: Set<String> = []
+    private(set) var pngWrites = 0
 
     init(folder: URL) {
         self.folder = folder
@@ -35,11 +37,14 @@ final class CursorImageStore {
         hasher.combine(cursor.hotSpot.y)
         let name = "\(String(UInt64(bitPattern: Int64(hasher.finalize())), radix: 16)).png"
 
+        guard !written.contains(name) else { return name }
         let file = folder.appendingPathComponent(name)
         if !FileManager.default.fileExists(atPath: file.path) {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try writePNG(of: image, fallback: flat, to: file)
+            pngWrites += 1
         }
+        written.insert(name)
         return name
     }
 

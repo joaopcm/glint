@@ -92,6 +92,26 @@ private struct Fixture {
 }
 
 @MainActor
+@Test func anEqualLookingCursorIsNotWrittenAgain() throws {
+    let fixture = try Fixture()
+    defer { fixture.remove() }
+    let store = CursorImageStore(folder: fixture.cursorsFolder)
+    let recorder = EventRecorder(
+        writer: fixture.writer,
+        cursors: store,
+        windowID: nil,
+        pointer: { .zero },
+        cursor: { NSCursor(image: NSCursor.arrow.image.copy() as! NSImage, hotSpot: NSCursor.arrow.hotSpot) }
+    )
+
+    for _ in 0..<5 { recorder.tick() }
+    try recorder.stop()
+
+    #expect(try fixture.events().filter { if case .cursor = $0 { true } else { false } }.count == 1)
+    #expect(store.pngWrites == 1)
+}
+
+@MainActor
 @Test func windowRecordingsLogTheWindowFrameWhenItMoves() throws {
     let fixture = try Fixture()
     defer { fixture.remove() }

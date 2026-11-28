@@ -2,6 +2,14 @@ import AppKit
 import LunettaCore
 import QuartzCore
 
+enum EventRecorderError: Error, LocalizedError {
+    case noScreen
+
+    var errorDescription: String? {
+        "No screen to drive the event recorder's display link, so pointer and cursor changes were not logged."
+    }
+}
+
 @MainActor
 final class EventRecorder {
     private let writer: CaptureEventWriter
@@ -13,7 +21,6 @@ final class EventRecorder {
     private let windowFrame: (UInt32) -> CGRect?
 
     private var lastPointer: CGPoint?
-    private var lastCursor: NSCursor?
     private var lastShape: CursorShape?
     private var lastWindowFrame: CGRect?
     private var monitors: [Any] = []
@@ -51,7 +58,10 @@ final class EventRecorder {
         }) {
             monitors.append(local)
         }
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+            failure = failure ?? EventRecorderError.noScreen
+            return
+        }
         let target = TickTarget(recorder: self)
         let link = screen.displayLink(target: target, selector: #selector(TickTarget.tick))
         link.add(to: .main, forMode: .common)
@@ -102,8 +112,7 @@ final class EventRecorder {
     }
 
     private func logCursorChange() {
-        guard let current = cursor(), current !== lastCursor, current != lastCursor else { return }
-        lastCursor = current
+        guard let current = cursor() else { return }
         do {
             let shape = CursorShape(image: try cursors.name(for: current), hotspot: current.hotSpot)
             guard shape != lastShape else { return }
