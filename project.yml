@@ -12,6 +12,8 @@ packages:
     path: Packages/LunettaCapture
   LunettaEditor:
     path: Packages/LunettaEditor
+  LunettaStudio:
+    path: Packages/LunettaStudio
   LunettaUI:
     path: Packages/LunettaUI
   KeyboardShortcuts:
@@ -42,6 +44,7 @@ targets:
       - package: LunettaCore
       - package: LunettaCapture
       - package: LunettaEditor
+      - package: LunettaStudio
       - package: LunettaUI
       - package: KeyboardShortcuts
   LunettaTests:
@@ -77,6 +80,7 @@ schemes:
       targets:
         - LunettaTests
         - package: LunettaEditor/LunettaEditorTests
+        - package: LunettaStudio/LunettaStudioTests
   LunettaUI:
     build:
       targets:
