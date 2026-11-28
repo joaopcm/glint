@@ -374,6 +374,14 @@ private let white: [UInt8] = [255, 255, 255, 255]
     #expect(updates.allSatisfy { $0 == StitchUpdate(state: .tracking, height: 100, appendedRows: 0) })
 }
 
+@Test func tallFooterStillMatchesALongScroll() throws {
+    let source = page(width: 64, height: 700)
+    let frames = viewports(of: source, tops: [0, 40, 190], height: 400, footer: 30)
+    let (stitcher, updates) = stitch(frames)
+    #expect(updates.map(\.state) == [.tracking, .tracking])
+    #expect(try bytes(stitcher.image()) == rows(source, 0..<560) + rows(frames[2], 370..<400))
+}
+
 @Test func smallChangeStillMatches() {
     let source = page(width: 64, height: 400)
     let altered = repainted(viewport(of: source, top: 40, height: 100)) { x, y in x == 10 && y == 50 ? [0, 0, 0, 255] : nil }
@@ -413,6 +421,21 @@ private let white: [UInt8] = [255, 255, 255, 255]
         let source = page(width: 64, height: height * 2)
         let stitcher = Stitcher(first: viewport(of: source, top: 0, height: height), tuning: tuning)
         _ = stitcher.append(viewport(of: source, top: height / 10, height: height))
+        return stitcher.rowComparisons
+    }
+    let short = comparisons(height: 200)
+    #expect(short > 0)
+    #expect(comparisons(height: 400) <= 2 * short)
+}
+
+@Test func appendStaysLinearOnRepeatedRows() {
+    func comparisons(height: Int) -> Int {
+        let ruled = repainted(page(width: 64, height: height * 2)) { x, y in
+            guard y % 5 != 0 else { return nil }
+            return x == 30 ? [0, 0, 0, 255] : white
+        }
+        let stitcher = Stitcher(first: viewport(of: ruled, top: 0, height: height), tuning: tuning)
+        _ = stitcher.append(viewport(of: ruled, top: height / 10, height: height))
         return stitcher.rowComparisons
     }
     let short = comparisons(height: 200)

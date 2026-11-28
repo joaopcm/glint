@@ -41,12 +41,29 @@ public final class Stitcher {
 
         var count: Int { signatures.count }
 
-        func index() -> [UInt64: [Int]] {
-            var index: [UInt64: [Int]] = [:]
+        func index() -> VoteIndex {
+            var rowsBySignature: [UInt64: [Int]] = [:]
             for row in 0..<count where !uniform[row] {
-                index[signatures[row], default: []].append(row)
+                rowsBySignature[signatures[row], default: []].append(row)
             }
-            return index
+            return VoteIndex(rowsBySignature: rowsBySignature)
+        }
+    }
+
+    private struct VoteIndex {
+        let rowsBySignature: [UInt64: [Int]]
+        let uniqueRowsOnly: Bool
+        let rowsThatNeverVote: Int
+
+        init(rowsBySignature: [UInt64: [Int]]) {
+            self.rowsBySignature = rowsBySignature
+            uniqueRowsOnly = rowsBySignature.values.contains { $0.count == 1 }
+            rowsThatNeverVote = uniqueRowsOnly ? rowsBySignature.values.reduce(0) { $1.count > 1 ? $0 + $1.count : $0 } : 0
+        }
+
+        func voters(for signature: UInt64) -> [Int] {
+            guard let rows = rowsBySignature[signature], !uniqueRowsOnly || rows.count == 1 else { return [] }
+            return rows
         }
     }
 
@@ -54,7 +71,7 @@ public final class Stitcher {
         let frame: Frame
         let top: Int
         let rows: MovingRows
-        let index: [UInt64: [Int]]
+        let index: VoteIndex
     }
 
     private struct Placed {
@@ -169,10 +186,10 @@ public final class Stitcher {
         return Bands(columns: columns, headerRows: header < a.height ? header : 0)
     }
 
-    private func bestShift(of rows: MovingRows, against old: MovingRows, index: [UInt64: [Int]]) -> Match? {
+    private func bestShift(of rows: MovingRows, against old: MovingRows, index: VoteIndex) -> Match? {
         var votes: [Int: Int] = [:]
         for row in 0..<rows.count where !rows.uniform[row] {
-            for oldRow in index[rows.signatures[row]] ?? [] {
+            for oldRow in index.voters(for: rows.signatures[row]) {
                 votes[oldRow - row, default: 0] += 1
                 rowComparisons += 1
             }
@@ -182,7 +199,7 @@ public final class Stitcher {
         }
         var best: Match?
         for (shift, voteCount) in candidates {
-            if let best, voteCount < best.matchedRows { break }
+            if let best, voteCount + index.rowsThatNeverVote < best.matchedRows { break }
             let (matched, compared) = overlap(at: shift, of: rows, against: old)
             guard qualifies(matched: matched, compared: compared) else { continue }
             if let current = best, matched < current.matchedRows || (matched == current.matchedRows && !isPreferred(shift, over: current.shift)) {
@@ -199,7 +216,10 @@ public final class Stitcher {
 
     private func overlap(at shift: Int, of rows: MovingRows, against old: MovingRows) -> (matched: Int, compared: Int) {
         var matched = 0, compared = 0
-        for row in max(0, -shift)..<min(rows.count, old.count - shift) {
+        let rowsAboveFloatingZone = rows.count - floatingZone
+        let firstRow = max(0, -shift), endRow = min(rowsAboveFloatingZone, rowsAboveFloatingZone - shift)
+        guard firstRow < endRow else { return (0, 0) }
+        for row in firstRow..<endRow {
             let oldRow = row + shift
             if rows.uniform[row] && old.uniform[oldRow] { continue }
             compared += 1
