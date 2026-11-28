@@ -20,25 +20,36 @@ concurrency:
 jobs:
   dry-run:
     runs-on: macos-26
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-xcode
       - run: scripts/release.sh --dry-run dist
       - name: dmg variants (temporary diagnostics)
-        if: failure()
+        if: always()
         run: |
           set +e
           stage="$RUNNER_TEMP/stage"; mkdir -p "$stage"; ditto dist/Lunetta.app "$stage/Lunetta.app"; ln -s /Applications "$stage/Applications"
-          try() { name="$1"; shift; rm -f "$RUNNER_TEMP/$name.dmg"; "$@" >/dev/null 2>&1; echo "== $name create=$?"; hdiutil verify "$RUNNER_TEMP/$name.dmg" 2>&1 | tail -1; }
-          for i in 1 2 3; do try "udzo-$i" hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$RUNNER_TEMP/udzo-$i.dmg"; done
-          try ulfo hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format ULFO -ov "$RUNNER_TEMP/ulfo.dmg"
-          try ulmo hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format ULMO -ov "$RUNNER_TEMP/ulmo.dmg"
-          try apfs hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs APFS -format UDZO -ov "$RUNNER_TEMP/apfs.dmg"
-          hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format UDRW -ov "$RUNNER_TEMP/rw.dmg" >/dev/null 2>&1
-          try convert hdiutil convert "$RUNNER_TEMP/rw.dmg" -format UDZO -ov -o "$RUNNER_TEMP/convert.dmg"
-          try convert-ulfo hdiutil convert "$RUNNER_TEMP/rw.dmg" -format ULFO -ov -o "$RUNNER_TEMP/convert-ulfo.dmg"
-          sw_vers; hdiutil version 2>/dev/null | head -2
+          out="$RUNNER_TEMP/v"; mkdir -p "$out"
+          make() {
+            case "$1" in
+              udzo) hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$2" ;;
+              ulfo) hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format ULFO -ov "$2" ;;
+              conv) rm -f "$out/rw.dmg"; hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format UDRW -ov "$out/rw.dmg" && hdiutil convert "$out/rw.dmg" -format UDZO -ov -o "$2" ;;
+              apfs) hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs APFS -format UDZO -ov "$2" ;;
+            esac
+          }
+          for v in udzo conv ulfo apfs; do
+            fails=0
+            for i in 1 2 3 4 5 6; do
+              head -c 4096 /dev/urandom > "$stage/.nonce"
+              f="$out/$v-$i.dmg"; rm -f "$f"
+              make "$v" "$f" >/dev/null 2>&1 || { echo "$v-$i create failed"; fails=$((fails+1)); continue; }
+              hdiutil verify "$f" >/dev/null 2>&1 || { echo "$v-$i VERIFY FAILED"; fails=$((fails+1)); }
+            done
+            echo "== $v: $fails/6 failed"
+          done
+          sw_vers
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
