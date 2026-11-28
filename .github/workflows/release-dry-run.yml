@@ -25,6 +25,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-xcode
       - run: scripts/release.sh --dry-run dist
+      - name: dmg variants (temporary diagnostics)
+        if: failure()
+        run: |
+          set +e
+          stage="$RUNNER_TEMP/stage"; mkdir -p "$stage"; ditto dist/Lunetta.app "$stage/Lunetta.app"; ln -s /Applications "$stage/Applications"
+          try() { name="$1"; shift; rm -f "$RUNNER_TEMP/$name.dmg"; "$@" >/dev/null 2>&1; echo "== $name create=$?"; hdiutil verify "$RUNNER_TEMP/$name.dmg" 2>&1 | tail -1; }
+          for i in 1 2 3; do try "udzo-$i" hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$RUNNER_TEMP/udzo-$i.dmg"; done
+          try ulfo hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format ULFO -ov "$RUNNER_TEMP/ulfo.dmg"
+          try ulmo hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format ULMO -ov "$RUNNER_TEMP/ulmo.dmg"
+          try apfs hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs APFS -format UDZO -ov "$RUNNER_TEMP/apfs.dmg"
+          hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format UDRW -ov "$RUNNER_TEMP/rw.dmg" >/dev/null 2>&1
+          try convert hdiutil convert "$RUNNER_TEMP/rw.dmg" -format UDZO -ov -o "$RUNNER_TEMP/convert.dmg"
+          try convert-ulfo hdiutil convert "$RUNNER_TEMP/rw.dmg" -format ULFO -ov -o "$RUNNER_TEMP/convert-ulfo.dmg"
+          sw_vers; hdiutil version 2>/dev/null | head -2
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
