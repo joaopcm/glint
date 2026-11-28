@@ -107,14 +107,14 @@ private func writeEvents(_ events: [CaptureEvent], to url: URL) throws {
 
 /// 2 s of mid gray at 30 fps with a 1 kHz tone, like a raw screen part.
 private func writeScreen(to url: URL) async throws {
-    try await writeMovie(to: url, type: .mp4, size: screenSize, gray: 128, red: 128, withTone: true)
+    try await writeMovie(to: url, type: .mp4, size: screenSize, color: { _ in RGB(r: 128, g: 128, b: 128) }, withTone: true)
 }
 
-private func writeCamera(to url: URL) async throws {
-    try await writeMovie(to: url, type: .mov, size: PixelSize(width: 160, height: 120), gray: 0, red: 255, withTone: false)
+private func writeCamera(to url: URL, color: (_ frame: Int) -> RGB = { _ in RGB(r: 255, g: 0, b: 0) }) async throws {
+    try await writeMovie(to: url, type: .mov, size: PixelSize(width: 160, height: 120), color: color, withTone: false)
 }
 
-private func writeMovie(to url: URL, type: AVFileType, size: PixelSize, gray: UInt8, red: UInt8, withTone: Bool) async throws {
+private func writeMovie(to url: URL, type: AVFileType, size: PixelSize, color: (_ frame: Int) -> RGB, withTone: Bool) async throws {
     let frames = Int(fps) * 2
     let sampleRate = 48_000
     let writer = try AVAssetWriter(outputURL: url, fileType: type)
@@ -149,12 +149,13 @@ private func writeMovie(to url: URL, type: AVFileType, size: PixelSize, gray: UI
         CVPixelBufferLockBaseAddress(pixels, [])
         let rowBytes = CVPixelBufferGetBytesPerRow(pixels)
         let base = try #require(CVPixelBufferGetBaseAddress(pixels)).assumingMemoryBound(to: UInt8.self)
+        let fill = color(frame)
         for y in 0..<size.height {
             for x in 0..<size.width {
                 let pixel = base + y * rowBytes + x * 4
-                pixel[0] = gray
-                pixel[1] = gray
-                pixel[2] = red
+                pixel[0] = UInt8(fill.b)
+                pixel[1] = UInt8(fill.g)
+                pixel[2] = UInt8(fill.r)
                 pixel[3] = 255
             }
         }
@@ -375,6 +376,23 @@ private struct ExportedFrame {
     #expect(during.at(60, 60).isCameraRed, "\(during.at(60, 60))")
     let partWithoutCamera = try await ExportedFrame(fixture.output, at: 3)
     #expect(partWithoutCamera.at(60, 60).matches(screen), "\(partWithoutCamera.at(60, 60)) vs \(screen)")
+}
+
+@Test func aCameraThatStartedBeforeItsPartShowsWhereItWasAtThePartsStart() async throws {
+    var fixture = try await Fixture.make()
+    defer { fixture.remove() }
+    try FileManager.default.removeItem(at: fixture.folder.appending(path: "part-1.camera.mov"))
+    try await writeCamera(to: fixture.folder.appending(path: "part-1.camera.mov")) { frame in
+        frame < Int(fps) / 2 ? RGB(r: 0, g: 0, b: 255) : RGB(r: 255, g: 0, b: 0)
+    }
+    fixture.project.parts[0].cameraStartHostTime = partStarts[0] - 0.5
+
+    try await fixture.render()
+
+    for seconds in [0.0, 0.25] {
+        let frame = try await ExportedFrame(fixture.output, at: seconds)
+        #expect(frame.at(60, 60).isCameraRed, "\(seconds) s: \(frame.at(60, 60))")
+    }
 }
 
 @Test func aMissingCursorImageFailsNamingIt() async throws {
