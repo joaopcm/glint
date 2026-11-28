@@ -101,7 +101,7 @@ enum CameraBubbleError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .refused(let name): "macOS wouldn't hand Lunetta the camera \"\(name)\". Quit any app using it, or pick another camera in the Record Screen… toolbar."
+        case .refused(let name): "macOS wouldn't hand Lunetta the camera \"\(name)\". Quit any app using it, or pick another camera in the recording toolbar."
         }
     }
 }

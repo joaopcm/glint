@@ -89,8 +89,9 @@ private struct RecordingOverlays {
 
 @MainActor
 protocol RecordingStaging {
-    /// Shows `region` to move, resize and record with the panel's choices; nil when the user drops it.
-    func stage(_ region: CGRect, on display: DisplayInfo) async -> CGRect?
+    /// Shows `region` to record with the panel's choices, and to move and resize first when it's an area; nil when the
+    /// user drops it. A window's region comes back as it went in.
+    func stage(_ region: CGRect, on display: DisplayInfo, mode: RecordingMode) async -> CGRect?
 }
 
 protocol ActiveRecording: Sendable {
@@ -327,9 +328,9 @@ final class CaptureCoordinator {
         }
     }
 
-    /// The record hotkeys toggle: during the countdown they cancel it, while recording they stop. `staged` puts the picked
-    /// area on the stage first, where the choices are set and any missing permission is shown instead of alerted.
-    func toggleRecording(_ mode: RecordingMode, staged: Bool = false) async {
+    /// The record hotkeys toggle: during the countdown they cancel it, while recording they stop. The picked area or
+    /// window goes on the stage first, where the choices are set and any missing permission is shown instead of alerted.
+    func toggleRecording(_ mode: RecordingMode) async {
         if let countdown {
             countdown.cancel()
             return
@@ -343,13 +344,13 @@ final class CaptureCoordinator {
         defer { if session == nil { hide(overlays) } }
         do {
             guard await capturer.hasPermission() else { throw CaptureError.permissionDenied }
-            if !staged, let problem = recordingProblems(for: mode).first { throw problem }
-            guard var (target, region) = try await selectRecordingTarget(mode) else { return }
-            if staged, case .area(_, let display) = target {
-                guard let area = await stager.stage(region, on: display) else { return }
-                (target, region) = (.area(area, on: display), area)
-                if let problem = recordingProblems(for: mode).first { throw problem }
+            guard let picked = try await selectRecordingTarget(mode) else { return }
+            guard let region = await stager.stage(picked.region, on: picked.display, mode: mode) else { return }
+            let target: RecordingTarget = switch picked.target {
+            case .area: .area(region, on: picked.display)
+            case .window: picked.target
             }
+            if let problem = recordingProblems(for: mode).first { throw problem }
             let choices = settings.recordingChoices
             selected = true
             let input = choices.microphone ? choices.input : nil
@@ -604,7 +605,7 @@ final class CaptureCoordinator {
         }
     }
 
-    private func selectRecordingTarget(_ mode: RecordingMode) async throws -> (RecordingTarget, region: CGRect)? {
+    private func selectRecordingTarget(_ mode: RecordingMode) async throws -> (target: RecordingTarget, region: CGRect, display: DisplayInfo)? {
         switch mode {
         case .area:
             guard case .area(let selection) = try await selector.selectArea(frozen: []) else { return nil }
@@ -612,7 +613,7 @@ final class CaptureCoordinator {
                 throw CaptureError.emptySelection
             }
             let region = selection.intersection(display.frame)
-            return (.area(region, on: display), region)
+            return (.area(region, on: display), region, display)
         case .window:
             let windows = windowList()
             guard case .window(let id) = try await selector.selectWindow(windows) else {
@@ -620,8 +621,11 @@ final class CaptureCoordinator {
                 return nil
             }
             guard let window = try await windows.value.first(where: { $0.id == id }) else { throw CaptureError.windowNotFound(id) }
-            let mainDisplayHeight = await capturer.displays().first { $0.frame.origin == .zero }?.frame.height ?? 0
-            return (.window(id), DisplayGeometry.appKitRect(fromTopLeftGlobal: window.frame, mainDisplayHeight: mainDisplayHeight))
+            let displays = await capturer.displays()
+            let mainDisplayHeight = displays.first { $0.frame.origin == .zero }?.frame.height ?? 0
+            let region = DisplayGeometry.appKitRect(fromTopLeftGlobal: window.frame, mainDisplayHeight: mainDisplayHeight)
+            guard let display = DisplayGeometry.display(forSelection: region, in: displays) else { throw CaptureError.windowNotFound(id) }
+            return (.window(id), region, display)
         }
     }
 

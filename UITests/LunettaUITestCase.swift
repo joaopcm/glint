@@ -11,7 +11,6 @@ class LunettaUITestCase: XCTestCase {
         case text = "text ⌥⇧⌘2"
         case recordArea = "record area ⌥⇧⌘5"
         case recordWindow = "record window ⌃⌥⇧⌘5"
-        case recordScreen = "record screen ⌥⇧⌘6"
 
         var shortcut: (name: String, key: Int, carbonModifiers: Int, flags: CGEventFlags) {
             switch self {
@@ -21,7 +20,6 @@ class LunettaUITestCase: XCTestCase {
             case .text: ("captureText", kVK_ANSI_2, optionKey | cmdKey | shiftKey, [.maskAlternate, .maskCommand, .maskShift])
             case .recordArea: ("recordArea", kVK_ANSI_5, optionKey | cmdKey | shiftKey, [.maskAlternate, .maskCommand, .maskShift])
             case .recordWindow: ("recordWindow", kVK_ANSI_5, controlKey | optionKey | cmdKey | shiftKey, [.maskControl, .maskAlternate, .maskCommand, .maskShift])
-            case .recordScreen: ("recordScreen", kVK_ANSI_6, optionKey | cmdKey | shiftKey, [.maskAlternate, .maskCommand, .maskShift])
             }
         }
     }

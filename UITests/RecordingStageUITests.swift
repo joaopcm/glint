@@ -10,10 +10,10 @@ final class RecordingStageUITests: LunettaUITestCase {
     /// The resize starts on the corner where the move left it; had the move gone to the app underneath, that press
     /// would land outside the area and draw a 60 × 40 pt one instead.
     @MainActor func testTheShortcutStagesTheAreaToMoveAndResizeThenRecordsItWithTheToolbarsChoices() async throws {
-        press(.recordScreen)
-        waitForOverlay(after: .recordScreen)
+        press(.recordArea)
+        waitForOverlay(after: .recordArea)
         let topLeft = selectRecordingArea()
-        XCTAssertTrue(stage.waitForExistence(timeout: Self.captureTimeout), "no stage after picking an area with \(Hotkey.recordScreen.rawValue)")
+        XCTAssertTrue(stage.waitForExistence(timeout: Self.captureTimeout), "no stage after picking an area with \(Hotkey.recordArea.rawValue)")
         XCTAssertFalse(stopRecordingButton.exists, "recording started before Record")
 
         let middle = CGPoint(x: topLeft.x + 100, y: topLeft.y + 75)
@@ -61,10 +61,10 @@ final class RecordingStageUITests: LunettaUITestCase {
         let statusItem = app.statusItems.firstMatch
         XCTAssertTrue(statusItem.waitForExistence(timeout: Self.captureTimeout), "Lunetta's menu bar icon is missing")
         statusItem.click()
-        statusItem.descendants(matching: .menuItem)["Record Screen…"].click()
-        waitForOverlay(after: .recordScreen)
+        statusItem.descendants(matching: .menuItem)["Record Area"].click()
+        waitForOverlay(after: .recordArea)
         selectRecordingArea()
-        XCTAssertTrue(stage.waitForExistence(timeout: Self.captureTimeout), "no stage after picking an area from Record Screen…")
+        XCTAssertTrue(stage.waitForExistence(timeout: Self.captureTimeout), "no stage after picking an area from Record Area")
 
         let record = stageControl(AccessibilityID.recordingStageRecord)
         XCTAssertTrue(record.isEnabled, "Record is disabled with every option off")
@@ -89,10 +89,10 @@ final class RecordingStageUITests: LunettaUITestCase {
 
     /// CI's runners have no camera and never granted one, so Camera on always leaves the stage something to point out.
     @MainActor func testTheCameraPickerFollowsTheCameraToggleAndRecordWaitsForACameraThatCanShow() throws {
-        press(.recordScreen)
-        waitForOverlay(after: .recordScreen)
+        press(.recordArea)
+        waitForOverlay(after: .recordArea)
         selectRecordingArea()
-        XCTAssertTrue(stage.waitForExistence(timeout: Self.captureTimeout), "no stage after picking an area with \(Hotkey.recordScreen.rawValue)")
+        XCTAssertTrue(stage.waitForExistence(timeout: Self.captureTimeout), "no stage after picking an area with \(Hotkey.recordArea.rawValue)")
 
         let picker = stageControl(AccessibilityID.recordingStageCameraInput)
         XCTAssertEqual(picker.label, "Camera: System Default", "the camera button doesn't say which camera shows")
@@ -112,6 +112,27 @@ final class RecordingStageUITests: LunettaUITestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [disabled], timeout: Self.captureTimeout), .completed, "turning Camera off left its picker enabled")
         XCTAssertTrue(stageControl(AccessibilityID.recordingStageRecord).isEnabled, "Record stayed disabled after Camera went off")
         center(of: stageControl(AccessibilityID.recordingStageCancel)).click()
+    }
+
+    @MainActor func testRecordWindowStagesThePickedWindowAndCancelRecordsNothing() throws {
+        let window = openFinderWindow()
+        press(.recordWindow)
+        waitForOverlay(after: .recordWindow)
+        let middle = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        middle.hover()
+        middle.click()
+        XCTAssertTrue(stage.waitForExistence(timeout: Self.captureTimeout), "no stage after picking a window with \(Hotkey.recordWindow.rawValue)")
+        XCTAssertEqual(stage.label, "Window to record")
+        XCTAssertFalse(stopRecordingButton.exists, "recording started before Record")
+        XCTAssertTrue(stageControl(AccessibilityID.recordingStageRecord).isEnabled, "Record is disabled with every option off")
+        keepScreenshot(named: "stage with a window")
+
+        center(of: stageControl(AccessibilityID.recordingStageCancel)).click()
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: stage)
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: Self.captureTimeout), .completed, "Cancel didn't close the window's stage")
+        XCTAssertFalse(stopRecordingButton.waitForExistence(timeout: Self.noFileWait), "Cancel started a window recording")
+        let files = try FileManager.default.contentsOfDirectory(at: saveFolder, includingPropertiesForKeys: nil)
+        XCTAssertTrue(files.isEmpty, "the window's stage left \(files.map(\.lastPathComponent)) in \(saveFolder.path) without recording")
     }
 
     /// Pixels between each edge of `element` and the nearest column that differs from the background at its edges:
