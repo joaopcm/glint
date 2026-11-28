@@ -78,8 +78,6 @@ public enum RecordingProblem: Error, LocalizedError, Hashable, Sendable {
     case cameraDenied
     case cameraMissing(CameraInput)
     case noCamera
-    case cameraNeedsArea
-    case keysNeedArea
     case inputMonitoringDenied
 
     public var errorDescription: String? {
@@ -98,10 +96,6 @@ public enum RecordingProblem: Error, LocalizedError, Hashable, Sendable {
             "The camera \"\(camera.name)\" isn't connected. Connect it, or pick another camera in the recording toolbar."
         case .noCamera:
             "Camera is on, but no camera is connected. Connect one, or turn off Camera in the recording toolbar."
-        case .cameraNeedsArea:
-            "Camera only works in area recordings: a window recording captures that window alone, without the camera Lunetta shows over it. Record an area, or turn off Camera in the recording toolbar."
-        case .keysNeedArea:
-            "Show Pressed Keys only works in area recordings: a window recording captures that window alone, without the keys Lunetta draws over it. Record an area, or turn off Show Pressed Keys in the recording toolbar."
         case .inputMonitoringDenied:
             "Show Pressed Keys is on, but Lunetta isn't allowed to read the keyboard. Turn on Lunetta in System Settings > Privacy & Security > Input Monitoring and reopen Lunetta, or turn off Show Pressed Keys in the recording toolbar."
         }
@@ -114,7 +108,7 @@ public enum RecordingProblem: Error, LocalizedError, Hashable, Sendable {
         case .cameraNotAllowedYet: .allowCamera
         case .cameraDenied: .openCameraSettings
         case .inputMonitoringDenied: .openInputMonitoringSettings
-        case .inputMissing, .cameraMissing, .noCamera, .cameraNeedsArea, .keysNeedArea: nil
+        case .inputMissing, .cameraMissing, .noCamera: nil
         }
     }
 }
@@ -122,7 +116,6 @@ public enum RecordingProblem: Error, LocalizedError, Hashable, Sendable {
 public enum RecordingPreflight {
     /// Every problem at once, in panel order, so fixing one never uncovers another the user wasn't told about.
     public static func problems(
-        mode: RecordingMode,
         choices: RecordingChoices,
         microphone: DeviceAccess,
         camera: DeviceAccess = .authorized,
@@ -152,12 +145,8 @@ public enum RecordingPreflight {
             } else if connectedCameras.isEmpty {
                 problems.append(.noCamera)
             }
-            if mode == .window { problems.append(.cameraNeedsArea) }
         }
-        if choices.showsKeys {
-            if mode == .window { problems.append(.keysNeedArea) }
-            if !inputMonitoringAllowed { problems.append(.inputMonitoringDenied) }
-        }
+        if choices.showsKeys, !inputMonitoringAllowed { problems.append(.inputMonitoringDenied) }
         return problems
     }
 }

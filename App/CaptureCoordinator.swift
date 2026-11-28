@@ -346,16 +346,22 @@ final class CaptureCoordinator {
             guard await capturer.hasPermission() else { throw CaptureError.permissionDenied }
             guard let picked = try await selectRecordingTarget(mode) else { return }
             guard let region = await stager.stage(picked.region, on: picked.display, mode: mode) else { return }
+            if let problem = recordingProblems().first { throw problem }
+            let choices = settings.recordingChoices
+            // Following a window holds that window alone, so the camera and pressed keys only reach it recorded in place.
             let target: RecordingTarget = switch picked.target {
             case .area: .area(region, on: picked.display)
-            case .window: picked.target
+            case .window(let id) where choices.camera || choices.showsKeys: .windowInPlace(id, frame: region, on: picked.display)
+            case .window, .windowInPlace: picked.target
             }
-            if let problem = recordingProblems(for: mode).first { throw problem }
-            let choices = settings.recordingChoices
+            let followsWindow = switch target {
+            case .window: true
+            case .area, .windowInPlace: false
+            }
             selected = true
             let input = choices.microphone ? choices.input : nil
-            // A window recording holds that window alone, so Lunetta's rings can't reach it and macOS's circles stand in.
-            let drawsClicks = choices.showsClicks && mode == .area
+            // A followed window is recorded alone, so Lunetta's rings can't reach it and macOS's circles stand in.
+            let drawsClicks = choices.showsClicks && !followsWindow
             let options = RecordingOptions(
                 codec: settings.recordingCodec,
                 frameRate: settings.recordingFrameRate,
@@ -436,10 +442,9 @@ final class CaptureCoordinator {
         return await counting.value
     }
 
-    /// What keeps the panel's current choices from recording `mode`; the record hotkeys check the same list.
-    func recordingProblems(for mode: RecordingMode) -> [RecordingProblem] {
+    /// What keeps the panel's current choices from recording; checked again once the stage hands over.
+    func recordingProblems() -> [RecordingProblem] {
         RecordingPreflight.problems(
-            mode: mode,
             choices: settings.recordingChoices,
             microphone: microphone.status,
             camera: camera.access,

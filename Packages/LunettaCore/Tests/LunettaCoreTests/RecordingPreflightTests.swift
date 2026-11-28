@@ -24,7 +24,6 @@ private func choices(
 
 private func problems(
     _ choices: RecordingChoices,
-    mode: RecordingMode = .area,
     microphone: DeviceAccess = .authorized,
     camera: DeviceAccess = .authorized,
     inputMonitoring: Bool = true,
@@ -32,15 +31,14 @@ private func problems(
     cameras: [CameraInput] = [faceTime, deskCam]
 ) -> [RecordingProblem] {
     RecordingPreflight.problems(
-        mode: mode, choices: choices, microphone: microphone, camera: camera, inputMonitoringAllowed: inputMonitoring,
+        choices: choices, microphone: microphone, camera: camera, inputMonitoringAllowed: inputMonitoring,
         connectedInputs: inputs, connectedCameras: cameras
     )
 }
 
-@Test(arguments: RecordingMode.allCases)
-func systemAudioAndClicksNeedNothingBeyondScreenRecording(mode: RecordingMode) {
+@Test func systemAudioAndClicksNeedNothingBeyondScreenRecording() {
     #expect(problems(
-        choices(systemAudio: true, showsClicks: true), mode: mode, microphone: .denied, camera: .denied, inputMonitoring: false, inputs: [], cameras: []
+        choices(systemAudio: true, showsClicks: true), microphone: .denied, camera: .denied, inputMonitoring: false, inputs: [], cameras: []
     ).isEmpty)
 }
 
@@ -77,21 +75,15 @@ func theCameraNeedsCameraAccess(status: DeviceAccess, problem: RecordingProblem)
     #expect(problems(choices(camera: true), cameras: [deskCam]).isEmpty)
 }
 
-@Test func theCameraNeedsAnArea() {
-    #expect(problems(choices(camera: true), mode: .window) == [.cameraNeedsArea])
-}
-
-@Test func pressedKeysNeedInputMonitoringAndAnArea() {
+@Test func pressedKeysNeedInputMonitoring() {
     #expect(problems(choices(showsKeys: true), inputMonitoring: false) == [.inputMonitoringDenied])
-    #expect(problems(choices(showsKeys: true), mode: .window) == [.keysNeedArea])
-    #expect(problems(choices(showsKeys: false), mode: .window, inputMonitoring: false).isEmpty)
+    #expect(problems(choices(showsKeys: false), inputMonitoring: false).isEmpty)
 }
 
 @Test func everyProblemIsListedInPanelOrder() {
     let all = choices(microphone: true, input: deskMic, camera: true, cameraInput: deskCam, showsKeys: true)
-    #expect(problems(all, mode: .window, microphone: .denied, camera: .notDetermined, inputMonitoring: false, inputs: [], cameras: []) == [
-        .microphoneDenied, .inputMissing(deskMic), .cameraNotAllowedYet, .cameraMissing(deskCam), .cameraNeedsArea, .keysNeedArea,
-        .inputMonitoringDenied,
+    #expect(problems(all, microphone: .denied, camera: .notDetermined, inputMonitoring: false, inputs: [], cameras: []) == [
+        .microphoneDenied, .inputMissing(deskMic), .cameraNotAllowedYet, .cameraMissing(deskCam), .inputMonitoringDenied,
     ])
 }
 
@@ -103,8 +95,6 @@ func theCameraNeedsCameraAccess(status: DeviceAccess, problem: RecordingProblem)
     (.cameraDenied, "System Settings > Privacy & Security > Camera", .openCameraSettings),
     (.cameraMissing(deskCam), "\"Desk Cam\" isn't connected", nil),
     (.noCamera, "no camera is connected", nil),
-    (.cameraNeedsArea, "Record an area", nil),
-    (.keysNeedArea, "Record an area", nil),
     (.inputMonitoringDenied, "System Settings > Privacy & Security > Input Monitoring", .openInputMonitoringSettings),
 ])
 func everyProblemSaysWhatFailedAndHowToFixIt(problem: RecordingProblem, how: String, fix: RecordingFix?) throws {
