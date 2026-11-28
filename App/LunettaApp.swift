@@ -52,7 +52,7 @@ final class AppState {
     private lazy var recordingStage = RecordingStage(
         model: RecordingStageModel(
             settings: settings,
-            problems: { [unowned self] in coordinator.recordingProblems(for: .area) },
+            problems: { [unowned self] in coordinator.recordingProblems() },
             inputs: { [microphone] in microphone.inputs },
             cameras: { [camera] in camera.cameras },
             fix: { [unowned self] fix in await coordinator.fix(fix) }
@@ -138,7 +138,6 @@ final class AppState {
         KeyboardShortcuts.onKeyDown(for: .captureText) { [weak self] in self?.captureText() }
         KeyboardShortcuts.onKeyDown(for: .recordArea) { [weak self] in self?.record(.area) }
         KeyboardShortcuts.onKeyDown(for: .recordWindow) { [weak self] in self?.record(.window) }
-        KeyboardShortcuts.onKeyDown(for: .recordScreen) { [weak self] in self?.recordScreen() }
         watchInputs()
         resumeRenders()
     }
@@ -212,13 +211,8 @@ final class AppState {
         explainingPickerPromptOnFirstUse { await self.textCapture.run() }
     }
 
-    /// Record Area and Record Window skip the stage and record with its last choices.
     func record(_ mode: RecordingMode) {
         explainingPickerPromptOnFirstUse { await self.coordinator.toggleRecording(mode) }
-    }
-
-    func recordScreen() {
-        explainingPickerPromptOnFirstUse { await self.coordinator.toggleRecording(.area, staged: true) }
     }
 
     /// The toast stays until `work` returns: macOS holds the first ScreenCaptureKit call until the prompt is answered.
@@ -250,8 +244,6 @@ private struct MenuContent: View {
         Button("Capture Text") { state.captureText() }
             .globalKeyboardShortcut(.captureText)
         Divider()
-        Button("Record Screen…") { state.recordScreen() }
-            .globalKeyboardShortcut(.recordScreen)
         Button("Record Area") { state.record(.area) }
             .globalKeyboardShortcut(.recordArea)
         Button("Record Window") { state.record(.window) }

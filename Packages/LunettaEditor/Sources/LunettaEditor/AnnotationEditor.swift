@@ -1,4 +1,5 @@
 import AppKit
+import LunettaCore
 import LunettaUI
 import QuartzCore
 
@@ -152,7 +153,7 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
     public func show(on screen: NSScreen?) {
         if previousApp == nil {
             previousApp = NSWorkspace.shared.frontmostApplication
-            if let screen { fit(on: screen) }
+            if let screen { fit(visibleFrame: screen.visibleFrame) }
         }
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
@@ -356,11 +357,15 @@ public final class AnnotationEditor: NSObject, NSWindowDelegate {
         ))
     }
 
-    private func fit(on screen: NSScreen) {
-        let visible = screen.visibleFrame
+    func fit(visibleFrame visible: CGRect) {
         var frame = window.frame
-        let fit = min(visible.width / frame.width, visible.height / frame.height, 1)
-        frame.size = CGSize(width: frame.width * fit, height: frame.height * fit)
+        if TallCapture.isTall(width: document.base.width, height: document.base.height) {
+            frame.size = CGSize(width: max(min(frame.width, visible.width), Self.minimumContentSize.width), height: visible.height)
+            canvas.fitsWidth = true
+        } else {
+            let fit = min(visible.width / frame.width, visible.height / frame.height, 1)
+            frame.size = CGSize(width: frame.width * fit, height: frame.height * fit)
+        }
         frame.origin = CGPoint(x: visible.midX - frame.width / 2, y: visible.midY - frame.height / 2)
         window.setFrame(frame, display: false)
     }

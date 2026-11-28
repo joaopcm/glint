@@ -78,32 +78,26 @@ public enum RecordingProblem: Error, LocalizedError, Hashable, Sendable {
     case cameraDenied
     case cameraMissing(CameraInput)
     case noCamera
-    case cameraNeedsArea
-    case keysNeedArea
     case inputMonitoringDenied
 
     public var errorDescription: String? {
         switch self {
         case .microphoneNotAllowedYet:
-            "Microphone is on, but macOS hasn't asked yet whether Lunetta may use the microphone. Click Allow Microphone and choose Allow, or turn off Microphone in the Record Screen… toolbar."
+            "Microphone is on, but macOS hasn't asked yet whether Lunetta may use the microphone. Click Allow Microphone and choose Allow, or turn off Microphone in the recording toolbar."
         case .microphoneDenied:
-            "Microphone is on, but Lunetta isn't allowed to use the microphone. Turn on Lunetta in System Settings > Privacy & Security > Microphone, or turn off Microphone in the Record Screen… toolbar."
+            "Microphone is on, but Lunetta isn't allowed to use the microphone. Turn on Lunetta in System Settings > Privacy & Security > Microphone, or turn off Microphone in the recording toolbar."
         case .inputMissing(let input):
-            "The input \"\(input.name)\" isn't connected. Connect it, or pick another input in the Record Screen… toolbar."
+            "The input \"\(input.name)\" isn't connected. Connect it, or pick another input in the recording toolbar."
         case .cameraNotAllowedYet:
-            "Camera is on, but macOS hasn't asked yet whether Lunetta may use the camera. Click Allow Camera and choose Allow, or turn off Camera in the Record Screen… toolbar."
+            "Camera is on, but macOS hasn't asked yet whether Lunetta may use the camera. Click Allow Camera and choose Allow, or turn off Camera in the recording toolbar."
         case .cameraDenied:
-            "Camera is on, but Lunetta isn't allowed to use the camera. Turn on Lunetta in System Settings > Privacy & Security > Camera, or turn off Camera in the Record Screen… toolbar."
+            "Camera is on, but Lunetta isn't allowed to use the camera. Turn on Lunetta in System Settings > Privacy & Security > Camera, or turn off Camera in the recording toolbar."
         case .cameraMissing(let camera):
-            "The camera \"\(camera.name)\" isn't connected. Connect it, or pick another camera in the Record Screen… toolbar."
+            "The camera \"\(camera.name)\" isn't connected. Connect it, or pick another camera in the recording toolbar."
         case .noCamera:
-            "Camera is on, but no camera is connected. Connect one, or turn off Camera in the Record Screen… toolbar."
-        case .cameraNeedsArea:
-            "Camera only works in area recordings: a window recording captures that window alone, without the camera Lunetta shows over it. Record an area, or turn off Camera in the Record Screen… toolbar."
-        case .keysNeedArea:
-            "Show Pressed Keys only works in area recordings: a window recording captures that window alone, without the keys Lunetta draws over it. Record an area, or turn off Show Pressed Keys in the Record Screen… toolbar."
+            "Camera is on, but no camera is connected. Connect one, or turn off Camera in the recording toolbar."
         case .inputMonitoringDenied:
-            "Show Pressed Keys is on, but Lunetta isn't allowed to read the keyboard. Turn on Lunetta in System Settings > Privacy & Security > Input Monitoring and reopen Lunetta, or turn off Show Pressed Keys in the Record Screen… toolbar."
+            "Show Pressed Keys is on, but Lunetta isn't allowed to read the keyboard. Turn on Lunetta in System Settings > Privacy & Security > Input Monitoring and reopen Lunetta, or turn off Show Pressed Keys in the recording toolbar."
         }
     }
 
@@ -114,7 +108,7 @@ public enum RecordingProblem: Error, LocalizedError, Hashable, Sendable {
         case .cameraNotAllowedYet: .allowCamera
         case .cameraDenied: .openCameraSettings
         case .inputMonitoringDenied: .openInputMonitoringSettings
-        case .inputMissing, .cameraMissing, .noCamera, .cameraNeedsArea, .keysNeedArea: nil
+        case .inputMissing, .cameraMissing, .noCamera: nil
         }
     }
 }
@@ -122,7 +116,6 @@ public enum RecordingProblem: Error, LocalizedError, Hashable, Sendable {
 public enum RecordingPreflight {
     /// Every problem at once, in panel order, so fixing one never uncovers another the user wasn't told about.
     public static func problems(
-        mode: RecordingMode,
         choices: RecordingChoices,
         microphone: DeviceAccess,
         camera: DeviceAccess = .authorized,
@@ -152,12 +145,8 @@ public enum RecordingPreflight {
             } else if connectedCameras.isEmpty {
                 problems.append(.noCamera)
             }
-            if mode == .window { problems.append(.cameraNeedsArea) }
         }
-        if choices.showsKeys {
-            if mode == .window { problems.append(.keysNeedArea) }
-            if !inputMonitoringAllowed { problems.append(.inputMonitoringDenied) }
-        }
+        if choices.showsKeys, !inputMonitoringAllowed { problems.append(.inputMonitoringDenied) }
         return problems
     }
 }

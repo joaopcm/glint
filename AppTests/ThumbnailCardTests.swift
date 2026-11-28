@@ -360,3 +360,33 @@ private final class FailureBox: Sendable {
     presenter.perform(.retryRender, onCardAt: 0)
     #expect(fixture.renders == 1)
 }
+
+@MainActor @Test func tallCardShowsHeightBadge() throws {
+    let thumbnail = try image(width: 300, height: 200, opaque: CGRect(x: 0, y: 0, width: 300, height: 200))
+    let url = URL(fileURLWithPath: "/tmp/capture.png")
+
+    let tall = ThumbnailView(url: url, thumbnail: thumbnail, isVideo: false, fullPixelSize: CGSize(width: 1600, height: 12480))
+    let badge = try #require(heightBadge(in: tall))
+    #expect(badge.stringValue == "↕ \(12_480.formatted()) px")
+    #expect(!badge.isHiddenOrHasHiddenAncestor)
+
+    let normal = ThumbnailView(url: url, thumbnail: thumbnail, isVideo: false, fullPixelSize: CGSize(width: 1600, height: 1000))
+    #expect(heightBadge(in: normal).map(\.isHiddenOrHasHiddenAncestor) ?? true)
+}
+
+@MainActor private func heightBadge(in view: NSView) -> NSTextField? {
+    if let field = view as? NSTextField, field.accessibilityIdentifier() == AccessibilityID.cardHeightBadge { return field }
+    return view.subviews.lazy.compactMap { heightBadge(in: $0) }.first
+}
+
+@MainActor @Test func phoneScreenshotKeepsTodaysThumbnail() throws {
+    let phone = try image(width: 1179, height: 2556, opaque: CGRect(x: 0, y: 0, width: 1179, height: 2556))
+
+    let thumbnail = ThumbnailDownsampler.downsample(phone, maxPixelSize: 960)
+    #expect(thumbnail.width == Int((1179.0 * 960 / 2556).rounded()) && thumbnail.height == 960)
+
+    let card = ThumbnailView(
+        url: URL(fileURLWithPath: "/tmp/phone.png"), thumbnail: thumbnail, isVideo: false, fullPixelSize: CGSize(width: 1179, height: 2556)
+    )
+    #expect(heightBadge(in: card).map(\.isHiddenOrHasHiddenAncestor) ?? true)
+}

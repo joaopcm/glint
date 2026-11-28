@@ -68,6 +68,14 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     public var onSelectionChange: (() -> Void)?
     public var onSave: (() -> Void)?
     public var onZoomChange: (() -> Void)?
+    /// Fits the image's width instead of all of it, so a scrolling capture opens readable, at its top.
+    public var fitsWidth = false {
+        didSet {
+            focus = CGPoint(x: imageSize.width / 2, y: 0)
+            magnification = min(magnification, maximumMagnification)
+            zoomChanged()
+        }
+    }
     /// How far past fitting the window the capture is zoomed: 1 fits it, `maximumMagnification` shows it at `maximumZoom`.
     public private(set) var magnification: CGFloat = 1
     public private(set) var selectedID: UUID? {
@@ -147,7 +155,7 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         CGSize(width: document.base.width, height: document.base.height)
     }
 
-    private var availableRect: CGRect {
+    var availableRect: CGRect {
         CGRect(
             x: contentInsets.left,
             y: contentInsets.top,
@@ -159,7 +167,8 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
     /// Fits the image, but never past its real size: a small capture blown up looks blurry and cheap.
     private var fitZoom: CGFloat {
         let available = availableRect
-        let fit = min(available.width / imageSize.width, available.height / imageSize.height, 1 / pixelsPerPoint)
+        let widthFit = min(available.width / imageSize.width, 1 / pixelsPerPoint)
+        let fit = fitsWidth ? widthFit : min(widthFit, available.height / imageSize.height)
         return max(fit, .leastNormalMagnitude)
     }
 
@@ -247,11 +256,17 @@ public final class EditorCanvas: NSView, NSTextFieldDelegate {
         let delta = CGSize(width: event.scrollingDeltaX * points, height: event.scrollingDeltaY * points)
         if event.modifierFlags.contains(.command) {
             setMagnification(magnification * exp(delta.height * Self.zoomPerPoint), anchoredAt: convert(event.locationInWindow, from: nil))
-        } else if magnification > 1 {
+        } else if imageOverflows {
             pan(by: delta)
         } else {
             super.scrollWheel(with: event)
         }
+    }
+
+    private var imageOverflows: Bool {
+        let image = imageRect
+        let available = availableRect
+        return image.width > available.width || image.height > available.height
     }
 
     public override func magnify(with event: NSEvent) {

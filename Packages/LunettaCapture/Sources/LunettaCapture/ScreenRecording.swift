@@ -7,7 +7,11 @@ import Synchronization
 public enum RecordingTarget: Sendable, Equatable {
     /// `selection` is in AppKit global coordinates, like the area overlay's result.
     case area(CGRect, on: DisplayInfo)
+    /// Follows the window wherever it moves, but holds that window alone, without anything Lunetta draws over it.
     case window(UInt32)
+    /// The window plus Lunetta's own windows over it, like the camera and pressed keys, cropped to `frame` (AppKit
+    /// global coordinates) on `display`. The crop stays where the window was when the recording started.
+    case windowInPlace(UInt32, frame: CGRect, on: DisplayInfo)
 }
 
 public struct RecordingOptions: Sendable, Equatable {
@@ -127,13 +131,11 @@ extension ScreenCapturer {
         let configuration = SCStreamConfiguration()
         switch target {
         case .area(let selection, let display):
-            guard let sourceRect = DisplayGeometry.sourceRect(for: selection, on: display),
-                  let region = RecordingGeometry.evenPixelRegion(of: sourceRect, scale: display.scale)
-            else { throw CaptureError.emptySelection }
-            configuration.sourceRect = region.sourceRect
-            configuration.width = region.width
-            configuration.height = region.height
+            try crop(configuration, to: selection, on: display)
             return (try await contentFilter(displayID: display.id, hiding: hiddenWindowIDs), configuration)
+        case .windowInPlace(let id, let frame, let display):
+            try crop(configuration, to: frame, on: display)
+            return (try await contentFilter(window: id, withOwnWindowsOn: display.id, hiding: hiddenWindowIDs), configuration)
         case .window(let id):
             guard let window = try await shareableContent().windows.first(where: { $0.windowID == id }) else {
                 throw CaptureError.windowNotFound(id)
@@ -146,6 +148,33 @@ extension ScreenCapturer {
             configuration.height = region.height
             return (filter, configuration)
         }
+    }
+
+    private static func crop(_ configuration: SCStreamConfiguration, to selection: CGRect, on display: DisplayInfo) throws {
+        guard let sourceRect = DisplayGeometry.sourceRect(for: selection, on: display),
+              let region = RecordingGeometry.evenPixelRegion(of: sourceRect, scale: display.scale)
+        else { throw CaptureError.emptySelection }
+        configuration.sourceRect = region.sourceRect
+        configuration.width = region.width
+        configuration.height = region.height
+    }
+
+    /// Only the window and Lunetta's own windows, so whatever else is on top of the window stays out of the recording.
+    private static func contentFilter(
+        window id: UInt32,
+        withOwnWindowsOn displayID: UInt32,
+        hiding hiddenWindowIDs: [UInt32]
+    ) async throws -> sending SCContentFilter {
+        let content = try await shareableContent()
+        guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
+            throw CaptureError.displayNotFound(displayID)
+        }
+        guard let window = content.windows.first(where: { $0.windowID == id }) else { throw CaptureError.windowNotFound(id) }
+        let lunetta = ProcessInfo.processInfo.processIdentifier
+        let own = content.windows.filter {
+            $0.owningApplication?.processID == lunetta && $0.windowID != id && !hiddenWindowIDs.contains($0.windowID)
+        }
+        return SCContentFilter(display: display, including: [window] + own)
     }
 }
 

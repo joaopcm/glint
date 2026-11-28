@@ -114,8 +114,11 @@ final class RecordingUITests: LunettaUITestCase {
         waitForOverlay(after: .recordArea)
         let origin = overlay.frame.origin
         postDrag(from: CGPoint(x: origin.x + 100, y: origin.y + 100), to: CGPoint(x: origin.x + 300, y: origin.y + 250))
+        let record = recordingControl(AccessibilityID.recordingStageRecord)
+        XCTAssertTrue(poll(within: Self.captureTimeout) { record.exists }, "no stage after selecting the area to record")
+        postClick(at: CGPoint(x: record.frame.midX, y: record.frame.midY))
         let countdown = recordingCountdown
-        XCTAssertTrue(poll(within: TimeInterval(2)) { countdown.exists }, "no countdown within 2 s of selecting the area to record")
+        XCTAssertTrue(poll(within: TimeInterval(2)) { countdown.exists }, "no countdown within 2 s of clicking Record on the stage")
         pressEscape()
         XCTAssertTrue(poll(within: Self.captureTimeout) { !countdown.exists }, "Esc didn't close the countdown")
         // Past the 3 s the countdown would have run, so a recording that started anyway shows its timer.
@@ -137,6 +140,13 @@ final class RecordingUITests: LunettaUITestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.02))
         }
         CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
+    }
+
+    /// Top-left global points, the same space as `screenPoint`.
+    @MainActor private func postClick(at point: CGPoint) {
+        for type: CGEventType in [.leftMouseDown, .leftMouseUp] {
+            CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+        }
     }
 
     @MainActor private func poll(within timeout: TimeInterval, until condition: () -> Bool) -> Bool {
@@ -194,11 +204,15 @@ extension LunettaUITestCase {
         return topLeft
     }
 
-    /// Selects the area and waits out the countdown until the menu bar timer shows the recording runs.
+    /// Selects the area, records it from the stage as it stands and waits out the countdown until the menu bar timer
+    /// shows the recording runs.
     @MainActor func startRecordingArea() -> CGPoint {
         press(.recordArea)
         waitForOverlay(after: .recordArea)
         let topLeft = selectRecordingArea()
+        let record = recordingControl(AccessibilityID.recordingStageRecord)
+        XCTAssertTrue(record.waitForExistence(timeout: Self.captureTimeout), "no stage after picking the area to record")
+        center(of: record).click()
         XCTAssertTrue(stopRecordingButton.waitForExistence(timeout: Self.captureTimeout), "no timer in the menu bar while recording")
         return topLeft
     }

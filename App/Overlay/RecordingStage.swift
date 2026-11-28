@@ -65,8 +65,8 @@ final class RecordingStageModel {
     }
 }
 
-/// Between picking an area and recording it: the area stays up with grips to move and resize it, and a toolbar under
-/// it holds what to record. Record hands the area to the countdown; Esc or the close button drops it.
+/// Between picking an area or a window and recording it: a toolbar under it holds what to record, and an area also
+/// keeps grips to move and resize it. Record hands it to the countdown; Esc or the close button drops it.
 @MainActor
 final class RecordingStage: RecordingStaging {
     /// The countdown's dim fades in over 0.3 s (`RecordingHUD.showDim`); fading the stage out over the same time
@@ -83,11 +83,11 @@ final class RecordingStage: RecordingStaging {
         model.onChange = { [weak self] in self?.view?.render() }
     }
 
-    func stage(_ region: CGRect, on display: DisplayInfo) async -> CGRect? {
+    func stage(_ region: CGRect, on display: DisplayInfo, mode: RecordingMode) async -> CGRect? {
         guard let screen = NSScreen.screens.first(where: { $0.frame == display.frame }) else { return region }
         return await withCheckedContinuation { continuation in
             decision = continuation
-            let view = RecordingStageView(screen: screen, display: display, area: region, model: model)
+            let view = RecordingStageView(screen: screen, display: display, area: region, adjustable: mode == .area, model: model)
             view.onDecide = { [weak self] area in self?.decide(area) }
             let panel = StagePanel(screen: screen, view: view)
             self.view = view
@@ -166,6 +166,8 @@ private final class RecordingStageView: NSView {
     private let visibleFrame: CGRect
     private let display: DisplayInfo
     private let model: RecordingStageModel
+    /// A window is recorded wherever it goes, so its frame is only shown, not moved or resized.
+    private let adjustable: Bool
     private var area: CGRect {
         didSet { if area != oldValue { layoutArea() } }
     }
@@ -205,18 +207,19 @@ private final class RecordingStageView: NSView {
     private lazy var actionLabelCapsule = Glass.capsule(holding: actionLabel)
     private var hoveredButton: GlassButton?
 
-    init(screen: NSScreen, display: DisplayInfo, area: CGRect, model: RecordingStageModel) {
+    init(screen: NSScreen, display: DisplayInfo, area: CGRect, adjustable: Bool, model: RecordingStageModel) {
         screenFrame = screen.frame
         visibleFrame = screen.visibleFrame
         self.display = display
         self.model = model
+        self.adjustable = adjustable
         self.area = area
         super.init(frame: CGRect(origin: .zero, size: screen.frame.size))
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         setAccessibilityElement(true)
         setAccessibilityRole(.layoutArea)
-        setAccessibilityLabel("Area to record")
+        setAccessibilityLabel(adjustable ? "Area to record" : "Window to record")
         setAccessibilityIdentifier(AccessibilityID.recordingStage)
 
         dim.fillRule = .evenOdd
@@ -248,6 +251,8 @@ private final class RecordingStageView: NSView {
         sizeBadge.addSublayer(sizeLabel)
         layer?.addSublayer(sizeBadge)
         for layer in [dim, edge] + handles { layer.contentsScale = display.scale }
+        sizeBadge.isHidden = !adjustable
+        for handle in handles { handle.isHidden = !adjustable }
 
         toolbar.wantsLayer = true
         addSubview(toolbar)
@@ -333,7 +338,7 @@ private final class RecordingStageView: NSView {
     }
 
     private func updateRecordButton() {
-        recordButton.isEnabled = model.problems.isEmpty && recordablePixelSize != nil
+        recordButton.isEnabled = model.problems.isEmpty && (!adjustable || recordablePixelSize != nil)
     }
 
     @objc private func toggleSystemAudio(_ sender: NSButton) {
@@ -499,6 +504,7 @@ private final class RecordingStageView: NSView {
 
     /// The size the file will be: the recording trims odd pixel rows and columns (`RecordingGeometry.evenPixelRegion`).
     private func layoutSizeBadge(hole: CGRect) {
+        guard adjustable else { return }
         let text = recordablePixelSize.map { "\($0.width) × \($0.height)" } ?? "Too small to record"
         sizeLabel.string = text
         setAccessibilityValue(text)
@@ -558,7 +564,7 @@ private final class RecordingStageView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = event.screenLocation
-        guard !isOnChrome(convert(event.locationInWindow, from: nil)) else { return }
+        guard adjustable, !isOnChrome(convert(event.locationInWindow, from: nil)) else { return }
         areaBeforeDrag = area
         drag = StageGeometry.drag(startingAt: point, on: area)
         updateCursor(at: point)
@@ -606,7 +612,7 @@ private final class RecordingStageView: NSView {
     }
 
     private func updateCursor(at point: CGPoint) {
-        if isOnChrome(CGPoint(x: point.x - screenFrame.minX, y: point.y - screenFrame.minY)) {
+        if !adjustable || isOnChrome(CGPoint(x: point.x - screenFrame.minX, y: point.y - screenFrame.minY)) {
             NSCursor.arrow.set()
         } else if case .move = drag {
             NSCursor.closedHand.set()
@@ -642,7 +648,7 @@ private final class RecordingStageView: NSView {
         case kVK_DownArrow: CGPoint(x: 0, y: -step)
         default: nil
         }
-        if let nudge {
+        if let nudge, adjustable {
             area = StageGeometry.nudge(area, by: nudge, in: screenFrame)
             return
         }
