@@ -197,14 +197,16 @@ private final class FakeMicrophone: MicrophoneAccess {
 private final class FakeKeystrokes: KeystrokeShowing {
     var isAllowed: Bool
     private(set) var shownOver: [CGRect] = []
+    private(set) var excluded: [Bool] = []
     private(set) var hideCount = 0
     private(set) var settingsOpened = 0
 
     init(allowed: Bool = true) { isAllowed = allowed }
 
-    func show(over region: CGRect) throws {
+    func show(over region: CGRect, excludedFromCapture: Bool, onKey: @escaping @MainActor (String) -> Void) throws {
         guard isAllowed else { throw RecordingProblem.inputMonitoringDenied }
         shownOver.append(region)
+        excluded.append(excludedFromCapture)
     }
 
     func hide() { hideCount += 1 }
@@ -215,10 +217,12 @@ private final class FakeKeystrokes: KeystrokeShowing {
 @MainActor
 private final class FakeClickRings: ClickShowing {
     private(set) var shownOver: [CGRect] = []
+    private(set) var excluded: [Bool] = []
     private(set) var hideCount = 0
 
-    func show(over region: CGRect) {
+    func show(over region: CGRect, excludedFromCapture: Bool) {
         shownOver.append(region)
+        excluded.append(excludedFromCapture)
     }
 
     func hide() { hideCount += 1 }
@@ -233,6 +237,7 @@ private final class FakeCamera: CameraShowing {
     var cameras: [CameraInput]
     var refusal: CameraBubbleError?
     private(set) var shown: [(region: CGRect, camera: CameraInput?)] = []
+    private(set) var excluded: [Bool] = []
     private(set) var hideCount = 0
     private(set) var requestCount = 0
     private(set) var settingsOpened = 0
@@ -250,12 +255,17 @@ private final class FakeCamera: CameraShowing {
 
     func openSettings() { settingsOpened += 1 }
 
-    func show(over region: CGRect, camera: CameraInput?) throws {
+    func show(over region: CGRect, camera: CameraInput?, excludedFromCapture: Bool, onFrame: @escaping @MainActor (CGRect) -> Void) throws {
         if let refusal { throw refusal }
         shown.append((region, camera))
+        excluded.append(excludedFromCapture)
     }
 
     func hide() { hideCount += 1 }
+
+    func startTake(to url: URL) throws {}
+
+    func endTake() async -> CameraTake? { nil }
 }
 
 @MainActor
@@ -1400,6 +1410,7 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     let harness = try Harness(recorder: recorder, selection: .area(recordedArea), showsClicks: true)
     await harness.coordinator.toggleRecording(.area)
     #expect(harness.clickRings.shownOver == [recordedArea])
+    #expect(harness.clickRings.excluded == [false])
     let options = try #require(await recorder.starts.first?.options)
     #expect(!options.showsClicks, "macOS's circles drew nothing in area recordings, and would double up with the rings if they ever did")
     await harness.coordinator.togglePause()
@@ -1431,6 +1442,7 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     let harness = try Harness(selection: .area(recordedArea), recordCamera: true, cameraInput: deskCam)
     await harness.coordinator.toggleRecording(.area)
     #expect(harness.camera.shown.map(\.region) == [recordedArea])
+    #expect(harness.camera.excluded == [false])
     #expect(harness.camera.shown.map(\.camera) == [deskCam])
     await harness.coordinator.togglePause()
     await harness.coordinator.togglePause()
@@ -1515,6 +1527,7 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     let harness = try Harness(recorder: recorder, selection: .area(recordedArea), showsKeys: true)
     await harness.coordinator.toggleRecording(.area)
     #expect(harness.keystrokes.shownOver == [recordedArea])
+    #expect(harness.keystrokes.excluded == [false])
     #expect(harness.keystrokes.hideCount == 0)
     await harness.coordinator.togglePause()
     await harness.coordinator.togglePause()

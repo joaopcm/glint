@@ -32,3 +32,18 @@ import Testing
     #expect(animations.map(\.keyPath) == ["opacity"])
     #expect(animations.first?.toValue as? Double == 0)
 }
+
+@MainActor @Test func aPanelShownOutOfTheCaptureIsChromeUntilItHides() {
+    let before = Set(CaptureChrome.windowIDs())
+    let overlay = ClickRingOverlay()
+    let region = CGRect(x: 100, y: 100, width: 200, height: 150)
+
+    overlay.show(over: region, excludedFromCapture: true)
+    #expect(Set(CaptureChrome.windowIDs()).subtracting(before).count == 1)
+    overlay.hide()
+    #expect(Set(CaptureChrome.windowIDs()) == before)
+
+    overlay.show(over: region, excludedFromCapture: false)
+    #expect(Set(CaptureChrome.windowIDs()) == before)
+    overlay.hide()
+}

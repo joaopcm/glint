@@ -14,9 +14,10 @@ final class ClickRingOverlay: ClickShowing {
     private var panel: NSPanel?
     private var monitor: Any?
 
-    func show(over region: CGRect) {
+    func show(over region: CGRect, excludedFromCapture: Bool) {
         hide()
         let panel = Self.makePanel(over: region)
+        if excludedFromCapture { CaptureChrome.mark(panel) }
         panel.orderFrontRegardless()
         self.panel = panel
         monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
@@ -29,6 +30,7 @@ final class ClickRingOverlay: ClickShowing {
     func hide() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        if let panel { CaptureChrome.unmark(panel) }
         panel?.orderOut(nil)
         panel = nil
     }

@@ -56,7 +56,7 @@ protocol MicrophoneAccess {
 @MainActor
 protocol KeystrokeShowing {
     var isAllowed: Bool { get }
-    func show(over region: CGRect) throws
+    func show(over region: CGRect, excludedFromCapture: Bool, onKey: @escaping @MainActor (String) -> Void) throws
     func hide()
     func openSettings()
 }
@@ -68,14 +68,16 @@ protocol CameraShowing {
     var cameras: [CameraInput] { get }
     func requestAccess() async -> Bool
     func openSettings()
-    func show(over region: CGRect, camera: CameraInput?) throws
+    func show(over region: CGRect, camera: CameraInput?, excludedFromCapture: Bool, onFrame: @escaping @MainActor (CGRect) -> Void) throws
     func hide()
+    func startTake(to url: URL) throws
+    func endTake() async -> CameraTake?
 }
 
 /// The rings drawn under the pointer on each click in a recorded area.
 @MainActor
 protocol ClickShowing {
-    func show(over region: CGRect)
+    func show(over region: CGRect, excludedFromCapture: Bool)
     func hide()
 }
 
@@ -398,9 +400,9 @@ final class CaptureCoordinator {
     }
 
     private func show(_ overlays: RecordingOverlays, over region: CGRect) throws {
-        if overlays.keys { try keystrokes.show(over: region) }
-        if overlays.clicks { clickRings.show(over: region) }
-        if overlays.camera { try camera.show(over: region, camera: overlays.cameraInput) }
+        if overlays.keys { try keystrokes.show(over: region, excludedFromCapture: false, onKey: { _ in }) }
+        if overlays.clicks { clickRings.show(over: region, excludedFromCapture: false) }
+        if overlays.camera { try camera.show(over: region, camera: overlays.cameraInput, excludedFromCapture: false, onFrame: { _ in }) }
     }
 
     private func hide(_ overlays: RecordingOverlays) {

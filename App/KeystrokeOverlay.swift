@@ -17,6 +17,7 @@ final class KeystrokeOverlay: KeystrokeShowing {
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var fading: Task<Void, Never>?
+    private var onKey: (@MainActor (String) -> Void)?
 
     var isAllowed: Bool { CGPreflightListenEventAccess() }
 
@@ -26,7 +27,7 @@ final class KeystrokeOverlay: KeystrokeShowing {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!)
     }
 
-    func show(over region: CGRect) throws {
+    func show(over region: CGRect, excludedFromCapture: Bool, onKey: @escaping @MainActor (String) -> Void) throws {
         hide()
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -40,7 +41,9 @@ final class KeystrokeOverlay: KeystrokeShowing {
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         self.tap = tap
         self.source = source
+        self.onKey = onKey
         let panel = makePanel(over: region)
+        if excludedFromCapture { CaptureChrome.mark(panel) }
         panel.orderFrontRegardless()
         self.panel = panel
     }
@@ -55,6 +58,8 @@ final class KeystrokeOverlay: KeystrokeShowing {
         if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
         tap = nil
         source = nil
+        onKey = nil
+        if let panel { CaptureChrome.unmark(panel) }
         panel?.orderOut(nil)
         panel = nil
         capsule = nil
@@ -77,6 +82,7 @@ final class KeystrokeOverlay: KeystrokeShowing {
         guard let capsule, let label else { return }
         label.stringValue = text
         capsule.alphaValue = 1
+        onKey?(text)
         fading?.cancel()
         fading = Task { [weak self] in
             try? await Task.sleep(for: Self.linger)
