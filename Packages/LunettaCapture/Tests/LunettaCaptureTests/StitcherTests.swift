@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import CoreVideo
+import ImageIO
 import Testing
 @testable import LunettaCapture
 
@@ -467,4 +468,81 @@ private let white: [UInt8] = [255, 255, 255, 255]
     let (stitcher, _) = stitch(frames)
     #expect(stitcher.image()?.colorSpace?.name == CGColorSpace.displayP3)
     #expect(stitcher.tail(maxRows: 10)?.colorSpace?.name == CGColorSpace.displayP3)
+}
+
+func fixtureFrames(_ page: String) throws -> [Frame] {
+    let directory = try #require(Bundle.module.url(forResource: "Fixtures/scrolling/\(page)", withExtension: nil))
+    let urls = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        .filter { $0.lastPathComponent.hasPrefix("frame-") }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    return try urls.map { url in
+        let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        return try #require(Frame(image))
+    }
+}
+
+@Test(arguments: ["github-pr", "notion"])
+func realPageStitches(_ page: String) throws {
+    let frames = try fixtureFrames(page)
+    let stitcher = Stitcher(first: frames[0], tuning: .measured)
+    var tops = [stitcher.referenceTop]
+    var height = frames[0].height
+    for frame in frames.dropFirst() {
+        let update = stitcher.append(frame)
+        #expect(update.state == .tracking)
+        #expect(update.height >= height)
+        height = update.height
+        tops.append(stitcher.referenceTop)
+    }
+    #expect(stitcher.floatingZone == 0)
+
+    let image = try bytes(stitcher.image())
+    let columns = stitcher.contentColumns, header = stitcher.headerRows
+    let rowBytes = columns.count * 4
+    for (frame, top) in zip(frames, tops) {
+        let moving = rows(frame, header..<frame.height, columns: columns)
+        var matched = 0, compared = 0
+        for row in max(0, -top)..<(frame.height - header) where !frame.isUniformRow(header + row, columns: columns) {
+            let imageRow = (header + top + row) * rowBytes
+            compared += 1
+            if moving[(row * rowBytes)..<((row + 1) * rowBytes)] == image[imageRow..<(imageRow + rowBytes)] { matched += 1 }
+        }
+        #expect(Double(matched) >= StitchTuning.measured.minMatchFraction * Double(compared))
+    }
+}
+
+@Test func latePaintedFrameIsRefusedAndTheNextOneRecovers() throws {
+    let frames = Array(try fixtureFrames("github-pr")[6...])
+    let clean = Stitcher(first: frames[0], tuning: .measured)
+    var cleanTops = [clean.referenceTop]
+    for frame in frames.dropFirst() {
+        _ = clean.append(frame)
+        cleanTops.append(clean.referenceTop)
+    }
+
+    let stitcher = Stitcher(first: frames[0], tuning: .measured)
+    for frame in frames[1..<2] { _ = stitcher.append(frame) }
+    let columns = stitcher.contentColumns
+    let overlap = frames[2].height - stitcher.headerRows - (cleanTops[2] - cleanTops[1])
+    let blankFrom = stitcher.headerRows + overlap / 2
+    var pixels = frames[2].pixels
+    for y in blankFrom..<frames[2].height {
+        let start = y * frames[2].bytesPerRow
+        pixels.replaceSubrange((start + columns.lowerBound * 4)..<(start + columns.upperBound * 4), with: repeatElement(255, count: columns.count * 4))
+    }
+    let latePainted = Frame(width: frames[2].width, height: frames[2].height, bytesPerRow: frames[2].bytesPerRow, pixels: pixels, colorSpace: frames[2].colorSpace)
+    #expect(stitcher.append(latePainted).state == .lostOverlap)
+    for frame in frames[2...] { #expect(stitcher.append(frame).state == .tracking) }
+    #expect(try bytes(stitcher.image()) == bytes(clean.image()))
+}
+
+@Test(arguments: [2, 16])
+func toastOneBlockTallAppearsOnce(block: Int) throws {
+    var blocks = tuning
+    blocks.floatingBlockSize = block
+    let source = page(width: 64, height: 1000)
+    let frames = viewports(of: source, tops: [0, 100, 200, 300], height: 600, widget: CGRect(x: 24, y: 600 - block, width: 40, height: block))
+    let (stitcher, _) = stitch(frames, tuning: blocks)
+    #expect(try bytes(stitcher.image()) == rows(source, 0..<(900 - block)) + rows(frames[3], (600 - block)..<600))
 }

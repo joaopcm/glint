@@ -264,8 +264,11 @@ spike answers it before any stitcher code exists.
 
 ### Task 3: Real-page fixtures and measured tuning
 
-Task 0 recorded only `github-pr` and `notion` (Dia instead of Chrome). `google-doc`, `slack-thread` and the chat-bubble
-page were skipped: record them before Step 2, or drop them from the test arguments. See `docs/perf/2026-11-scrolling-capture.md`.
+Task 0 recorded only `github-pr` and `notion` (Dia instead of Chrome). `realPageStitches` runs on those two only:
+`google-doc`, `slack-thread` and the chat-bubble page are dropped from the test arguments. Still sidebars and floating
+widgets stay covered by Task 2's synthetic tests. The fixtures cover part of a page, so there is no full-page ground
+truth: the test checks the final image against every fixture frame at the offset the stitcher placed it instead. See
+`docs/perf/2026-11-scrolling-capture.md`.
 
 **Files:**
 - Create: `Packages/LunettaCapture/Tests/LunettaCaptureTests/Fixtures/scrolling/<page>/ground-truth.png`

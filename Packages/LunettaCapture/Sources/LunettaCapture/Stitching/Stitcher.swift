@@ -17,6 +17,21 @@ public struct StitchTuning: Sendable {
     }
 }
 
+extension StitchTuning {
+    public static let measured = StitchTuning(
+        // docs/perf/2026-11-scrolling-capture.md, Task 3 "sampleStride": stride 3 and 6+ crop Notion's columns, 2 and 4 pass by luck
+        sampleStride: 1,
+        // same doc, "minMatchFraction": late-painted frames need >= 0.68, the worst real pair matches 0.7711
+        minMatchFraction: 0.72,
+        // same doc, "minDistinctRows": wrong shifts on Notion match <= 6 rows, real pairs >= 620; 16 rows is one 8 pt line
+        minDistinctRows: 16,
+        // same doc, "maxOutputHeight": past Slack's 25,000 px preview cap; 80,000 px needs ~3.4 GB to stitch and save
+        maxOutputHeight: 40_000,
+        // same doc, "floatingBlockSize": smallest block that still sees a 2-row toast; no false zone on either page
+        floatingBlockSize: 2
+    )
+}
+
 public struct StitchUpdate: Sendable, Equatable {
     public enum State: Sendable, Equatable { case tracking, lostOverlap, heightLimitReached(limit: Int) }
     public let state: State
@@ -96,6 +111,9 @@ public final class Stitcher {
     private var reachedHeightLimit = false
     private(set) var floatingZone = 0
     private(set) var rowComparisons = 0
+    var referenceTop: Int { reference.top }
+    var contentColumns: Range<Int> { bands.columns }
+    var headerRows: Int { bands.headerRows }
 
     public init(first: Frame, tuning: StitchTuning) {
         self.tuning = tuning
