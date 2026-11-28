@@ -19,7 +19,6 @@ private let bt709: [String: String] = [
     AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
 ]
 
-/// A project folder with two 2 s parts, a camera clip on part 1 that starts 0.5 s in, and a cursor at the area's center.
 private struct Fixture {
     let root: URL
     var project: RecordingProject
@@ -105,7 +104,6 @@ private func writeEvents(_ events: [CaptureEvent], to url: URL) throws {
     try writer.close()
 }
 
-/// 2 s of mid gray at 30 fps with a 1 kHz tone, like a raw screen part.
 private func writeScreen(to url: URL) async throws {
     try await writeMovie(to: url, type: .mp4, size: screenSize, color: { _ in RGB(r: 128, g: 128, b: 128) }, withTone: true)
 }

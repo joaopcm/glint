@@ -260,7 +260,6 @@ public enum ProjectExporter {
             queue = DispatchQueue(label: "com.joaopcm.lunetta.render.\(output.mediaType.rawValue)")
         }
 
-        /// Returns once the output ran dry, an append failed, or `keepGoing` said to stop after a sample.
         func run(while keepGoing: @escaping @Sendable (CMSampleBuffer) -> Bool) async {
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                 input.requestMediaDataWhenReady(on: queue) { [self] in

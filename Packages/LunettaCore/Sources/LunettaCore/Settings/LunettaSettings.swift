@@ -334,7 +334,7 @@ public final class LunettaSettings {
         set { withMutation(keyPath: \.recordsRaw) { store.set(newValue, forKey: Key.recordsRaw) } }
     }
 
-    /// Hidden: renders bigger than 3840x2160 are scaled to fit inside it unless this is off.
+    /// Renders bigger than 3840x2160 are scaled to fit inside it unless this is off.
     public var capsRenderToUHD: Bool {
         get {
             access(keyPath: \.capsRenderToUHD)
