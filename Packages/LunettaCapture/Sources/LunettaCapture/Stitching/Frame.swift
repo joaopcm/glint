@@ -5,25 +5,29 @@ import Foundation
 public struct Frame: Sendable {
     public let width: Int, height: Int, bytesPerRow: Int
     public let pixels: [UInt8]
+    public let colorSpace: CGColorSpace
+
+    static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
 
     private static let fnvOffsetBasis: UInt64 = 0xcbf2_9ce4_8422_2325
     private static let fnvPrime: UInt64 = 0x0000_0100_0000_01b3
 
-    init(width: Int, height: Int, bytesPerRow: Int, pixels: [UInt8]) {
+    init(width: Int, height: Int, bytesPerRow: Int, pixels: [UInt8], colorSpace: CGColorSpace = Frame.sRGB) {
         precondition(pixels.count == bytesPerRow * height, "Frame \(width)x\(height) needs \(bytesPerRow * height) bytes, got \(pixels.count)")
         self.width = width
         self.height = height
         self.bytesPerRow = bytesPerRow
         self.pixels = pixels
+        self.colorSpace = colorSpace
     }
 
     public init?(_ image: CGImage) {
         let width = image.width, height = image.height
-        guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        guard width > 0, height > 0 else { return nil }
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
         let drew = pixels.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(
-                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: space,
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: Self.sRGB,
                 bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
             ) else { return false }
             context.setBlendMode(.copy)
@@ -49,7 +53,15 @@ public struct Frame: Sendable {
             }
             count = rowBytes * height
         }
-        self.init(width: width, height: height, bytesPerRow: rowBytes, pixels: pixels)
+        self.init(width: width, height: height, bytesPerRow: rowBytes, pixels: pixels, colorSpace: Self.colorSpace(of: pixelBuffer))
+    }
+
+    private static func colorSpace(of pixelBuffer: CVPixelBuffer) -> CGColorSpace {
+        if let attached = CVImageBufferGetColorSpace(pixelBuffer) { return attached.takeUnretainedValue() }
+        if let attachment = CVBufferCopyAttachment(pixelBuffer, kCVImageBufferCGColorSpaceKey, nil), CFGetTypeID(attachment) == CGColorSpace.typeID {
+            return attachment as! CGColorSpace
+        }
+        return sRGB
     }
 
     func rowSignatures(columns: Range<Int>, stride: Int) -> [UInt64] {
@@ -102,7 +114,7 @@ public struct Frame: Sendable {
             let start = y * bytesPerRow + columns.lowerBound * 4
             cropped.append(contentsOf: pixels[start..<(start + rowBytes)])
         }
-        return Frame(width: columns.count, height: rows.count, bytesPerRow: rowBytes, pixels: cropped)
+        return Frame(width: columns.count, height: rows.count, bytesPerRow: rowBytes, pixels: cropped, colorSpace: colorSpace)
     }
 
     private func isSamePixel(_ a: Int, _ b: Int) -> Bool {

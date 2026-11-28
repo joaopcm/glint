@@ -24,7 +24,16 @@ func page(width: Int, height: Int) -> Frame {
     return Frame(width: width, height: height, bytesPerRow: width * 4, pixels: pixels)
 }
 
-func viewport(of page: Frame, top: Int, height: Int, header: Int = 0, footer: Int = 0, sidebar: Int = 0) -> Frame {
+func viewports(
+    of page: Frame, tops: [Int], height: Int, header: Int = 0, footer: Int = 0, sidebar: Int = 0,
+    widget: CGRect? = nil, widgetFrom: Int = 0
+) -> [Frame] {
+    tops.enumerated().map { index, top in
+        viewport(of: page, top: top, height: height, header: header, footer: footer, sidebar: sidebar, widget: index >= widgetFrom ? widget : nil)
+    }
+}
+
+func viewport(of page: Frame, top: Int, height: Int, header: Int = 0, footer: Int = 0, sidebar: Int = 0, widget: CGRect? = nil) -> Frame {
     let width = page.width
     var pixels = Array(page.pixels[(top * width * 4)..<((top + height) * width * 4)])
 
@@ -43,6 +52,9 @@ func viewport(of page: Frame, top: Int, height: Int, header: Int = 0, footer: In
     paint(rows: 0..<height, columns: 0..<sidebar, seed: 11)
     paint(rows: 0..<header, columns: 0..<width, seed: 53)
     paint(rows: (height - footer)..<height, columns: 0..<width, seed: 97)
+    if let widget {
+        paint(rows: Int(widget.minY)..<Int(widget.maxY), columns: Int(widget.minX)..<Int(widget.maxX), seed: 151)
+    }
     return Frame(width: width, height: height, bytesPerRow: width * 4, pixels: pixels)
 }
 
@@ -185,4 +197,243 @@ private func set(_ frame: Frame, x: Int, y: Int, to value: UInt8) -> Frame {
     var buffer: CVPixelBuffer?
     CVPixelBufferCreate(nil, 4, 4, kCVPixelFormatType_32ARGB, nil, &buffer)
     #expect(Frame(try #require(buffer)) == nil)
+}
+
+private let tuning = StitchTuning(sampleStride: 1, minMatchFraction: 0.9, minDistinctRows: 8, maxOutputHeight: 100_000, floatingBlockSize: 16)
+
+private func stitch(_ frames: [Frame], tuning: StitchTuning = tuning) -> (Stitcher, [StitchUpdate]) {
+    let stitcher = Stitcher(first: frames[0], tuning: tuning)
+    return (stitcher, frames.dropFirst().map { stitcher.append($0) })
+}
+
+private func bytes(_ image: CGImage?) throws -> [UInt8] {
+    let image = try #require(image)
+    #expect(image.bytesPerRow == image.width * 4)
+    return Array(try #require(image.dataProvider?.data) as Data)
+}
+
+private func rows(_ frame: Frame, _ rows: Range<Int>, columns: Range<Int>? = nil) -> [UInt8] {
+    frame.cropped(columns: columns ?? 0..<frame.width, rows: rows).pixels
+}
+
+private func repainted(_ frame: Frame, _ paint: (_ x: Int, _ y: Int) -> [UInt8]?) -> Frame {
+    var pixels = frame.pixels
+    for y in 0..<frame.height {
+        for x in 0..<frame.width {
+            if let value = paint(x, y) {
+                pixels.replaceSubrange((y * frame.bytesPerRow + x * 4)..<(y * frame.bytesPerRow + x * 4 + 4), with: value)
+            }
+        }
+    }
+    return Frame(width: frame.width, height: frame.height, bytesPerRow: frame.bytesPerRow, pixels: pixels, colorSpace: frame.colorSpace)
+}
+
+private let white: [UInt8] = [255, 255, 255, 255]
+
+@Test func noScrollGivesTheFirstFrame() throws {
+    let first = viewport(of: page(width: 64, height: 300), top: 40, height: 100)
+    let stitcher = Stitcher(first: first, tuning: tuning)
+    #expect(try bytes(stitcher.image()) == first.pixels)
+    #expect(stitcher.append(first) == StitchUpdate(state: .tracking, height: 100, appendedRows: 0))
+    #expect(try bytes(stitcher.image()) == first.pixels)
+}
+
+@Test func plainScrollRebuildsThePage() throws {
+    let source = page(width: 64, height: 400)
+    let (stitcher, updates) = stitch(viewports(of: source, tops: [0, 40, 95, 150], height: 100))
+    #expect(updates.map(\.state) == [.tracking, .tracking, .tracking])
+    #expect(updates.map(\.appendedRows) == [40, 55, 55])
+    #expect(try bytes(stitcher.image()) == rows(source, 0..<250))
+}
+
+@Test func stickyHeaderAppearsOnce() throws {
+    let source = page(width: 64, height: 400)
+    let frames = viewports(of: source, tops: [0, 40, 95, 150], height: 100, header: 30)
+    let (stitcher, updates) = stitch(frames)
+    #expect(updates.last?.height == 30 + 150 + (100 - 30))
+    #expect(try bytes(stitcher.image()) == rows(frames[0], 0..<30) + rows(source, 30..<250))
+}
+
+@Test func stickyHeaderAndFooterAppearOnce() throws {
+    let source = page(width: 64, height: 700)
+    let frames = viewports(of: source, tops: [0, 40, 95, 150], height: 400, header: 30, footer: 20)
+    let (stitcher, updates) = stitch(frames)
+    #expect(updates.last?.height == 550)
+    #expect(try bytes(stitcher.image()) == rows(frames[0], 0..<30) + rows(source, 30..<530) + rows(frames[3], 380..<400))
+}
+
+@Test func lateFooterAppearsOnce() throws {
+    let source = page(width: 64, height: 700)
+    let frames = viewports(of: source, tops: [0, 40, 95, 150], height: 400, widget: CGRect(x: 0, y: 380, width: 64, height: 20), widgetFrom: 2)
+    let (stitcher, _) = stitch(frames)
+    #expect(try bytes(stitcher.image()) == rows(source, 0..<530) + rows(frames[3], 380..<400))
+}
+
+@Test func floatingWidgetAppearsOnce() throws {
+    let source = page(width: 64, height: 1000)
+    let frames = viewports(of: source, tops: [0, 100, 200, 300], height: 600, widget: CGRect(x: 24, y: 560, width: 40, height: 40))
+    let (stitcher, updates) = stitch(frames)
+    #expect(updates.map(\.state) == [.tracking, .tracking, .tracking])
+    #expect(try bytes(stitcher.image()) == rows(source, 0..<860) + rows(frames[3], 560..<600))
+}
+
+@Test func floatingZoneNeverShrinks() throws {
+    let source = page(width: 64, height: 1100)
+    let widget = CGRect(x: 24, y: 560, width: 40, height: 40)
+    let frames = [0, 100, 200, 300, 400].enumerated().map { index, top in
+        viewport(of: source, top: top, height: 600, widget: index < 3 ? widget : nil)
+    }
+    let (stitcher, _) = stitch(frames)
+    #expect(stitcher.floatingZone == 40)
+    #expect(try bytes(stitcher.image()) == rows(source, 0..<1000))
+}
+
+@Test func verticalRulesDontMakeAFloatingZone() throws {
+    let ruled = repainted(page(width: 64, height: 400)) { x, _ in
+        switch x {
+        case 0: nil
+        case 30, 31: [0, 0, 0, 255]
+        default: white
+        }
+    }
+    let (stitcher, _) = stitch(viewports(of: ruled, tops: [0, 40, 95, 150], height: 100))
+    #expect(stitcher.floatingZone == 0)
+    #expect(try bytes(stitcher.image()) == rows(ruled, 0..<250))
+}
+
+@Test func scrollingBackUpKeepsTheDeepestTail() throws {
+    let source = page(width: 64, height: 1000)
+    let frames = viewports(of: source, tops: [0, 200, 100], height: 700, widget: CGRect(x: 24, y: 660, width: 40, height: 40))
+    let (stitcher, updates) = stitch(frames)
+    #expect(updates.map(\.state) == [.tracking, .tracking])
+    #expect(try bytes(stitcher.image()) == rows(source, 0..<860) + rows(frames[1], 660..<700))
+}
+
+@Test func stillSidebarIsDropped() throws {
+    let source = page(width: 140, height: 400)
+    let (stitcher, _) = stitch(viewports(of: source, tops: [0, 40, 95, 150], height: 100, sidebar: 60))
+    #expect(stitcher.image()?.width == 80)
+    #expect(try bytes(stitcher.image()) == rows(source, 0..<250, columns: 60..<140))
+}
+
+@Test func stillSidebarAndHeader() throws {
+    let source = page(width: 140, height: 400)
+    let frames = viewports(of: source, tops: [0, 40, 95, 150], height: 100, header: 30, sidebar: 60)
+    let (stitcher, _) = stitch(frames)
+    #expect(stitcher.image()?.width == 80)
+    #expect(try bytes(stitcher.image()) == rows(frames[0], 0..<30, columns: 60..<140) + rows(source, 30..<250, columns: 60..<140))
+}
+
+@Test func whiteMarginsAreKept() throws {
+    let margined = repainted(page(width: 144, height: 400)) { x, _ in x < 40 || x >= 104 ? white : nil }
+    let (stitcher, _) = stitch(viewports(of: margined, tops: [0, 40, 95, 150], height: 100))
+    #expect(stitcher.image()?.width == 144)
+    #expect(try bytes(stitcher.image()) == rows(margined, 0..<250))
+}
+
+@Test func scrollingBackUpAppendsNothing() {
+    let (_, updates) = stitch(viewports(of: page(width: 64, height: 500), tops: [0, 100, 50, 100], height: 200))
+    #expect(updates.map(\.height) == [300, 300, 300])
+    #expect(updates.map(\.appendedRows) == [100, 0, 0])
+}
+
+@Test func scrollingAboveTheStartAppendsNothing() {
+    let (_, updates) = stitch(viewports(of: page(width: 64, height: 400), tops: [200, 150], height: 100))
+    #expect(updates == [StitchUpdate(state: .tracking, height: 100, appendedRows: 0)])
+}
+
+@Test func gapRaisesLostOverlapAndRecovers() {
+    let (_, updates) = stitch(viewports(of: page(width: 64, height: 400), tops: [0, 150, 60], height: 100))
+    #expect(updates == [
+        StitchUpdate(state: .lostOverlap, height: 100, appendedRows: 0),
+        StitchUpdate(state: .tracking, height: 160, appendedRows: 60),
+    ])
+}
+
+@Test func repeatingContentPicksNearestShift() throws {
+    let period = page(width: 64, height: 20)
+    let repeating = Frame(width: 64, height: 400, bytesPerRow: 256, pixels: (0..<20).flatMap { _ in period.pixels })
+    let (stitcher, updates) = stitch(viewports(of: repeating, tops: [0, 8, 16, 24, 32], height: 100))
+    #expect(updates.map(\.appendedRows) == [8, 8, 8, 8])
+    #expect(try bytes(stitcher.image()) == rows(repeating, 0..<132))
+}
+
+@Test func equallyGoodShiftsKeepThePreviousDirection() throws {
+    let period = page(width: 64, height: 20)
+    let repeating = Frame(width: 64, height: 400, bytesPerRow: 256, pixels: (0..<20).flatMap { _ in period.pixels })
+    let (stitcher, updates) = stitch(viewports(of: repeating, tops: [0, 8, 18, 28, 38], height: 100))
+    #expect(updates.map(\.appendedRows) == [8, 10, 10, 10])
+    #expect(try bytes(stitcher.image()) == rows(repeating, 0..<138))
+}
+
+@Test func smallChangeStillMatches() {
+    let source = page(width: 64, height: 400)
+    let altered = repainted(viewport(of: source, top: 40, height: 100)) { x, y in x == 10 && y == 50 ? [0, 0, 0, 255] : nil }
+    let (_, updates) = stitch([viewport(of: source, top: 0, height: 100), altered])
+    #expect(updates == [StitchUpdate(state: .tracking, height: 140, appendedRows: 40)])
+}
+
+@Test func caretBlinkBeforeScrollingIsNotAScroll() throws {
+    let source = page(width: 140, height: 400)
+    let first = viewport(of: source, top: 0, height: 100, sidebar: 60)
+    let caret = repainted(first) { x, y in x == 100 && (40..<44).contains(y) ? [0, 0, 0, 255] : nil }
+    let (stitcher, updates) = stitch([first, caret, viewport(of: source, top: 40, height: 100, sidebar: 60)])
+    #expect(updates.map(\.state) == [.tracking, .tracking])
+    #expect(updates.map(\.appendedRows) == [0, 40])
+    #expect(stitcher.image()?.width == 80)
+}
+
+@Test func sidebarHoverIsNotAScroll() {
+    let source = page(width: 140, height: 400)
+    let scrolled = viewport(of: source, top: 40, height: 100, sidebar: 60)
+    let hovered = repainted(scrolled) { x, y in x == 5 && y == 50 ? white : nil }
+    let (_, updates) = stitch([viewport(of: source, top: 0, height: 100, sidebar: 60), scrolled, hovered])
+    #expect(updates.last == StitchUpdate(state: .tracking, height: 140, appendedRows: 0))
+}
+
+@Test func heightLimitStopsAndSays() {
+    var limited = tuning
+    limited.maxOutputHeight = 250
+    let (stitcher, updates) = stitch(viewports(of: page(width: 64, height: 500), tops: [0, 100, 200], height: 200), tuning: limited)
+    #expect(updates.map(\.state) == [.heightLimitReached(limit: 250), .heightLimitReached(limit: 250)])
+    #expect(updates.map(\.height) == [250, 250])
+    #expect(stitcher.image()?.height == 250)
+}
+
+@Test func appendStaysLinear() {
+    func comparisons(height: Int) -> Int {
+        let source = page(width: 64, height: height * 2)
+        let stitcher = Stitcher(first: viewport(of: source, top: 0, height: height), tuning: tuning)
+        _ = stitcher.append(viewport(of: source, top: height / 10, height: height))
+        return stitcher.rowComparisons
+    }
+    let short = comparisons(height: 200)
+    #expect(short > 0)
+    #expect(comparisons(height: 400) <= 2 * short)
+}
+
+@Test func tailReturnsLastRows() throws {
+    let (stitcher, _) = stitch(viewports(of: page(width: 64, height: 400), tops: [0, 40, 95, 150], height: 100))
+    let tail = try #require(stitcher.tail(maxRows: 10))
+    #expect(tail.height == 10)
+    #expect(try bytes(tail) == Array(try bytes(stitcher.image()).suffix(10 * 64 * 4)))
+}
+
+@Test func outputKeepsTheFirstFramesColorSpace() throws {
+    let provider = CGDataProvider(data: Data(white) as CFData)!
+    let image = try #require(CGImage(
+        width: 1, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent
+    ))
+    #expect(try #require(Frame(image)).colorSpace.name == CGColorSpace.sRGB)
+
+    let p3 = CGColorSpace(name: CGColorSpace.displayP3)!
+    let source = page(width: 64, height: 400)
+    let frames = viewports(of: source, tops: [0, 40], height: 100).map {
+        Frame(width: $0.width, height: $0.height, bytesPerRow: $0.bytesPerRow, pixels: $0.pixels, colorSpace: p3)
+    }
+    let (stitcher, _) = stitch(frames)
+    #expect(stitcher.image()?.colorSpace?.name == CGColorSpace.displayP3)
+    #expect(stitcher.tail(maxRows: 10)?.colorSpace?.name == CGColorSpace.displayP3)
 }
