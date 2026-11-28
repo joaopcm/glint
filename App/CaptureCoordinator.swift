@@ -266,6 +266,7 @@ final class CaptureCoordinator {
     private var session: RecordingSession?
     private var countdown: Task<Bool, Never>?
     private var scrollStageIsDeciding = false
+    private var scrollHasFrame = false
 
     init(
         capturer: any Capturing,
@@ -769,9 +770,9 @@ final class CaptureCoordinator {
             scrollStager.dismiss()
             throw error
         }
-        let (firstFrame, firstFrameArrived) = AsyncStream<Void>.makeStream()
+        scrollHasFrame = false
         scrollStageIsDeciding = true
-        let stitching = stitch(frames.frames, previewRows: scrollStager.previewPixelHeight, firstFrameArrived: firstFrameArrived)
+        let stitching = stitch(frames.frames, previewRows: scrollStager.previewPixelHeight)
         let (outcomes, post) = AsyncStream<Result<ScrollStageDecision, any Error>>.makeStream()
         let deciding = Task { post.yield(.success(await scrollStager.decision())) }
         Task {
@@ -783,11 +784,15 @@ final class CaptureCoordinator {
         scrollStageIsDeciding = false
         do {
             switch outcome {
-            case .success(.done):
-                // Done can come before the stream's first frame, which would leave nothing to save.
-                for await _ in firstFrame {}
+            case .success(.done) where scrollHasFrame:
                 await frames.stop()
                 return try await stitching.value
+            case .success(.done):
+                // Done can come before the stream's first frame, and a sleeping display may never send one.
+                stitching.cancel()
+                _ = await stitching.result
+                await frames.stop()
+                return try await capturer.captureArea(area, displays: displays)
             case .success(.cancelled), nil:
                 stitching.cancel()
                 _ = await stitching.result
@@ -804,19 +809,14 @@ final class CaptureCoordinator {
         }
     }
 
-    private func stitch(
-        _ frames: AsyncThrowingStream<Frame, any Error>,
-        previewRows: Int,
-        firstFrameArrived: AsyncStream<Void>.Continuation
-    ) -> Task<CGImage?, any Error> {
+    private func stitch(_ frames: AsyncThrowingStream<Frame, any Error>, previewRows: Int) -> Task<CGImage?, any Error> {
         Task.detached { [self] in
-            defer { firstFrameArrived.finish() }
             var stitcher: Stitcher?
             for try await frame in frames {
                 guard !Task.isCancelled else { return nil }
                 guard let current = stitcher else {
+                    await markScrollHasFrame()
                     stitcher = Stitcher(first: frame, tuning: .measured)
-                    firstFrameArrived.finish()
                     continue
                 }
                 let update = current.append(frame)
@@ -826,6 +826,10 @@ final class CaptureCoordinator {
             guard !Task.isCancelled else { return nil }
             return stitcher?.image()
         }
+    }
+
+    private func markScrollHasFrame() {
+        scrollHasFrame = true
     }
 
     private func showOnStage(_ update: StitchUpdate, preview: CGImage?) {

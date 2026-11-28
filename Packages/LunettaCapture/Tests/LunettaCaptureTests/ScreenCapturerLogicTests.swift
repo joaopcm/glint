@@ -63,3 +63,26 @@ private let external = DisplayInfo(id: 2, frame: CGRect(x: -1920, y: -200, width
     #expect(terminated.withLock { $0 })
     withExtendedLifetime(buffer) {}
 }
+
+private actor StopLog {
+    private(set) var events: [String] = []
+    func record(_ event: String) { events.append(event) }
+}
+
+@Test func secondStopWaitsForTheStopInProgress() async {
+    let stopOnce = StopOnce()
+    let log = StopLog()
+    let (started, signalStarted) = AsyncStream<Void>.makeStream()
+    let first = Task {
+        await stopOnce.run {
+            signalStarted.finish()
+            try? await Task.sleep(for: .milliseconds(100))
+            await log.record("stream stopped")
+        }
+    }
+    for await _ in started {}
+    await stopOnce.run { await log.record("second stop ran its own work") }
+    await log.record("second stop returned")
+    await first.value
+    #expect(await log.events == ["stream stopped", "second stop returned"])
+}

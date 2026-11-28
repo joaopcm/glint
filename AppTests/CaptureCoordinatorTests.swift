@@ -38,6 +38,7 @@ private actor FakeCapturer: Capturing {
     let onScrollingFrames: (@Sendable () async -> Void)?
     let scrollDelay: Duration?
     let scrollFramesAfterStop: [CGImage]
+    let scrollStopError: CaptureError?
     nonisolated let scrollTerminations = Mutex<[String]>([])
     private(set) var scrollStopCount = 0
     private(set) var capturedDisplayIDs: [UInt32] = []
@@ -57,8 +58,10 @@ private actor FakeCapturer: Capturing {
         scrollStartError: CaptureError? = nil,
         onScrollingFrames: (@Sendable () async -> Void)? = nil,
         scrollDelay: Duration? = nil,
-        scrollFramesAfterStop: [CGImage] = []
+        scrollFramesAfterStop: [CGImage] = [],
+        scrollStopError: CaptureError? = nil
     ) {
+        self.scrollStopError = scrollStopError
         self.scrollDelay = scrollDelay
         self.scrollFramesAfterStop = scrollFramesAfterStop
         displayList = displays
@@ -121,10 +124,11 @@ private actor FakeCapturer: Capturing {
             deliver()
         }
         let late = scrollFramesAfterStop
+        let stopError = scrollStopError
         return ScrollingFrames(frames: frames, stop: { [self] in
             await recordScrollStop()
             for image in late { continuation.yield(Frame(image)!) }
-            continuation.finish()
+            continuation.finish(throwing: stopError)
         })
     }
 
@@ -2058,15 +2062,24 @@ private func savedImage(_ harness: Harness) throws -> CGImage {
     #expect(stager.shown.last?.preview?.height == stager.previewPixelHeight)
 }
 
-@MainActor @Test func scrollingDoneBeforeFirstFrameWaitsForIt() async throws {
-    let frame = scrolledFrames(tops: [0])[0]
-    let capturer = FakeCapturer(scrollFrames: [frame], scrollDelay: .milliseconds(100))
+@MainActor @Test func scrollingDoneBeforeAnyFrameCapturesTheArea() async throws {
+    let capturer = FakeCapturer(scrollFrames: scrolledFrames(tops: [0]), scrollDelay: .milliseconds(100))
     let harness = try Harness(capturer: capturer, selection: .area(scrollArea))
     await harness.coordinator.run(.scrolling)
-    let saved = try savedImage(harness)
-    #expect(Frame(saved)?.pixels == Frame(frame)?.pixels)
+    #expect(await capturer.areaCaptureCount == 1)
+    #expect(try savedImage(harness).height == 10)
     #expect(harness.alerts.presented.isEmpty)
     #expect(await capturer.scrollStopCount == 1)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func scrollingDoneWithNoFrameEverReleasesTheCoordinator() async throws {
+    let capturer = FakeCapturer()
+    let harness = try Harness(capturer: capturer, selection: .area(scrollArea))
+    await harness.coordinator.run(.scrolling)
+    await harness.coordinator.run(.scrolling)
+    #expect(await capturer.areaCaptureCount == 2)
+    #expect(try harness.savedFiles().count == 2)
+    #expect(await capturer.scrollStopCount == 2)
 }
 
 @MainActor @Test func scrollingCancelStopsStitching() async throws {
@@ -2083,8 +2096,10 @@ private func savedImage(_ harness: Harness) throws -> CGImage {
 }
 
 @MainActor @Test func scrollingStreamFailureAfterDoneDismissesStage() async throws {
-    let capturer = FakeCapturer(scrollError: .permissionDenied, scrollDelay: .milliseconds(100))
-    let harness = try Harness(capturer: capturer, selection: .area(scrollArea))
+    let stager = FakeScrollStager()
+    stager.expectedShows = 1
+    let capturer = FakeCapturer(scrollFrames: scrolledFrames(tops: [0, 40]), scrollStopError: .permissionDenied)
+    let harness = try Harness(capturer: capturer, scrollStager: stager, selection: .area(scrollArea))
     await harness.coordinator.run(.scrolling)
     #expect(harness.scrollStager.dismissCount == 1)
     #expect(harness.alerts.presented.count == 1)

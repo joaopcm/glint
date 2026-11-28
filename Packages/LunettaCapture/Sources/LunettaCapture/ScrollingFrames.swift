@@ -68,6 +68,7 @@ private final class ScrollingCapture: Sendable {
     private let stream: Mutex<SCStream?>
     private let output: ScrollingFrameOutput
     private let buffer: FrameBuffer
+    private let stopping = StopOnce()
 
     init(stream: sending SCStream, output: ScrollingFrameOutput, buffer: FrameBuffer) {
         self.stream = Mutex(stream)
@@ -76,10 +77,26 @@ private final class ScrollingCapture: Sendable {
     }
 
     func stop() async {
-        guard let stream = self.stream.withLock({ $0.take() }) else { return }
-        // Throws when the stream already stopped on its own; didStopWithError has finished the frames with that error.
-        try? await stream.stopCapture()
-        buffer.finish()
+        await stopping.run { [self] in
+            guard let stream = self.stream.withLock({ $0.take() }) else { return }
+            // Throws when the stream already stopped on its own; didStopWithError has finished the frames with that error.
+            try? await stream.stopCapture()
+            buffer.finish()
+        }
+    }
+}
+
+final class StopOnce: Sendable {
+    private let stopping = Mutex<Task<Void, Never>?>(nil)
+
+    func run(_ work: @escaping @Sendable () async -> Void) async {
+        let task = stopping.withLock { stopping in
+            if let stopping { return stopping }
+            let started = Task { await work() }
+            stopping = started
+            return started
+        }
+        await task.value
     }
 }
 
