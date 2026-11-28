@@ -14,11 +14,11 @@ public enum OverlayCorner: String, CaseIterable, Sendable {
     case bottomLeft, bottomRight
 }
 
-public enum VideoCodec: String, CaseIterable, Sendable {
+public enum VideoCodec: String, CaseIterable, Codable, Sendable {
     case h264, hevc
 }
 
-public enum RecordingFrameRate: Int, CaseIterable, Sendable {
+public enum RecordingFrameRate: Int, CaseIterable, Codable, Sendable {
     case thirty = 30, sixty = 60
 }
 
