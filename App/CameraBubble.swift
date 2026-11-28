@@ -162,14 +162,12 @@ private final class CameraBubbleView: NSView {
 
         disc.masksToBounds = true
         disc.backgroundColor = NSColor.black.cgColor
-        // Keeps the circle's edge from melting into a dark recording.
-        disc.borderColor = NSColor.white.withAlphaComponent(0.25).cgColor
-        disc.borderWidth = 1
+        disc.borderColor = NSColor.white.withAlphaComponent(OverlayStyle.bubbleBorderAlpha).cgColor
+        disc.borderWidth = OverlayStyle.bubbleBorderWidth
         preview.videoGravity = .resizeAspectFill
-        // Mirrored like FaceTime's own view, so pointing left on camera points left on screen.
         if let connection = preview.connection, connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false
-            connection.isVideoMirrored = true
+            connection.isVideoMirrored = OverlayStyle.cameraMirrored
         }
         disc.addSublayer(preview)
         layer?.addSublayer(disc)

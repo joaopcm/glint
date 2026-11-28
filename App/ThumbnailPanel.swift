@@ -19,10 +19,14 @@ final class ThumbnailPresenter {
     static let spacing: CGFloat = 10
 
     enum Edge { case left, right }
-    // emil-design-eng: enter and exit under 300 ms, exit faster than enter, and its strong ease-out curve (#92).
-    static let enterDuration: TimeInterval = 0.25
-    static let exitDuration: TimeInterval = 0.2
-    static let easeOut = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+    static let enterDuration: TimeInterval = OverlayStyle.enterDuration
+    static let exitDuration: TimeInterval = OverlayStyle.exitDuration
+    static let easeOut = CAMediaTimingFunction(
+        controlPoints: Float(OverlayStyle.easeOutControlPoints.0),
+        Float(OverlayStyle.easeOutControlPoints.1),
+        Float(OverlayStyle.easeOutControlPoints.2),
+        Float(OverlayStyle.easeOutControlPoints.3)
+    )
 
     /// The side of the screen a card belongs to: it comes in from that edge and leaves through it.
     static func edge(of frame: CGRect, on screen: CGRect) -> Edge {

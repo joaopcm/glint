@@ -7,11 +7,9 @@ import LunettaCore
 /// the way an Accessibility-trusted app can.
 @MainActor
 final class KeystrokeOverlay: KeystrokeShowing {
-    /// 1.5 s after the last press: six times the 0.25 s one word takes at 238 wpm (Brysbaert 2019,
-    /// doi:10.1016/j.jml.2019.104047), so someone watching the action, not the label, still catches it.
-    private static let linger: Duration = .milliseconds(1500)
-    private static let height: CGFloat = 52
-    private static let bottomInset: CGFloat = 24
+    private static let linger: Duration = .seconds(OverlayStyle.keysLinger)
+    private static let height = CGFloat(OverlayStyle.keysHeight)
+    private static let bottomInset = CGFloat(OverlayStyle.keysBottomInset)
 
     private var panel: NSPanel?
     private var capsule: NSView?
@@ -111,8 +109,8 @@ final class KeystrokeOverlay: KeystrokeShowing {
         panel.isReleasedWhenClosed = false
 
         let label = NSTextField(labelWithString: "")
-        let base = NSFont.systemFont(ofSize: 22, weight: .semibold)
-        label.font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: 22) } ?? base
+        let base = NSFont.systemFont(ofSize: CGFloat(OverlayStyle.keysFontSize), weight: .semibold)
+        label.font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: CGFloat(OverlayStyle.keysFontSize)) } ?? base
         label.textColor = .white
         label.lineBreakMode = .byTruncatingHead
         label.setAccessibilityIdentifier(AccessibilityID.pressedKeys)
@@ -120,8 +118,8 @@ final class KeystrokeOverlay: KeystrokeShowing {
         // Dark on any background: the label has to read in the video over whatever is being recorded.
         let capsule = NSView()
         capsule.wantsLayer = true
-        capsule.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.72).cgColor
-        capsule.layer?.cornerRadius = 12
+        capsule.layer?.backgroundColor = NSColor.black.withAlphaComponent(OverlayStyle.keysBackgroundAlpha).cgColor
+        capsule.layer?.cornerRadius = OverlayStyle.keysCornerRadius
         capsule.layer?.cornerCurve = .continuous
         capsule.alphaValue = 0
         capsule.translatesAutoresizingMaskIntoConstraints = false
@@ -131,7 +129,7 @@ final class KeystrokeOverlay: KeystrokeShowing {
         NSLayoutConstraint.activate([
             label.centerXAnchor.constraint(equalTo: capsule.centerXAnchor),
             label.centerYAnchor.constraint(equalTo: capsule.centerYAnchor),
-            capsule.widthAnchor.constraint(equalTo: label.widthAnchor, constant: 28),
+            capsule.widthAnchor.constraint(equalTo: label.widthAnchor, constant: OverlayStyle.keysHorizontalPadding),
             capsule.heightAnchor.constraint(equalTo: content.heightAnchor),
             capsule.centerXAnchor.constraint(equalTo: content.centerXAnchor),
             capsule.centerYAnchor.constraint(equalTo: content.centerYAnchor),
