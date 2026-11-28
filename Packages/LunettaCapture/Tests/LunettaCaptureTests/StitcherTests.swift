@@ -366,6 +366,14 @@ private let white: [UInt8] = [255, 255, 255, 255]
     #expect(try bytes(stitcher.image()) == rows(repeating, 0..<138))
 }
 
+@Test func exactlyTiedShiftsPickTheLowerShiftEveryTime() {
+    let period = page(width: 64, height: 20)
+    let repeating = Frame(width: 64, height: 400, bytesPerRow: 256, pixels: (0..<20).flatMap { _ in period.pixels })
+    let frames = viewports(of: repeating, tops: [0, 10], height: 100)
+    let updates = (0..<50).map { _ in Stitcher(first: frames[0], tuning: tuning).append(frames[1]) }
+    #expect(updates.allSatisfy { $0 == StitchUpdate(state: .tracking, height: 100, appendedRows: 0) })
+}
+
 @Test func smallChangeStillMatches() {
     let source = page(width: 64, height: 400)
     let altered = repainted(viewport(of: source, top: 40, height: 100)) { x, y in x == 10 && y == 50 ? [0, 0, 0, 255] : nil }

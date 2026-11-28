@@ -178,19 +178,23 @@ public final class Stitcher {
             }
         }
         let candidates = votes.sorted {
-            $0.value != $1.value ? $0.value > $1.value : abs($0.key - lastShift) < abs($1.key - lastShift)
+            $0.value != $1.value ? $0.value > $1.value : isPreferred($0.key, over: $1.key)
         }
         var best: Match?
         for (shift, voteCount) in candidates {
             if let best, voteCount < best.matchedRows { break }
             let (matched, compared) = overlap(at: shift, of: rows, against: old)
             guard qualifies(matched: matched, compared: compared) else { continue }
-            if let current = best, matched < current.matchedRows || (matched == current.matchedRows && abs(shift - lastShift) >= abs(current.shift - lastShift)) {
+            if let current = best, matched < current.matchedRows || (matched == current.matchedRows && !isPreferred(shift, over: current.shift)) {
                 continue
             }
             best = Match(shift: shift, matchedRows: matched)
         }
         return best
+    }
+
+    private func isPreferred(_ shift: Int, over other: Int) -> Bool {
+        (abs(shift - lastShift), abs(shift), shift) < (abs(other - lastShift), abs(other), other)
     }
 
     private func overlap(at shift: Int, of rows: MovingRows, against old: MovingRows) -> (matched: Int, compared: Int) {
