@@ -36,18 +36,18 @@ jobs:
               udzo) hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$2" ;;
               ulfo) hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format ULFO -ov "$2" ;;
               conv) rm -f "$out/rw.dmg"; hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format UDRW -ov "$out/rw.dmg" && hdiutil convert "$out/rw.dmg" -format UDZO -ov -o "$2" ;;
+              udbz) hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs HFS+ -format UDBZ -ov "$2" ;;
               apfs) hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$stage" -fs APFS -format UDZO -ov "$2" ;;
             esac
           }
-          for v in udzo conv ulfo apfs; do
+          for v in udzo conv ulfo apfs udbz; do
             fails=0
-            for i in 1 2 3 4 5 6; do
-              head -c 4096 /dev/urandom > "$stage/.nonce"
+            for i in 1 2 3; do
               f="$out/$v-$i.dmg"; rm -f "$f"
               make "$v" "$f" >/dev/null 2>&1 || { echo "$v-$i create failed"; fails=$((fails+1)); continue; }
               hdiutil verify "$f" >/dev/null 2>&1 || { echo "$v-$i VERIFY FAILED"; fails=$((fails+1)); }
             done
-            echo "== $v: $fails/6 failed"
+            echo "== $v: $fails/3 failed"
           done
           sw_vers
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
