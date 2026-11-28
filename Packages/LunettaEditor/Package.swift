@@ -5,9 +5,9 @@ let package = Package(
     name: "LunettaEditor",
     platforms: [.macOS(.v15)],
     products: [.library(name: "LunettaEditor", targets: ["LunettaEditor"])],
-    dependencies: [.package(path: "../LunettaUI")],
+    dependencies: [.package(path: "../LunettaCore"), .package(path: "../LunettaUI")],
     targets: [
-        .target(name: "LunettaEditor", dependencies: ["LunettaUI"]),
+        .target(name: "LunettaEditor", dependencies: ["LunettaCore", "LunettaUI"]),
         .testTarget(name: "LunettaEditorTests", dependencies: ["LunettaEditor"], resources: [.copy("Fixtures")]),
     ]
 )
