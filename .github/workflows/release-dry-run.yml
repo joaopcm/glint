@@ -20,30 +20,11 @@ concurrency:
 jobs:
   dry-run:
     runs-on: macos-26
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-xcode
-      - run: DMG_EXPERIMENT=1 scripts/release.sh --dry-run dist
-      - name: dmg variants (temporary diagnostics)
-        if: always()
-        run: |
-          set +e
-          tmpstage="$(mktemp -d)/dmg"; mkdir -p "$tmpstage"; ditto dist/Lunetta.app "$tmpstage/Lunetta.app"; ln -s /Applications "$tmpstage/Applications"
-          runstage="$RUNNER_TEMP/stage"; mkdir -p "$runstage"; ditto dist/Lunetta.app "$runstage/Lunetta.app"; ln -s /Applications "$runstage/Applications"
-          echo "TMPDIR=$TMPDIR tmpstage=$tmpstage"; df -h "$tmpstage" "$runstage" dist | cat
-          mkdir -p dist/exp "$RUNNER_TEMP/exp"
-          try() { label="$1" src="$2" out="$3"; fails=0
-            for i in 1 2 3; do rm -f "$out"
-              hdiutil create -volname "Lunetta 0.1.0" -srcfolder "$src" -fs HFS+ -format UDZO -ov "$out" >/dev/null 2>&1 || { echo "$label-$i create failed"; fails=$((fails+1)); continue; }
-              hdiutil verify "$out" >/dev/null 2>&1 || { echo "$label-$i VERIFY FAILED"; fails=$((fails+1)); }
-            done; echo "== $label: $fails/3 failed"; }
-          try "tmpsrc+relout" "$tmpstage" "dist/exp/a.dmg"
-          try "tmpsrc+absout-runner" "$tmpstage" "$RUNNER_TEMP/exp/b.dmg"
-          try "runsrc+relout" "$runstage" "dist/exp/c.dmg"
-          try "runsrc+absout-dist" "$runstage" "$PWD/dist/exp/d.dmg"
-          try "tmpsrc+absout-dist" "$tmpstage" "$PWD/dist/exp/e.dmg"
-          rm -rf dist/exp
+      - run: scripts/release.sh --dry-run dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

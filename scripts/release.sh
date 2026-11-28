@@ -157,16 +157,10 @@ rm -f "$dmg"
 mkdir "$work_dir/dmg"
 ditto "$app" "$work_dir/dmg/Lunetta.app"
 ln -s /Applications "$work_dir/dmg/Applications"
-if [[ -n "${DMG_EXPERIMENT:-}" ]]; then
-  { ps -Ao pid,pcpu,rss,comm | sort -k2 -nr | head -8; vm_stat | head -6; mdutil -s / 2>&1 | head -3; } || true
-  exp() { local label="$1"; shift; local c=0; "$@" >/dev/null 2>&1 || c=$?; hdiutil verify "$dmg" >/dev/null 2>&1 && echo "== $label create=$c verify=OK" || echo "== $label create=$c verify=FAILED"; rm -f "$dmg"; }
-  exp convert-first bash -c "hdiutil create -volname 'Lunetta $version' -srcfolder '$work_dir/dmg' -fs HFS+ -format UDRW -ov '$work_dir/rw.dmg' && hdiutil convert '$work_dir/rw.dmg' -format UDZO -ov -o '$dmg'"
-  exp udzo-second hdiutil create -volname "Lunetta $version" -srcfolder "$work_dir/dmg" -fs HFS+ -format UDZO -ov "$dmg"
-  exp ulfo-third hdiutil create -volname "Lunetta $version" -srcfolder "$work_dir/dmg" -fs HFS+ -format ULFO -ov "$dmg"
-  exp udzo-fourth hdiutil create -volname "Lunetta $version" -srcfolder "$work_dir/dmg" -fs HFS+ -format UDZO -ov "$dmg"
-  { ps -Ao pid,pcpu,rss,comm | sort -k2 -nr | head -5; } || true
-fi
-hdiutil create -volname "Lunetta $version" -srcfolder "$work_dir/dmg" -fs HFS+ -format UDZO -ov "$dmg" >/dev/null
+# Two steps, not `create -format UDZO`: on the macos-26 runner (26.7.2), the first compressed image a fresh VM writes from a folder
+# often records an empty chunk past the end of its data, and `hdiutil verify` rejects it (6 of 7 first images on PR #160; the 54 made after them in those VMs all passed).
+hdiutil create -volname "Lunetta $version" -srcfolder "$work_dir/dmg" -fs HFS+ -format UDRW -ov "$work_dir/Lunetta.rw.dmg" >/dev/null
+hdiutil convert "$work_dir/Lunetta.rw.dmg" -format UDZO -ov -o "$dmg" >/dev/null
 
 if [[ "$dry_run" == false ]]; then
   sign "$dmg"
