@@ -3,7 +3,7 @@ import Testing
 @testable import Lunetta
 
 @Test func downsamplerShrinksLargeImagesAndReturnsSmallerOnesUntouched() throws {
-    let small = try solidImage(width: 450, height: 300)
+    let small = try solidImage(width: 400, height: 300)
     #expect(ThumbnailDownsampler.downsample(small, maxPixelSize: 960) === small)
 
     let large = try solidImage(width: 2000, height: 1000)
@@ -33,9 +33,11 @@ import Testing
     #expect(thumbnail.width == 960 && thumbnail.height == 600)
 }
 
-@Test func exactlyCardAspectIsNotTall() {
-    #expect(!ThumbnailDownsampler.isTall(width: 300, height: 200))
-    #expect(ThumbnailDownsampler.isTall(width: 300, height: 201))
+@Test func tallMeansMoreThanThreeTimesTallerThanWide() {
+    #expect(!ThumbnailDownsampler.isTall(width: 300, height: 900))
+    #expect(ThumbnailDownsampler.isTall(width: 300, height: 901))
+    #expect(!ThumbnailDownsampler.isTall(width: 400, height: 300))
+    #expect(!ThumbnailDownsampler.isTall(width: 1179, height: 2556))
 }
 
 private func rgbaContext(width: Int, height: Int) -> CGContext? {

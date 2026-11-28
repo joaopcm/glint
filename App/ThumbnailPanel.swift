@@ -1265,8 +1265,11 @@ enum ThumbnailDownsampler {
         return scaled(image, by: maxPixelSize / longest)
     }
 
+    // iPhone screenshots run 2556/1179 ≈ 2.17 tall-to-wide and still read fine fit whole in the card; scrolling captures run well past 3.
+    static let tallHeightPerWidth = 3
+
     static func isTall(width: Int, height: Int) -> Bool {
-        CGFloat(height) > ThumbnailPresenter.height(forWidth: CGFloat(width))
+        height > tallHeightPerWidth * width
     }
 
     /// Crops before scaling, so only the top of a 20,000 px capture is ever drawn.

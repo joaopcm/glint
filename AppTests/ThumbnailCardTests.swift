@@ -109,3 +109,15 @@ private func image(width: Int, height: Int, opaque: CGRect) throws -> CGImage {
     if let field = view as? NSTextField, field.accessibilityIdentifier() == AccessibilityID.cardHeightBadge { return field }
     return view.subviews.lazy.compactMap { heightBadge(in: $0) }.first
 }
+
+@MainActor @Test func phoneScreenshotKeepsTodaysThumbnail() throws {
+    let phone = try image(width: 1179, height: 2556, opaque: CGRect(x: 0, y: 0, width: 1179, height: 2556))
+
+    let thumbnail = ThumbnailDownsampler.downsample(phone, maxPixelSize: 960)
+    #expect(thumbnail.width == Int((1179.0 * 960 / 2556).rounded()) && thumbnail.height == 960)
+
+    let card = ThumbnailView(
+        url: URL(fileURLWithPath: "/tmp/phone.png"), thumbnail: thumbnail, isVideo: false, fullPixelSize: CGSize(width: 1179, height: 2556)
+    )
+    #expect(heightBadge(in: card).map(\.isHiddenOrHasHiddenAncestor) ?? true)
+}
