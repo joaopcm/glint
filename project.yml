@@ -47,6 +47,23 @@ targets:
       - package: LunettaStudio
       - package: LunettaUI
       - package: KeyboardShortcuts
+      - target: LunettaRenderService
+  LunettaRenderService:
+    type: xpc-service
+    platform: macOS
+    sources: [RenderService, App/Studio/RenderServiceProtocol.swift]
+    settings:
+      base:
+        PRODUCT_NAME: LunettaRenderService
+        PRODUCT_BUNDLE_IDENTIFIER: com.joaopcm.lunetta.render
+        INFOPLIST_FILE: RenderService/Info.plist
+        CURRENT_PROJECT_VERSION: "0"
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+    dependencies:
+      - package: LunettaCore
+      - package: LunettaStudio
   LunettaTests:
     type: bundle.unit-test
     platform: macOS

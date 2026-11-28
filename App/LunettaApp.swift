@@ -2,7 +2,6 @@ import AVFoundation
 import LunettaCapture
 import LunettaCore
 import KeyboardShortcuts
-import OSLog
 import SwiftUI
 
 @main
@@ -60,6 +59,8 @@ final class AppState {
         )
     )
     private let shutterSound = ShutterSound()
+    private let projects = ProjectStore(root: URL.applicationSupportDirectory.appending(path: "Lunetta/Projects"))
+    private lazy var renders = RenderQueue(store: projects, settings: settings)
 
     init() {
         #if DEBUG
@@ -104,14 +105,12 @@ final class AppState {
             ),
             alerts: NSAlertPresenter(),
             settings: settings,
-            projects: ProjectStore(root: URL.applicationSupportDirectory.appending(path: "Lunetta/Projects")),
+            projects: projects,
             playShutterSound: { [shutterSound] in shutterSound.play() },
             onSaved: { [weak self] url, precomputedThumbnail, compression in
                 self?.thumbnail.show(url, precomputedThumbnail: precomputedThumbnail, compression: compression)
             },
-            onRecorded: { project, _ in
-                Logger(subsystem: "com.joaopcm.lunetta", category: "recording").info("Recorded project \(project.id.uuidString, privacy: .public), pending render")
-            },
+            onRecorded: { [weak self] project, _ in _ = self?.renders.enqueue(project) },
             onRecordingEvent: { [weak self] event in self?.recordingHUD.handle(event) },
             countDown: { [weak self] status in await self?.recordingHUD.countDown(status) ?? true }
         )
@@ -138,6 +137,7 @@ final class AppState {
         KeyboardShortcuts.onKeyDown(for: .recordWindow) { [weak self] in self?.record(.window) }
         KeyboardShortcuts.onKeyDown(for: .recordScreen) { [weak self] in self?.recordScreen() }
         watchInputs()
+        resumeRenders()
     }
 
     /// A recording's input going away ends it, and the stage's input and camera menus follow what's plugged in.
@@ -149,6 +149,23 @@ final class AppState {
                     guard let self else { return }
                     self.recordingStage.refresh()
                     if let disconnectedID { Task { await self.coordinator.inputDisconnected(id: disconnectedID) } }
+                }
+            }
+        }
+    }
+
+    /// João's call: fixing a recording shared last week is why raw media is kept at all
+    /// (docs/superpowers/specs/2026-11-28-native-video-editor-design.md, open question 1).
+    private static let renderedProjectsKeptFor: TimeInterval = 30 * 24 * 60 * 60
+
+    private func resumeRenders() {
+        _ = projects.sweep(olderThan: Date.now.addingTimeInterval(-Self.renderedProjectsKeptFor))
+        for job in renders.resumePending() {
+            Task { [weak self] in
+                await job.finished()
+                switch job.phase {
+                case let .failed(reason): self?.toast.show(reason)
+                default: self?.toast.show("Rendered \(job.project.output.file.lastPathComponent)")
                 }
             }
         }
