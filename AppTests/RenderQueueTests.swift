@@ -281,7 +281,12 @@ private struct Broke: LocalizedError {
 
         await #expect(throws: RenderServiceError.serviceQuit) {
             try await RenderQueue.renderInService(folder) { _ in
-                guard !killed.withLock({ defer { $0 = true }; return $0 }) else { return }
+                let wasKilled = killed.withLock { value in
+                    let was = value
+                    value = true
+                    return was
+                }
+                guard !wasKilled else { return }
                 let pkill = Process()
                 pkill.executableURL = URL(filePath: "/usr/bin/pkill")
                 pkill.arguments = ["-9", "-f", service.path]
