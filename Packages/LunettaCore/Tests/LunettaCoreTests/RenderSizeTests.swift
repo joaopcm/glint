@@ -8,6 +8,7 @@ struct RenderSizeTests {
         (PixelSize(width: 5120, height: 1440), true, PixelSize(width: 3840, height: 1080)),
         (PixelSize(width: 7680, height: 4320), true, PixelSize(width: 3840, height: 2160)),
         (PixelSize(width: 4001, height: 2251), true, PixelSize(width: 3838, height: 2160)),
+        (PixelSize(width: 4269, height: 2160), true, PixelSize(width: 3840, height: 1942)),
         (PixelSize(width: 6016, height: 3384), false, PixelSize(width: 6016, height: 3384)),
     ])
     func outputFitsTheCap(source: PixelSize, capsToUHD: Bool, expected: PixelSize) {

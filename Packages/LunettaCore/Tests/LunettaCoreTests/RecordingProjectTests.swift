@@ -6,7 +6,7 @@ struct RecordingProjectTests {
     private func project() -> RecordingProject {
         RecordingProject(
             id: UUID(),
-            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            createdAt: Date(),
             mode: .window,
             region: CGRect(x: 10, y: 20, width: 800, height: 600),
             windowID: 42,
@@ -16,7 +16,7 @@ struct RecordingProjectTests {
             ],
             overlays: ProjectOverlays(clicks: true, keys: false, camera: true, clickColorHex: "#FF3B30", cameraMirrored: true),
             output: ProjectOutput(file: URL(fileURLWithPath: "/tmp/out.mp4"), codec: .hevc, frameRate: .sixty, capsToUHD: true),
-            renderedAt: nil
+            renderedAt: Date()
         )
     }
 

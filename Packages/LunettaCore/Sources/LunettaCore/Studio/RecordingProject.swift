@@ -101,7 +101,7 @@ public struct RecordingProject: Codable, Equatable, Sendable {
     public static func decode(_ data: Data, file: String) throws(ProjectError) -> RecordingProject {
         struct VersionProbe: Decodable { var schemaVersion: Int }
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .deferredToDate
         do {
             let found = try decoder.decode(VersionProbe.self, from: data).schemaVersion
             guard found == currentSchemaVersion else {
@@ -117,7 +117,7 @@ public struct RecordingProject: Codable, Equatable, Sendable {
 
     public func encoded() throws -> Data {
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = .deferredToDate
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(self)
     }
