@@ -3,7 +3,7 @@ import LunettaCapture
 import LunettaCore
 
 enum CaptureMode {
-    case area, window, fullScreen
+    case area, window, fullScreen, scrolling
 }
 
 enum SelectionResult: Equatable {
@@ -19,6 +19,7 @@ protocol Capturing: Sendable {
     func captureDisplay(_ display: DisplayInfo) async throws -> CGImage
     func captureWindow(id: UInt32, wallpaperPadding: Double?) async throws -> CGImage
     func shareableWindows() async throws -> [CapturableWindow]
+    func scrollingFrames(of selection: CGRect, displays: [DisplayInfo]) async throws -> ScrollingFrames
 }
 
 protocol Recording: Sendable {
@@ -85,6 +86,23 @@ private struct RecordingOverlays {
     var clicks = false
     var camera = false
     var cameraInput: CameraInput?
+}
+
+enum ScrollStageDecision: Equatable {
+    case done, cancelled
+}
+
+@MainActor
+protocol ScrollStaging {
+    /// The height of the stage's preview strip, in pixels of the captured area.
+    var previewPixelHeight: Int { get }
+    /// Puts the stage's windows on screen and registers its hotkeys.
+    func prepare(_ area: CGRect, on display: DisplayInfo)
+    /// Resolves once: Done/Return or Cancel/Esc.
+    func decision() async -> ScrollStageDecision
+    func show(_ update: StitchUpdate, preview: CGImage?)
+    /// Closes the stage when the stream fails while it is up.
+    func dismiss()
 }
 
 @MainActor
@@ -227,6 +245,7 @@ final class CaptureCoordinator {
     private let clickRings: any ClickShowing
     private let camera: any CameraShowing
     private let stager: any RecordingStaging
+    private let scrollStager: any ScrollStaging
     private let selector: any Selecting
     private let alerts: any AlertPresenting
     private let settings: LunettaSettings
@@ -254,6 +273,7 @@ final class CaptureCoordinator {
         clickRings: any ClickShowing,
         camera: any CameraShowing,
         stager: any RecordingStaging,
+        scrollStager: any ScrollStaging,
         selector: any Selecting,
         alerts: any AlertPresenting,
         settings: LunettaSettings,
@@ -275,6 +295,7 @@ final class CaptureCoordinator {
         self.clickRings = clickRings
         self.camera = camera
         self.stager = stager
+        self.scrollStager = scrollStager
         self.selector = selector
         self.alerts = alerts
         self.settings = settings
@@ -728,7 +749,64 @@ final class CaptureCoordinator {
                 throw CoordinatorError.noDisplays
             }
             return try await capturer.captureDisplay(display)
+        case .scrolling:
+            return try await captureScrolling()
         }
+    }
+
+    private func captureScrolling() async throws -> CGImage? {
+        guard case .area(let area) = try await selector.selectArea(frozen: []) else { return nil }
+        let displays = await capturer.displays()
+        guard let display = DisplayGeometry.display(forSelection: area, in: displays) else { throw CoordinatorError.noDisplays }
+        // The stream hides Lunetta's windows by the IDs it reads when it starts, so the stage has to be up before it.
+        scrollStager.prepare(area, on: display)
+        let frames: ScrollingFrames
+        do {
+            frames = try await capturer.scrollingFrames(of: area, displays: displays)
+        } catch {
+            scrollStager.dismiss()
+            throw error
+        }
+        let stitching = stitch(frames.frames, previewRows: scrollStager.previewPixelHeight)
+        let (outcomes, post) = AsyncStream<Result<ScrollStageDecision, any Error>>.makeStream()
+        let deciding = Task { post.yield(.success(await scrollStager.decision())) }
+        Task {
+            if case .failure(let error) = await stitching.result { post.yield(.failure(error)) }
+        }
+        var next = outcomes.makeAsyncIterator()
+        let outcome = await next.next()
+        post.finish()
+        await frames.stop()
+        switch outcome {
+        case .success(.done):
+            return try await stitching.value
+        case .success(.cancelled), nil:
+            return nil
+        case .failure(let error):
+            deciding.cancel()
+            scrollStager.dismiss()
+            throw error
+        }
+    }
+
+    private func stitch(_ frames: AsyncThrowingStream<Frame, any Error>, previewRows: Int) -> Task<CGImage?, any Error> {
+        Task.detached { [self] in
+            var stitcher: Stitcher?
+            for try await frame in frames {
+                guard let current = stitcher else {
+                    stitcher = Stitcher(first: frame, tuning: .measured)
+                    continue
+                }
+                let update = current.append(frame)
+                let preview = current.tail(maxRows: previewRows)
+                await showOnStage(update, preview: preview)
+            }
+            return stitcher?.image()
+        }
+    }
+
+    private func showOnStage(_ update: StitchUpdate, preview: CGImage?) {
+        scrollStager.show(update, preview: preview)
     }
 
     private func freezeDisplays() async throws -> [FrozenDisplay] {

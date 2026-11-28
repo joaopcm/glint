@@ -9,6 +9,11 @@ public struct ScrollingFrames: Sendable {
     public let frames: AsyncThrowingStream<Frame, any Error>
     public let stop: @Sendable () async -> Void
 
+    public init(frames: AsyncThrowingStream<Frame, any Error>, stop: @escaping @Sendable () async -> Void) {
+        self.frames = frames
+        self.stop = stop
+    }
+
     static func stopError(_ error: any Error) -> any Error {
         let nsError = error as NSError
         guard nsError.domain == SCStreamErrorDomain, nsError.code == SCStreamError.Code.userDeclined.rawValue else { return error }

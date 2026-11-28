@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 import LunettaCapture
 import LunettaCore
 import Testing
@@ -30,6 +31,11 @@ private actor FakeCapturer: Capturing {
     let permissionGranted: Bool
     let windowListGate: Gate?
     let windows: [CapturableWindow]
+    let scrollFrames: [CGImage]
+    let scrollError: CaptureError?
+    let scrollStartError: CaptureError?
+    let onScrollingFrames: (@Sendable () async -> Void)?
+    private(set) var scrollStopCount = 0
     private(set) var capturedDisplayIDs: [UInt32] = []
     private(set) var capturedWindowIDs: [UInt32] = []
     private(set) var windowWallpaperPaddings: [Double?] = []
@@ -41,10 +47,18 @@ private actor FakeCapturer: Capturing {
         failure: CaptureError? = nil,
         permissionGranted: Bool = true,
         windowListGate: Gate? = nil,
-        windows: [CapturableWindow] = []
+        windows: [CapturableWindow] = [],
+        scrollFrames: [CGImage] = [],
+        scrollError: CaptureError? = nil,
+        scrollStartError: CaptureError? = nil,
+        onScrollingFrames: (@Sendable () async -> Void)? = nil
     ) {
         displayList = displays
         self.windows = windows
+        self.scrollFrames = scrollFrames
+        self.scrollError = scrollError
+        self.scrollStartError = scrollStartError
+        self.onScrollingFrames = onScrollingFrames
         self.failure = failure
         self.permissionGranted = permissionGranted
         self.windowListGate = windowListGate
@@ -77,6 +91,20 @@ private actor FakeCapturer: Capturing {
         if let failure { throw failure }
         return windows
     }
+
+    func scrollingFrames(of selection: CGRect, displays: [DisplayInfo]) async throws -> ScrollingFrames {
+        await onScrollingFrames?()
+        if let scrollStartError { throw scrollStartError }
+        let (frames, continuation) = AsyncThrowingStream<Frame, any Error>.makeStream()
+        for image in scrollFrames { continuation.yield(Frame(image)!) }
+        if let scrollError { continuation.finish(throwing: scrollError) }
+        return ScrollingFrames(frames: frames, stop: { [self] in
+            await recordScrollStop()
+            continuation.finish()
+        })
+    }
+
+    private func recordScrollStop() { scrollStopCount += 1 }
 
     private func image(width: Int = 10, height: Int = 10) throws -> CGImage {
         if let failure { throw failure }
@@ -270,6 +298,46 @@ private final class FakeStager: RecordingStaging {
 }
 
 @MainActor
+private final class FakeScrollStager: ScrollStaging {
+    let previewPixelHeight = 100
+    var answer: ScrollStageDecision?
+    var expectedShows = 0
+    var onPrepare: (@MainActor () -> Void)?
+    private(set) var prepared: [(area: CGRect, display: DisplayInfo)] = []
+    private(set) var shown: [(update: StitchUpdate, preview: CGImage?)] = []
+    private(set) var dismissCount = 0
+    private var waiting: CheckedContinuation<ScrollStageDecision, Never>?
+
+    init(_ answer: ScrollStageDecision? = .done) { self.answer = answer }
+
+    func prepare(_ area: CGRect, on display: DisplayInfo) {
+        prepared.append((area, display))
+        onPrepare?()
+    }
+
+    func decision() async -> ScrollStageDecision {
+        await withCheckedContinuation { waiting = $0; resolveIfReady() }
+    }
+
+    func show(_ update: StitchUpdate, preview: CGImage?) {
+        shown.append((update, preview))
+        resolveIfReady()
+    }
+
+    func dismiss() {
+        dismissCount += 1
+        waiting?.resume(returning: .cancelled)
+        waiting = nil
+    }
+
+    private func resolveIfReady() {
+        guard let answer, shown.count >= expectedShows, let waiting else { return }
+        self.waiting = nil
+        waiting.resume(returning: answer)
+    }
+}
+
+@MainActor
 private final class FakeSelector: Selecting {
     let result: SelectionResult
     private(set) var selectionCount = 0
@@ -326,6 +394,7 @@ private struct Harness {
     let clickRings = FakeClickRings()
     let camera: FakeCamera
     let stager = FakeStager()
+    let scrollStager: FakeScrollStager
     let countdown = FakeCountdown()
     let coordinator: CaptureCoordinator
 
@@ -335,6 +404,7 @@ private struct Harness {
         microphone: FakeMicrophone = FakeMicrophone(),
         keystrokes: FakeKeystrokes = FakeKeystrokes(),
         camera: FakeCamera = FakeCamera(),
+        scrollStager: FakeScrollStager = FakeScrollStager(),
         selection: SelectionResult,
         pointer: CGPoint = .zero,
         createFolder: Bool = true,
@@ -388,6 +458,7 @@ private struct Harness {
         self.microphone = microphone
         self.keystrokes = keystrokes
         self.camera = camera
+        self.scrollStager = scrollStager
         selector = FakeSelector(selection)
         coordinator = CaptureCoordinator(
             capturer: capturer,
@@ -397,6 +468,7 @@ private struct Harness {
             clickRings: clickRings,
             camera: camera,
             stager: stager,
+            scrollStager: scrollStager,
             selector: selector,
             alerts: alerts,
             settings: settings,
@@ -1816,4 +1888,137 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     #expect(await recorder.starts.count == 1)
     #expect(harness.stager.staged.count == 1)
     #expect(handed.count == 1)
+}
+
+@MainActor
+private final class OrderLog {
+    var entries: [String] = []
+    func append(_ entry: String) { entries.append(entry) }
+}
+
+private let scrollArea = CGRect(x: 100, y: 100, width: 32, height: 200)
+private let scrollFrameHeight = 400
+
+private func scrollPage(width: Int = 64, height: Int) -> CGImage {
+    let context = CGContext(
+        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )!
+    var state: UInt32 = 0x9E37_79B9
+    for row in 0..<height {
+        for column in stride(from: 0, to: width, by: 8) {
+            state = state &* 1_664_525 &+ 1_013_904_223
+            context.setFillColor(red: CGFloat(state >> 24) / 255, green: CGFloat((state >> 16) & 0xFF) / 255, blue: CGFloat((state >> 8) & 0xFF) / 255, alpha: 1)
+            context.fill(CGRect(x: column, y: height - row - 1, width: 8, height: 1))
+        }
+    }
+    return context.makeImage()!
+}
+
+private func scrolledFrames(tops: [Int]) -> [CGImage] {
+    let page = scrollPage(height: tops.max()! + scrollFrameHeight)
+    return tops.map { page.cropping(to: CGRect(x: 0, y: $0, width: page.width, height: scrollFrameHeight))! }
+}
+
+@MainActor
+private func savedImage(_ harness: Harness) throws -> CGImage {
+    let name = try #require(try harness.savedFiles().first)
+    let source = try #require(CGImageSourceCreateWithURL(harness.folder.appending(path: name) as CFURL, nil))
+    return try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+}
+
+@MainActor @Test func scrollingDoneWritesOneTallPNG() async throws {
+    let stager = FakeScrollStager()
+    stager.expectedShows = 2
+    let capturer = FakeCapturer(scrollFrames: scrolledFrames(tops: [0, 40, 80]))
+    let harness = try Harness(capturer: capturer, scrollStager: stager, selection: .area(scrollArea))
+    await harness.coordinator.run(.scrolling)
+    #expect(try harness.savedFiles().count == 1)
+    #expect(try savedImage(harness).height == scrollFrameHeight + 80)
+    #expect(await capturer.scrollStopCount == 1)
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func scrollingWithoutScrollMatchesAreaCapture() async throws {
+    let frame = scrolledFrames(tops: [0])[0]
+    let harness = try Harness(capturer: FakeCapturer(scrollFrames: [frame]), selection: .area(scrollArea))
+    await harness.coordinator.run(.scrolling)
+    let saved = try savedImage(harness)
+    #expect(saved.width == frame.width && saved.height == frame.height)
+    #expect(Frame(saved)?.pixels == Frame(frame)?.pixels)
+}
+
+@MainActor @Test func scrollingCancelWritesNothing() async throws {
+    let stager = FakeScrollStager(.cancelled)
+    stager.expectedShows = 2
+    let capturer = FakeCapturer(scrollFrames: scrolledFrames(tops: [0, 40, 80]))
+    let harness = try Harness(capturer: capturer, scrollStager: stager, selection: .area(scrollArea))
+    await harness.coordinator.run(.scrolling)
+    #expect(try harness.savedFiles().isEmpty)
+    #expect(await capturer.scrollStopCount == 1)
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func scrollingSelectionCancelWritesNothing() async throws {
+    let capturer = FakeCapturer(scrollFrames: scrolledFrames(tops: [0]))
+    let harness = try Harness(capturer: capturer, selection: .cancelled)
+    await harness.coordinator.run(.scrolling)
+    #expect(harness.scrollStager.prepared.isEmpty)
+    #expect(harness.scrollStager.shown.isEmpty)
+    #expect(try harness.savedFiles().isEmpty)
+    #expect(await capturer.scrollStopCount == 0)
+}
+
+@MainActor @Test func scrollingIgnoresFreezeScreen() async throws {
+    let capturer = FakeCapturer(scrollFrames: scrolledFrames(tops: [0]))
+    let harness = try Harness(capturer: capturer, selection: .area(scrollArea), freezeOn: true)
+    await harness.coordinator.run(.scrolling)
+    #expect(harness.selector.selectionCount == 1)
+    #expect(harness.selector.frozenDisplayIDs.isEmpty)
+    #expect(await capturer.capturedDisplayIDs.isEmpty)
+    #expect(try harness.savedFiles().count == 1)
+}
+
+@MainActor @Test func scrollingStreamFailureSavesNothing() async throws {
+    let stager = FakeScrollStager(nil)
+    let capturer = FakeCapturer(scrollFrames: scrolledFrames(tops: [0, 40]), scrollError: .permissionDenied)
+    let harness = try Harness(capturer: capturer, scrollStager: stager, selection: .area(scrollArea))
+    await harness.coordinator.run(.scrolling)
+    #expect(stager.dismissCount == 1)
+    #expect(harness.alerts.presented.count == 1)
+    #expect(harness.alerts.presented.first?.message == CaptureError.permissionDenied.localizedDescription)
+    #expect(try harness.savedFiles().isEmpty)
+    #expect(await capturer.scrollStopCount == 1)
+}
+
+@MainActor @Test func scrollingStreamStartFailureDismissesStage() async throws {
+    let capturer = FakeCapturer(scrollStartError: .displayNotFound(1))
+    let harness = try Harness(capturer: capturer, selection: .area(scrollArea))
+    await harness.coordinator.run(.scrolling)
+    #expect(harness.scrollStager.dismissCount == 1)
+    #expect(harness.alerts.presented.count == 1)
+    #expect(try harness.savedFiles().isEmpty)
+}
+
+@MainActor @Test func scrollingPreparesStageBeforeStream() async throws {
+    let order = OrderLog()
+    let stager = FakeScrollStager()
+    stager.onPrepare = { order.entries.append("prepare") }
+    let capturer = FakeCapturer(scrollFrames: scrolledFrames(tops: [0]), onScrollingFrames: { await order.append("stream") })
+    let harness = try Harness(capturer: capturer, scrollStager: stager, selection: .area(scrollArea))
+    await harness.coordinator.run(.scrolling)
+    #expect(order.entries == ["prepare", "stream"])
+    #expect(stager.prepared.first?.area == scrollArea)
+    #expect(stager.prepared.first?.display == mainDisplay)
+}
+
+@MainActor @Test func scrollingShowsUpdatesOnStage() async throws {
+    let stager = FakeScrollStager()
+    stager.expectedShows = 2
+    let capturer = FakeCapturer(scrollFrames: scrolledFrames(tops: [0, 40, 80]))
+    let harness = try Harness(capturer: capturer, scrollStager: stager, selection: .area(scrollArea))
+    await harness.coordinator.run(.scrolling)
+    #expect(stager.shown.count == 2)
+    #expect(stager.shown.last?.update.height == scrollFrameHeight + 80)
+    #expect(stager.shown.last?.preview?.height == stager.previewPixelHeight)
 }

@@ -97,6 +97,7 @@ final class AppState {
             clickRings: clickRings,
             camera: camera,
             stager: recordingStage,
+            scrollStager: UnbuiltScrollStage(),
             selector: SelectionOverlayController(
                 showsMagnifier: { [settings] in settings.showMagnifierWhileSelecting },
                 snapshot: { try await capturer.captureDisplay($0) }
@@ -235,4 +236,14 @@ private struct MenuContent: View {
         Divider()
         Text(BuildInfo.label(from: Bundle.main.infoDictionary))
     }
+}
+
+/// Stands in until the scrolling stage exists; nothing in the menu or shortcuts starts a scrolling capture yet.
+@MainActor
+private struct UnbuiltScrollStage: ScrollStaging {
+    let previewPixelHeight = 0
+    func prepare(_ area: CGRect, on display: DisplayInfo) {}
+    func decision() async -> ScrollStageDecision { .cancelled }
+    func show(_ update: StitchUpdate, preview: CGImage?) {}
+    func dismiss() {}
 }
