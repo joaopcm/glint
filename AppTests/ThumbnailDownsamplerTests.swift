@@ -33,13 +33,6 @@ import Testing
     #expect(thumbnail.width == 960 && thumbnail.height == 600)
 }
 
-@Test func tallMeansMoreThanThreeTimesTallerThanWide() {
-    #expect(!ThumbnailDownsampler.isTall(width: 300, height: 900))
-    #expect(ThumbnailDownsampler.isTall(width: 300, height: 901))
-    #expect(!ThumbnailDownsampler.isTall(width: 400, height: 300))
-    #expect(!ThumbnailDownsampler.isTall(width: 1179, height: 2556))
-}
-
 private func rgbaContext(width: Int, height: Int) -> CGContext? {
     CGContext(
         data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,

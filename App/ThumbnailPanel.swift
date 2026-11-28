@@ -632,7 +632,7 @@ private final class ThumbnailItem {
     static func thumbnail(of url: URL, on screen: NSScreen) -> (image: CGImage, fullPixelSize: CGSize)? {
         guard let (source, fullPixelSize) = pixelSource(of: url) else { return nil }
         let cardPixelWidth = maxPixelSize(on: screen)
-        let isTall = ThumbnailDownsampler.isTall(width: Int(fullPixelSize.width), height: Int(fullPixelSize.height))
+        let isTall = TallCapture.isTall(width: Int(fullPixelSize.width), height: Int(fullPixelSize.height))
         let decodedLongestSide = isTall ? fullPixelSize.height * cardPixelWidth / fullPixelSize.width : cardPixelWidth
         let options = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -994,7 +994,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
         self.thumbnail = NSImage(cgImage: thumbnail, size: .zero)
         imageView.layer?.contents = ThumbnailCentering.centered(thumbnail)
         let tallHeight = fullPixelSize.flatMap { size in
-            ThumbnailDownsampler.isTall(width: Int(size.width), height: Int(size.height)) ? Int(size.height) : nil
+            TallCapture.isTall(width: Int(size.width), height: Int(size.height)) ? Int(size.height) : nil
         }
         imageView.layer?.contentsGravity = tallHeight == nil ? .resizeAspect : .resizeAspectFill
         heightLabel.stringValue = tallHeight.map { "↕ \($0.formatted()) px" } ?? ""
@@ -1259,17 +1259,10 @@ enum ThumbnailCentering {
 
 enum ThumbnailDownsampler {
     static func downsample(_ image: CGImage, maxPixelSize: CGFloat) -> CGImage {
-        if isTall(width: image.width, height: image.height) { return topCrop(image, maxPixelWidth: maxPixelSize) }
+        if TallCapture.isTall(width: image.width, height: image.height) { return topCrop(image, maxPixelWidth: maxPixelSize) }
         let longest = CGFloat(max(image.width, image.height))
         guard longest > maxPixelSize, maxPixelSize > 0 else { return image }
         return scaled(image, by: maxPixelSize / longest)
-    }
-
-    // iPhone screenshots run 2556/1179 ≈ 2.17 tall-to-wide and still read fine fit whole in the card; scrolling captures run well past 3.
-    static let tallHeightPerWidth = 3
-
-    static func isTall(width: Int, height: Int) -> Bool {
-        height > tallHeightPerWidth * width
     }
 
     /// Crops before scaling, so only the top of a 20,000 px capture is ever drawn.
