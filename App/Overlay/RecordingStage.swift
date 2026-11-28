@@ -8,19 +8,18 @@ import LunettaUI
 @MainActor
 final class RecordingStageModel {
     let settings: LunettaSettings
-    var mode = RecordingMode.area
     private(set) var problems: [RecordingProblem] = []
     private(set) var connectedInputs: [AudioInput] = []
     private(set) var connectedCameras: [CameraInput] = []
     var onChange: (@MainActor () -> Void)?
-    private let checkProblems: @MainActor (RecordingMode) -> [RecordingProblem]
+    private let checkProblems: @MainActor () -> [RecordingProblem]
     private let listInputs: @MainActor () -> [AudioInput]
     private let listCameras: @MainActor () -> [CameraInput]
     private let applyFix: @MainActor (RecordingFix) async -> Void
 
     init(
         settings: LunettaSettings,
-        problems: @escaping @MainActor (RecordingMode) -> [RecordingProblem],
+        problems: @escaping @MainActor () -> [RecordingProblem],
         inputs: @escaping @MainActor () -> [AudioInput],
         cameras: @escaping @MainActor () -> [CameraInput],
         fix: @escaping @MainActor (RecordingFix) async -> Void
@@ -54,7 +53,7 @@ final class RecordingStageModel {
     func refresh() {
         connectedInputs = listInputs()
         connectedCameras = listCameras()
-        problems = checkProblems(mode)
+        problems = checkProblems()
         onChange?()
     }
 
@@ -88,8 +87,7 @@ final class RecordingStage: RecordingStaging {
         guard let screen = NSScreen.screens.first(where: { $0.frame == display.frame }) else { return region }
         return await withCheckedContinuation { continuation in
             decision = continuation
-            model.mode = mode
-            let view = RecordingStageView(screen: screen, display: display, area: region, model: model)
+            let view = RecordingStageView(screen: screen, display: display, area: region, adjustable: mode == .area, model: model)
             view.onDecide = { [weak self] area in self?.decide(area) }
             let panel = StagePanel(screen: screen, view: view)
             self.view = view
@@ -209,12 +207,12 @@ private final class RecordingStageView: NSView {
     private lazy var actionLabelCapsule = Glass.capsule(holding: actionLabel)
     private var hoveredButton: GlassButton?
 
-    init(screen: NSScreen, display: DisplayInfo, area: CGRect, model: RecordingStageModel) {
+    init(screen: NSScreen, display: DisplayInfo, area: CGRect, adjustable: Bool, model: RecordingStageModel) {
         screenFrame = screen.frame
         visibleFrame = screen.visibleFrame
         self.display = display
         self.model = model
-        adjustable = model.mode == .area
+        self.adjustable = adjustable
         self.area = area
         super.init(frame: CGRect(origin: .zero, size: screen.frame.size))
         wantsLayer = true

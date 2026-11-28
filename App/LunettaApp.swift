@@ -52,7 +52,7 @@ final class AppState {
     private lazy var recordingStage = RecordingStage(
         model: RecordingStageModel(
             settings: settings,
-            problems: { [unowned self] mode in coordinator.recordingProblems(for: mode) },
+            problems: { [unowned self] in coordinator.recordingProblems() },
             inputs: { [microphone] in microphone.inputs },
             cameras: { [camera] in camera.cameras },
             fix: { [unowned self] fix in await coordinator.fix(fix) }

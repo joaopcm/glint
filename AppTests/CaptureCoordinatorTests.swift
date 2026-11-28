@@ -1475,14 +1475,17 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     #expect(harness.keystrokes.hideCount == 1, "the keys shown before the camera failed stayed up")
 }
 
-@MainActor @Test func aWindowRecordingWithTheCameraOnSaysTheCameraNeedsAnArea() async throws {
+@MainActor @Test func aWindowRecordingWithTheCameraOnRecordsTheWindowInPlaceWithTheCameraOverIt() async throws {
     let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
     let recorder = FakeRecorder()
     let harness = try Harness(capturer: FakeCapturer(windows: [window]), recorder: recorder, selection: .window(42), recordCamera: true)
     await harness.coordinator.toggleRecording(.window)
-    #expect(await recorder.starts.isEmpty)
-    #expect(harness.alerts.presented.first?.message == RecordingProblem.cameraNeedsArea.localizedDescription)
-    #expect(harness.camera.shown.isEmpty)
+    let frame = CGRect(x: 50, y: 982 - 400, width: 400, height: 300)
+    #expect(await recorder.starts.first?.target == .windowInPlace(42, frame: frame, on: mainDisplay))
+    #expect(harness.camera.shown.map { $0.0 } == [frame])
+    #expect(harness.alerts.presented.isEmpty)
+    await harness.coordinator.stopRecording()
+    #expect(harness.camera.hideCount == 1)
 }
 
 @MainActor @Test func cameraAccessIsAskedForFromTheAlert() async throws {
@@ -1495,7 +1498,7 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     #expect(camera.settingsOpened == 1)
     await harness.coordinator.fix(.allowCamera)
     #expect(camera.requestCount >= 1)
-    #expect(harness.coordinator.recordingProblems(for: .area).isEmpty)
+    #expect(harness.coordinator.recordingProblems().isEmpty)
 }
 
 @MainActor @Test func aChosenInputIsIgnoredWhileTheMicrophoneIsOff() async throws {
@@ -1568,8 +1571,8 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     #expect(alert.buttons == [.openInputMonitoringSettings, .ok])
 }
 
-@MainActor private func alertBlockingTheRecording(_ harness: Harness, mode: RecordingMode = .area, recorder: FakeRecorder) async throws -> CaptureAlert {
-    await harness.coordinator.toggleRecording(mode)
+@MainActor private func alertBlockingTheRecording(_ harness: Harness, recorder: FakeRecorder) async throws -> CaptureAlert {
+    await harness.coordinator.toggleRecording(.area)
     #expect(harness.stager.staged.count == 1, "the stage is where the problem shows, so it has to come up")
     #expect(await recorder.starts.isEmpty)
     let alert = try #require(harness.alerts.presented.first)
@@ -1611,13 +1614,18 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     #expect(harness.keystrokes.shownOver.isEmpty)
 }
 
-@MainActor @Test func pressedKeysBlockAWindowRecordingAndSayWhy() async throws {
+@MainActor @Test func pressedKeysRecordAWindowInPlaceAndBringLunettasClickRingsAlong() async throws {
     let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
     let recorder = FakeRecorder()
-    let harness = try Harness(capturer: FakeCapturer(windows: [window]), recorder: recorder, selection: .window(42), showsKeys: true)
-    let alert = try await alertBlockingTheRecording(harness, mode: .window, recorder: recorder)
-    #expect(alert.message == RecordingProblem.keysNeedArea.localizedDescription)
-    #expect(harness.coordinator.recordingProblems(for: .area).isEmpty)
+    let harness = try Harness(capturer: FakeCapturer(windows: [window]), recorder: recorder, selection: .window(42), showsKeys: true, showsClicks: true)
+    await harness.coordinator.toggleRecording(.window)
+    let frame = CGRect(x: 50, y: 982 - 400, width: 400, height: 300)
+    let start = try #require(await recorder.starts.first)
+    #expect(start.target == .windowInPlace(42, frame: frame, on: mainDisplay))
+    #expect(harness.keystrokes.shownOver == [frame])
+    #expect(harness.clickRings.shownOver == [frame], "the rings are in the recording now, so macOS's circles shouldn't double them")
+    #expect(!start.options.showsClicks)
+    await harness.coordinator.stopRecording()
 }
 
 @MainActor @Test func theAlertButtonsDoWhatTheySay() async throws {
@@ -1656,7 +1664,7 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
         input: deskMic,
         showsKeys: true
     )
-    #expect(harness.coordinator.recordingProblems(for: .window) == [.microphoneDenied, .inputMissing(deskMic), .keysNeedArea, .inputMonitoringDenied])
+    #expect(harness.coordinator.recordingProblems() == [.microphoneDenied, .inputMissing(deskMic), .inputMonitoringDenied])
 }
 
 @MainActor @Test func losingTheChosenInputEndsTheRecordingKeepsTheFileAndNamesTheInput() async throws {
