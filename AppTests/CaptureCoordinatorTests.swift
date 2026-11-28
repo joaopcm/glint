@@ -260,10 +260,10 @@ private final class FakeCamera: CameraShowing {
 private final class FakeStager: RecordingStaging {
     var answer: (CGRect) -> CGRect? = { $0 }
     var whileStaged: (@MainActor () -> Void)?
-    private(set) var staged: [(region: CGRect, display: DisplayInfo)] = []
+    private(set) var staged: [(region: CGRect, display: DisplayInfo, mode: RecordingMode)] = []
 
-    func stage(_ region: CGRect, on display: DisplayInfo) async -> CGRect? {
-        staged.append((region, display))
+    func stage(_ region: CGRect, on display: DisplayInfo, mode: RecordingMode) async -> CGRect? {
+        staged.append((region, display, mode))
         whileStaged?()
         return answer(region)
     }
@@ -1547,7 +1547,7 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     #expect(alert.message == failure.localizedDescription)
 }
 
-@MainActor @Test func inputMonitoringRevokedAfterTheCheckFailsLoudlyOnceTheAreaIsPicked() async throws {
+@MainActor @Test func inputMonitoringRevokedWhileStagedFailsLoudlyAndRecordsNothing() async throws {
     let recorder = FakeRecorder()
     let keystrokes = FakeKeystrokes()
     var events: [RecordingEvent] = []
@@ -1558,10 +1558,11 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
         showsKeys: true,
         onRecordingEvent: { events.append($0) }
     )
-    harness.selector.whileSelecting = { keystrokes.isAllowed = false }
+    harness.stager.whileStaged = { keystrokes.isAllowed = false }
     await harness.coordinator.toggleRecording(.area)
     #expect(await recorder.starts.isEmpty)
-    #expect(events == [.ended(.failed)])
+    #expect(events.isEmpty)
+    #expect(keystrokes.shownOver.isEmpty)
     let alert = try #require(harness.alerts.presented.first)
     #expect(alert.message.contains("Input Monitoring"))
     #expect(alert.buttons == [.openInputMonitoringSettings, .ok])
@@ -1569,14 +1570,14 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
 
 @MainActor private func alertBlockingTheRecording(_ harness: Harness, mode: RecordingMode = .area, recorder: FakeRecorder) async throws -> CaptureAlert {
     await harness.coordinator.toggleRecording(mode)
-    #expect(harness.selector.selectionCount == 0, "the overlay came up although the recording couldn't start")
+    #expect(harness.stager.staged.count == 1, "the stage is where the problem shows, so it has to come up")
     #expect(await recorder.starts.isEmpty)
     let alert = try #require(harness.alerts.presented.first)
     #expect(alert.title == "Lunetta couldn't start the recording")
     return alert
 }
 
-@MainActor @Test func microphoneOnWithoutPermissionAlertsBeforeAnyOverlayAndRecordsNothing() async throws {
+@MainActor @Test func microphoneOnWithoutPermissionAlertsAfterTheStageAndRecordsNothing() async throws {
     let recorder = FakeRecorder()
     let harness = try Harness(recorder: recorder, microphone: FakeMicrophone(.denied), selection: .area(recordedArea), recordMicrophone: true)
     let alert = try await alertBlockingTheRecording(harness, recorder: recorder)
@@ -1611,8 +1612,9 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
 }
 
 @MainActor @Test func pressedKeysBlockAWindowRecordingAndSayWhy() async throws {
+    let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
     let recorder = FakeRecorder()
-    let harness = try Harness(recorder: recorder, selection: .window(42), showsKeys: true)
+    let harness = try Harness(capturer: FakeCapturer(windows: [window]), recorder: recorder, selection: .window(42), showsKeys: true)
     let alert = try await alertBlockingTheRecording(harness, mode: .window, recorder: recorder)
     #expect(alert.message == RecordingProblem.keysNeedArea.localizedDescription)
     #expect(harness.coordinator.recordingProblems(for: .area).isEmpty)
@@ -1727,15 +1729,16 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     #expect(harness.alerts.presented.first?.message.contains("\"Desk Mic\" was disconnected") == true)
 }
 
-@MainActor @Test func recordScreenRecordsTheAreaAsItWasLeftOnTheStage() async throws {
+@MainActor @Test func recordAreaRecordsTheAreaAsItWasLeftOnTheStage() async throws {
     let recorder = FakeRecorder()
     var events: [RecordingEvent] = []
     let adjusted = CGRect(x: 120, y: 180, width: 350, height: 200)
     let harness = try Harness(recorder: recorder, selection: .area(recordedArea), onRecordingEvent: { events.append($0) })
     harness.stager.answer = { _ in adjusted }
-    await harness.coordinator.toggleRecording(.area, staged: true)
+    await harness.coordinator.toggleRecording(.area)
     #expect(harness.stager.staged.map(\.region) == [recordedArea])
     #expect(harness.stager.staged.map(\.display) == [mainDisplay])
+    #expect(harness.stager.staged.map(\.mode) == [.area])
     #expect(await recorder.starts.first?.target == .area(adjusted, on: mainDisplay))
     #expect(events == [.started(RecordingStatus(region: adjusted, dimsOutside: true, clock: startedClock()))])
     await harness.coordinator.stopRecording()
@@ -1746,7 +1749,7 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     var events: [RecordingEvent] = []
     let harness = try Harness(recorder: recorder, selection: .area(recordedArea), onRecordingEvent: { events.append($0) })
     harness.stager.answer = { _ in nil }
-    await harness.coordinator.toggleRecording(.area, staged: true)
+    await harness.coordinator.toggleRecording(.area)
     #expect(await recorder.starts.isEmpty)
     #expect(events.isEmpty)
     #expect(harness.alerts.presented.isEmpty)
@@ -1755,7 +1758,7 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
 @MainActor @Test func aMissingPermissionWaitsForTheStageInsteadOfAlertingBeforeIt() async throws {
     let recorder = FakeRecorder()
     let harness = try Harness(recorder: recorder, microphone: FakeMicrophone(.denied), selection: .area(recordedArea), recordMicrophone: true)
-    await harness.coordinator.toggleRecording(.area, staged: true)
+    await harness.coordinator.toggleRecording(.area)
     #expect(harness.stager.staged.count == 1, "the stage is where the problem shows, so it has to come up")
     #expect(await recorder.starts.isEmpty)
     let alert = try #require(harness.alerts.presented.first, "a problem still there after the stage must not record silently")
@@ -1767,25 +1770,41 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     let recorder = FakeRecorder()
     let harness = try Harness(recorder: recorder, microphone: FakeMicrophone(.denied), selection: .area(recordedArea), recordMicrophone: true)
     harness.stager.whileStaged = { harness.settings.recordMicrophone = false }
-    await harness.coordinator.toggleRecording(.area, staged: true)
+    await harness.coordinator.toggleRecording(.area)
     #expect(await recorder.starts.first?.options.microphone == false)
     #expect(harness.alerts.presented.isEmpty)
     await harness.coordinator.stopRecording()
 }
 
-@MainActor @Test func theRecordShortcutsSkipTheStage() async throws {
-    let harness = try Harness(selection: .area(recordedArea))
-    await harness.coordinator.toggleRecording(.area)
-    #expect(harness.stager.staged.isEmpty)
+@MainActor @Test func recordWindowStagesThePickedWindowThenRecordsIt() async throws {
+    let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
+    let recorder = FakeRecorder()
+    let harness = try Harness(capturer: FakeCapturer(windows: [window]), recorder: recorder, selection: .window(42))
+    await harness.coordinator.toggleRecording(.window)
+    let frame = CGRect(x: 50, y: 982 - 400, width: 400, height: 300)
+    #expect(harness.stager.staged.map(\.region) == [frame])
+    #expect(harness.stager.staged.map(\.display) == [mainDisplay])
+    #expect(harness.stager.staged.map(\.mode) == [.window])
+    #expect(await recorder.starts.first?.target == .window(42))
     await harness.coordinator.stopRecording()
 }
 
-@MainActor @Test func theRecordScreenShortcutStopsARunningRecording() async throws {
+@MainActor @Test func droppingTheWindowStageRecordsNothing() async throws {
+    let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
+    let recorder = FakeRecorder()
+    let harness = try Harness(capturer: FakeCapturer(windows: [window]), recorder: recorder, selection: .window(42))
+    harness.stager.answer = { _ in nil }
+    await harness.coordinator.toggleRecording(.window)
+    #expect(await recorder.starts.isEmpty)
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func theRecordShortcutStopsARunningRecording() async throws {
     let recorder = FakeRecorder()
     var handed: [URL] = []
     let harness = try Harness(recorder: recorder, selection: .area(recordedArea), onSaved: { handed.append($0) })
-    await harness.coordinator.toggleRecording(.area, staged: true)
-    await harness.coordinator.toggleRecording(.area, staged: true)
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.toggleRecording(.area)
     #expect(await recorder.starts.count == 1)
     #expect(harness.stager.staged.count == 1)
     #expect(handed.count == 1)

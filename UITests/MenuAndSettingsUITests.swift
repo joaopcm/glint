@@ -9,7 +9,7 @@ final class MenuAndSettingsUITests: LunettaUITestCase {
 
     @MainActor func testMenuShowsCaptureItemsSettingsVersionAndQuit() {
         let menu = openMenu()
-        for title in ["Capture Area", "Capture Window", "Capture Full Screen", "Capture Text", "Record Screen…", "Record Area", "Record Window", "Settings…", "Quit Lunetta"] {
+        for title in ["Capture Area", "Capture Window", "Capture Full Screen", "Capture Text", "Record Area", "Record Window", "Settings…", "Quit Lunetta"] {
             let item = menu.descendants(matching: .menuItem)[title]
             XCTAssertTrue(item.waitForExistence(timeout: Self.captureTimeout), "menu has no \"\(title)\"")
             XCTAssertTrue(item.isEnabled, "\"\(title)\" is disabled")
