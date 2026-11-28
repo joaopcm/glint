@@ -159,7 +159,7 @@ ditto "$app" "$work_dir/dmg/Lunetta.app"
 ln -s /Applications "$work_dir/dmg/Applications"
 if [[ -n "${DMG_EXPERIMENT:-}" ]]; then
   { ps -Ao pid,pcpu,rss,comm | sort -k2 -nr | head -8; vm_stat | head -6; mdutil -s / 2>&1 | head -3; } || true
-  exp() { local label="$1"; shift; "$@" >/dev/null 2>&1; local c=$?; hdiutil verify "$dmg" >/dev/null 2>&1 && echo "== $label create=$c verify=OK" || echo "== $label create=$c verify=FAILED"; rm -f "$dmg"; }
+  exp() { local label="$1"; shift; local c=0; "$@" >/dev/null 2>&1 || c=$?; hdiutil verify "$dmg" >/dev/null 2>&1 && echo "== $label create=$c verify=OK" || echo "== $label create=$c verify=FAILED"; rm -f "$dmg"; }
   exp convert-first bash -c "hdiutil create -volname 'Lunetta $version' -srcfolder '$work_dir/dmg' -fs HFS+ -format UDRW -ov '$work_dir/rw.dmg' && hdiutil convert '$work_dir/rw.dmg' -format UDZO -ov -o '$dmg'"
   exp udzo-second hdiutil create -volname "Lunetta $version" -srcfolder "$work_dir/dmg" -fs HFS+ -format UDZO -ov "$dmg"
   exp ulfo-third hdiutil create -volname "Lunetta $version" -srcfolder "$work_dir/dmg" -fs HFS+ -format ULFO -ov "$dmg"
