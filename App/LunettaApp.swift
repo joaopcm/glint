@@ -166,10 +166,7 @@ final class AppState {
         for job in renders.resumePending() {
             Task { [weak self] in
                 await job.finished()
-                switch job.phase {
-                case let .failed(reason): self?.toast.show(reason)
-                default: self?.toast.show("Rendered \(job.project.output.file.lastPathComponent)")
-                }
+                self?.toast.show(job.outcomeMessage)
             }
         }
     }

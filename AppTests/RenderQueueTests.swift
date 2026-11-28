@@ -151,6 +151,25 @@ private struct Broke: LocalizedError {
     #expect(projects.store.pendingRenders().isEmpty)
 }
 
+@MainActor @Test func aFinishedRenderNamesItsRecording() async throws {
+    let projects = Projects()
+    defer { projects.remove() }
+    let project = try projects.make(name: "Demo")
+    let watch = Watch()
+    let queue = RenderQueue(store: projects.store, settings: projects.settings, render: { _, _ in
+        watch.log.append("render")
+        if watch.log.count == 1 { throw Broke() }
+    })
+
+    let job = queue.enqueue(project)
+    await job.finished()
+    #expect(job.outcomeMessage == "Couldn't render Demo.mp4: The disk is full.")
+
+    job.retry()
+    await job.finished()
+    #expect(job.outcomeMessage == "Rendered Demo.mp4")
+}
+
 @MainActor @Test func pendingProjectsRenderAgainAtLaunch() async throws {
     let projects = Projects()
     defer { projects.remove() }

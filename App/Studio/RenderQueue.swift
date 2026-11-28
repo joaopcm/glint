@@ -32,6 +32,11 @@ final class RenderJob {
         self.queue = queue
     }
 
+    var outcomeMessage: String {
+        let name = project.output.file.lastPathComponent
+        return if case let .failed(reason) = phase { "Couldn't render \(name): \(reason)" } else { "Rendered \(name)" }
+    }
+
     func retry() {
         guard case .failed = phase else { return }
         queue?.schedule(self)
