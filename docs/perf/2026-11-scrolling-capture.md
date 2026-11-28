@@ -321,11 +321,44 @@ attachments; `Frame` reads both (`frameReadsDisplayP3FromPrimariesAndTransferAtt
 
 ### frame interval and queue depth
 
-Not measured yet. The harness (stream the area of a GitHub PR in Safari, run frames through
-`Stitcher(tuning: .measured)`, count `.lostOverlap` per interval at normal scroll and one fast flick, at 1/120, 1/60,
-1/30, 1/20, 1/15 and 1/10 s with queue depth 3, plus 1/60 s at depth 8) is built and was not committed. The owner
-skipped the run on 2026-11-28.
+Mac16,8, macOS 27.2.1, Dell S3225QC 3008x1692 pt @2x, 120 Hz. Safari on
+https://github.com/pointfreeco/swift-composable-architecture/pull/3882/files (split diff), page at the top at the start
+of each run. Throwaway harness (not committed): `scrollingFrames` on a 1400x900 pt area inside the Safari window (2800x1800
+px frames), every frame into `Stitcher(tuning: .measured)` (release build). The stitcher restarts from the refused frame
+after each `.lostOverlap`, so a count is breaks, not a stuck tail. João scrolled by trackpad: 12 s at normal reading
+speed, then one fast flick (6 s), then ⌘↑. The first 3 breaks per run were saved as PNG pairs.
 
-Until then, `scrollingFrameInterval` is 1/60 s, the interval Task 0 recorded both fixtures at: every consecutive pair
-overlapped, normal scroll and fast flick included, largest shift 414 px of a 1600 px frame. `queueDepth` stays
-ScreenCaptureKit's default, as in Task 0's recorder. Whether a longer interval holds is open.
+| interval | queue depth | frames (fps) | breaks, normal | breaks, flick | largest jump between frames | append p50 / p95 ms | frame gap p50 ms | process CPU |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1/120 | 8 | 924 (49) | 0 | 22 | 354 px | 6.3 / 11.1 | 11.8 | 50% |
+| 1/60 | 3 | 634 (34) | 0 | 18 | 666 px | 7.0 / 12.0 | 16.7 | 36% |
+| 1/60 | 8 | 592 (31) | 0 | 14 | 810 px | 6.8 / 12.4 | 20.8 | 34% |
+| 1/30 | 8 | 366 (19) | 0 | 13 | 932 px | 7.8 / 16.8 | 36.2 | 24% |
+| 1/20 | 8 | 242 (13) | 0 | 12 | 1696 px | 8.8 / 34.6 | 51.0 | 20% |
+| 1/10 | 8 | 131 (7) | 0 | 13 | lost | 10.8 / 82.3 | 107.5 | 15% |
+
+fps counts delivered `.complete` frames only. A still page delivers none, so fps tracks how long the page was moving.
+
+What the flick breaks are: 16 of the 18 saved flick pairs have a frame with 1560–1800 of 1800 rows uniform. The flick
+reached a part of the page Safari hadn't painted yet (white), at every interval, so no interval fixes those. Two pairs
+have content in both frames. 1/30 s, first break: the earlier frame's bottom ~500 rows were still unpainted, and the
+later one has them painted (late paint, refused by design, Task 3). 1/10 s, first break: a true overlap loss. The page
+moved more than the whole 1800 px frame in the 107 ms between frames.
+
+Chosen with the owner: **1/30 s**. Every interval passes normal scrolling (the plan's rule alone would pick 1/10 s), but
+1/10 s loses the page on a fast flick and 1/20 s came within 104 px of losing it. 1/30 s jumped at most 932 px, half a
+frame of margin on a 900 pt area, for 24% CPU against 34% at 1/60 s. An area shorter than about 470 pt could lose
+overlap on a flick like this one at 1/30 s.
+
+Queue depth: **3**. At 1/60 s, depth 3 and 8 both had no breaks while scrolling normally, with the same frame gaps
+(16.7 vs 20.8 ms median, content-dependent). `Frame` copies the buffer inside the callback, so SCK never waits on us
+for a surface, and each surface here is 20 MB (2800x1800 BGRA), so the smaller pool is the cheaper one.
+
+A first sweep the same day is discarded. Its stitcher didn't restart after a break: 5 of its 7 runs broke 0.4–1.6 s
+after the first scroll from the top and stayed broken. Before the bands are learned, every refused frame re-learns them
+at stride 1 (~65 ms at 2800x1800). The consumer fell behind, and the unbounded frame buffer backed up (1/120 s run: 98%
+CPU, 64 ms median append).
+
+Open: the stream's frame buffer is unbounded. In the sweep, process footprint peaked at 1088 MB during the 1/120 s run.
+That includes the stitched image (about 270 MB per 24,000 rows at 2800 px, before the buffer doubles) and the harness's
+PNG dumps. The backlog itself wasn't measured on its own.

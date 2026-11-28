@@ -16,16 +16,19 @@ public struct ScrollingFrames: Sendable {
 }
 
 extension ScreenCapturer {
-    /// Task 0 recorded github-pr (Safari) and notion (Dia) at 1/60 s on Mac16,8, normal scrolling and a fast flick:
-    /// every consecutive pair overlapped, largest shift 414 px of 1600 (docs/perf/2026-11-scrolling-capture.md).
-    static let scrollingFrameInterval = CMTime(value: 1, timescale: 60)
+    /// Task 4 sweep, GitHub PR in Safari, 1400x900 pt area, Mac16,8 + Dell S3225QC @120 Hz: no break while scrolling
+    /// normally at 1/120–1/10 s. On a fast flick 1/10 s lost overlap, 1/20 s jumped 1696 of 1800 px, 1/30 s at most 932
+    /// (docs/perf/2026-11-scrolling-capture.md).
+    static let scrollingFrameInterval = CMTime(value: 1, timescale: 30)
+    /// Same sweep at 1/60 s: depth 3 and 8 both had no break while scrolling normally and kept a 16.7 ms median frame
+    /// gap; 3 holds fewer 2800x1800 surfaces.
+    static let scrollingQueueDepth = 3
 
     public func scrollingFrames(of selection: CGRect, displays: [DisplayInfo]) async throws -> ScrollingFrames {
-        try await scrollingFrames(of: selection, displays: displays, frameInterval: Self.scrollingFrameInterval, queueDepth: nil)
+        try await scrollingFrames(of: selection, displays: displays, frameInterval: Self.scrollingFrameInterval, queueDepth: Self.scrollingQueueDepth)
     }
 
-    /// `queueDepth` nil keeps ScreenCaptureKit's default, which Task 0's recordings ran with.
-    func scrollingFrames(of selection: CGRect, displays: [DisplayInfo], frameInterval: CMTime, queueDepth: Int?) async throws -> ScrollingFrames {
+    func scrollingFrames(of selection: CGRect, displays: [DisplayInfo], frameInterval: CMTime, queueDepth: Int) async throws -> ScrollingFrames {
         try Self.requirePermission()
         let (display, area) = try Self.area(of: selection, displays: displays)
         let filter = try await Self.contentFilter(displayID: display.id, hiding: await chromeWindowIDs())
@@ -33,7 +36,7 @@ extension ScreenCapturer {
         configuration.sourceRect = area.sourceRect
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.minimumFrameInterval = frameInterval
-        if let queueDepth { configuration.queueDepth = queueDepth }
+        configuration.queueDepth = queueDepth
         // colorSpaceName stays unset: ScreenCaptureKit then tags frames with the display's own color space, the same one
         // captureArea's image carries (probe on a Dell S3225QC, docs/perf/2026-11-scrolling-capture.md).
 
