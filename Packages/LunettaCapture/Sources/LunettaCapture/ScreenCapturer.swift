@@ -14,14 +14,24 @@ public struct ScreenCapturer: Sendable {
 
     public func captureArea(_ selection: CGRect, displays: [DisplayInfo]) async throws -> CGImage {
         try Self.requirePermission()
-        guard let info = DisplayGeometry.display(forSelection: selection, in: displays),
-              let sourceRect = DisplayGeometry.sourceRect(for: selection, on: info)
-        else { throw CaptureError.emptySelection }
-        let filter = try await Self.contentFilter(displayID: info.id, hiding: await chromeWindowIDs())
-        let size = DisplayGeometry.pixelSize(of: sourceRect, scale: info.scale)
-        let configuration = Self.configuration(width: size.width, height: size.height)
-        configuration.sourceRect = sourceRect
+        let (display, area) = try Self.area(of: selection, displays: displays)
+        let filter = try await Self.contentFilter(displayID: display.id, hiding: await chromeWindowIDs())
+        let configuration = Self.configuration(width: area.width, height: area.height)
+        configuration.sourceRect = area.sourceRect
         return try await Self.image(filter: filter, configuration: configuration)
+    }
+
+    static func area(of selection: CGRect, displays: [DisplayInfo]) throws -> (DisplayInfo, (sourceRect: CGRect, width: Int, height: Int)) {
+        guard let display = DisplayGeometry.display(forSelection: selection, in: displays),
+              let area = streamConfiguration(for: selection, on: display)
+        else { throw CaptureError.emptySelection }
+        return (display, area)
+    }
+
+    static func streamConfiguration(for selection: CGRect, on display: DisplayInfo) -> (sourceRect: CGRect, width: Int, height: Int)? {
+        guard let sourceRect = DisplayGeometry.sourceRect(for: selection, on: display) else { return nil }
+        let size = DisplayGeometry.pixelSize(of: sourceRect, scale: display.scale)
+        return (sourceRect, size.width, size.height)
     }
 
     public func captureDisplay(_ display: DisplayInfo) async throws -> CGImage {
@@ -134,7 +144,7 @@ public struct ScreenCapturer: Sendable {
         return SCContentFilter(display: display, excludingWindows: hidden)
     }
 
-    private static func configuration(width: Int, height: Int) -> SCStreamConfiguration {
+    static func configuration(width: Int, height: Int) -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
         configuration.width = width
         configuration.height = height

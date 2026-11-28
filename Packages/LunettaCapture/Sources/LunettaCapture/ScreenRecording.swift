@@ -205,7 +205,7 @@ private final class RecordingEvents: NSObject, SCRecordingOutputDelegate, SCStre
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard !hasSeenFirstFrame.load(ordering: .relaxed), Self.isCompleteFrame(sampleBuffer) else { return }
+        guard !hasSeenFirstFrame.load(ordering: .relaxed), sampleBuffer.isCompleteScreenFrame else { return }
         let (becameReady, waiters) = state.withLock { state -> (Bool, [CheckedContinuation<Void, Never>]) in
             guard !state.hasFirstFrame else { return (false, []) }
             state.hasFirstFrame = true
@@ -217,13 +217,6 @@ private final class RecordingEvents: NSObject, SCRecordingOutputDelegate, SCStre
         // Only the first complete frame is needed to guard instant stops; detaching stops per-frame sample delivery.
         try? stream.removeStreamOutput(self, type: .screen)
         waiters.forEach { $0.resume() }
-    }
-
-    private static func isCompleteFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
-        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
-              let status = attachments.first?[.status] as? Int
-        else { return false }
-        return SCFrameStatus(rawValue: status) == .complete
     }
 
     func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {

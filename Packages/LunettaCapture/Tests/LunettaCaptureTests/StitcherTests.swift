@@ -194,6 +194,33 @@ private func set(_ frame: Frame, x: Int, y: Int, to value: UInt8) -> Frame {
     #expect(frame.pixels == expected)
 }
 
+@Test func frameReadsDisplayP3FromPrimariesAndTransferAttachments() throws {
+    var buffer: CVPixelBuffer?
+    CVPixelBufferCreate(nil, 4, 4, kCVPixelFormatType_32BGRA, nil, &buffer)
+    let pixelBuffer = try #require(buffer)
+    CVBufferSetAttachment(pixelBuffer, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_P3_D65, .shouldPropagate)
+    CVBufferSetAttachment(pixelBuffer, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_sRGB, .shouldPropagate)
+    #expect(CVBufferCopyAttachment(pixelBuffer, kCVImageBufferCGColorSpaceKey, nil) == nil)
+
+    let frame = try #require(Frame(pixelBuffer))
+    #expect(try displayP3Rendering(ofPureGreenIn: frame.colorSpace) == [0, 255, 0])
+}
+
+private func displayP3Rendering(ofPureGreenIn space: CGColorSpace) throws -> [UInt8] {
+    let green = try #require(CGColor(colorSpace: space, components: [0, 1, 0, 1]))
+    let displayP3 = try #require(CGColorSpace(name: CGColorSpace.displayP3))
+    var pixel = [UInt8](repeating: 0, count: 4)
+    try pixel.withUnsafeMutableBytes { bytes in
+        let context = try #require(CGContext(
+            data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: displayP3,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(green)
+        context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+    }
+    return Array(pixel[0..<3])
+}
+
 @Test func frameRejectsNonBGRAPixelBuffer() throws {
     var buffer: CVPixelBuffer?
     CVPixelBufferCreate(nil, 4, 4, kCVPixelFormatType_32ARGB, nil, &buffer)

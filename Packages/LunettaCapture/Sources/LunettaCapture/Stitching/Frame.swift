@@ -57,6 +57,10 @@ public struct Frame: Sendable {
     }
 
     private static func colorSpace(of pixelBuffer: CVPixelBuffer) -> CGColorSpace {
+        if let attachments = CVBufferCopyAttachments(pixelBuffer, .shouldPropagate),
+           let described = CVImageBufferCreateColorSpaceFromAttachments(attachments) {
+            return described.takeRetainedValue()
+        }
         if let attached = CVImageBufferGetColorSpace(pixelBuffer) { return attached.takeUnretainedValue() }
         if let attachment = CVBufferCopyAttachment(pixelBuffer, kCVImageBufferCGColorSpaceKey, nil), CFGetTypeID(attachment) == CGColorSpace.typeID {
             return attachment as! CGColorSpace

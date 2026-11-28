@@ -299,3 +299,33 @@ No signature is unique in the reference, so every row votes for every matching r
 | `github-pr` real frames | 3.4 ms median per append | | |
 
 About 7x a real append on the first frame of a pathological view, still under 30 ms. No limit needed.
+
+## Task 4: area frame stream
+
+### color space
+
+Mac16,8, macOS 27.2.1, one display: Dell S3225QC, 3008x1692 pt @2x, ICC profile "DELL S3225QC" (no `CGColorSpace`
+name, so `colorSpaceName` can't name it). Throwaway probe: `SCScreenshotManager.captureSampleBuffer` with the stream's
+configuration (BGRA, same `sourceRect`, 2800x1800 px), then `Frame(pixelBuffer)`.
+
+| `colorSpaceName` | buffer attachment | `Frame.colorSpace` |
+| --- | --- | --- |
+| unset | `CGColorSpace` = DELL S3225QC (the same object `CGDisplayCopyColorSpace` returns) | DELL S3225QC |
+| `displayP3` | `CGColorSpace` = Display P3 | Display P3 |
+| `sRGB` | `CGColorSpace` = sRGB IEC61966-2.1 | sRGB |
+
+`captureArea`'s `CGImage` carries DELL S3225QC too. Chosen: leave `colorSpaceName` unset, so stitched captures match
+area screenshots and the display. On this setup the buffers carry a `CGColorSpace` attachment, not primaries/transfer
+attachments; `Frame` reads both (`frameReadsDisplayP3FromPrimariesAndTransferAttachments`). Reading the default
+`colorSpaceName` crashes (it is NULL behind a non-optional `CFString`), so the probe never reads it.
+
+### frame interval and queue depth
+
+Not measured yet. The harness (stream the area of a GitHub PR in Safari, run frames through
+`Stitcher(tuning: .measured)`, count `.lostOverlap` per interval at normal scroll and one fast flick, at 1/120, 1/60,
+1/30, 1/20, 1/15 and 1/10 s with queue depth 3, plus 1/60 s at depth 8) is built and was not committed. The owner
+skipped the run on 2026-11-28.
+
+Until then, `scrollingFrameInterval` is 1/60 s, the interval Task 0 recorded both fixtures at: every consecutive pair
+overlapped, normal scroll and fast flick included, largest shift 414 px of a 1600 px frame. `queueDepth` stays
+ScreenCaptureKit's default, as in Task 0's recorder. Whether a longer interval holds is open.
