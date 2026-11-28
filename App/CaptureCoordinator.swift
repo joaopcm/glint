@@ -251,6 +251,7 @@ final class CaptureCoordinator {
     private var delivery: Task<SavedScreenshot?, Never>?
     private var clipboardCopy: Task<Void, Never>?
     private var session: RecordingSession?
+    private var startingRaw: RawCapture?
     private var countdown: Task<Bool, Never>?
     private var latestBubble: CGRect?
 
@@ -415,15 +416,20 @@ final class CaptureCoordinator {
         let excluded = overlays.excludedFromCapture
         latestBubble = nil
         if overlays.keys {
-            try keystrokes.show(over: region, excludedFromCapture: excluded, onKey: { [weak self] label in self?.session?.raw?.logKey(label) })
+            try keystrokes.show(over: region, excludedFromCapture: excluded, onKey: { [weak self] label in self?.activeRaw?.logKey(label) })
         }
         if overlays.clicks { clickRings.show(over: region, excludedFromCapture: excluded) }
         if overlays.camera {
             try camera.show(over: region, camera: overlays.cameraInput, excludedFromCapture: excluded, onFrame: { [weak self] frame in
                 self?.latestBubble = frame
-                self?.session?.raw?.logBubble(frame)
+                self?.activeRaw?.logBubble(frame)
             })
         }
+    }
+
+    /// The first part logs from before its stream starts, while the session only begins once it has.
+    private var activeRaw: RawCapture? {
+        session?.raw ?? startingRaw
     }
 
     private func hide(_ overlays: RecordingOverlays) {
@@ -455,6 +461,8 @@ final class CaptureCoordinator {
         // The HUD has to be on screen before the stream starts, or the recording can't tell to leave it out.
         onRecordingEvent(.started(status))
         let raw = try makeRawCapture(target, status: status, options: options, overlays: overlays, output: url)
+        startingRaw = raw
+        defer { startingRaw = nil }
         let started: (recording: any ActiveRecording, screenFile: URL)
         do {
             started = try await startPart(of: target, options: options, raw: raw) { url }

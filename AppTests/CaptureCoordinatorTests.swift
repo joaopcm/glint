@@ -123,6 +123,7 @@ private actor FakeRecorder: Recording {
     let endsOnItsOwn: Bool
     let joinFailure: CaptureError?
     let framelessStarts: Set<Int>
+    let startGate: (reached: Gate, release: Gate)?
     private(set) var starts: [(target: RecordingTarget, url: URL, options: RecordingOptions)] = []
     private(set) var recordings: [FakeRecording] = []
     private(set) var joins: [(parts: [URL], url: URL)] = []
@@ -134,9 +135,11 @@ private actor FakeRecorder: Recording {
         outcome: CaptureError? = nil,
         endsOnItsOwn: Bool = false,
         joinFailure: CaptureError? = nil,
-        framelessStarts: Set<Int> = []
+        framelessStarts: Set<Int> = [],
+        startGate: (reached: Gate, release: Gate)? = nil
     ) {
         self.framelessStarts = framelessStarts
+        self.startGate = startGate
         self.startFailure = startFailure
         self.failingStart = failingStart
         self.outcome = outcome
@@ -145,6 +148,10 @@ private actor FakeRecorder: Recording {
     }
 
     func startRecording(_ target: RecordingTarget, to url: URL, options: RecordingOptions) async throws -> any ActiveRecording {
+        if let startGate {
+            await startGate.reached.open()
+            await startGate.release.wait()
+        }
         if let startFailure, failingStart == nil || failingStart == starts.count + 1 { throw startFailure }
         starts.append((target, url, options))
         let recording = FakeRecording(url: url, outcome: outcome, endsOnItsOwn: endsOnItsOwn, firstFrame: framelessStarts.contains(starts.count) ? nil : 1)
@@ -2136,4 +2143,35 @@ func rawRecordingsShowOverlaysOutOfTheCapture(recordsRaw: Bool) async throws {
     #expect(firstBubble(in: second) == moved)
     #expect(pressedKeys(in: first) == ["A"])
     #expect(pressedKeys(in: second) == ["B"])
+}
+
+@MainActor @Test func keysAndBubbleMovesWhileTheStreamStartsLandInTheFirstPart() async throws {
+    let reached = Gate()
+    let release = Gate()
+    var recorded: [RecordingProject] = []
+    let camera = FakeCamera()
+    let harness = try Harness(
+        recorder: FakeRecorder(startGate: (reached, release)),
+        camera: camera,
+        selection: .area(recordedArea),
+        recordCamera: true,
+        showsKeys: true,
+        recordsRaw: true,
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    let starting = Task { await harness.coordinator.toggleRecording(.area) }
+    await reached.wait()
+    let pressKey = try #require(harness.keystrokes.onKey)
+    let moveBubble = try #require(camera.onFrame)
+    let moved = CGRect(x: 150, y: 250, width: 80, height: 80)
+    pressKey("A")
+    moveBubble(moved)
+    await release.open()
+    await starting.value
+    await harness.coordinator.stopRecording()
+
+    let project = try #require(recorded.first)
+    let events = try loggedEvents(harness.projects.folder(for: project.id).appending(path: "part-1.events.jsonl"))
+    #expect(pressedKeys(in: events) == ["A"])
+    #expect(firstBubble(in: events) == moved)
 }
