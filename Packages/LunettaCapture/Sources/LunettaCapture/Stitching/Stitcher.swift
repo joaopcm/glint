@@ -19,13 +19,13 @@ public struct StitchTuning: Sendable {
 
 extension StitchTuning {
     public static let measured = StitchTuning(
-        // docs/perf/2026-11-scrolling-capture.md, Task 3 "sampleStride": stride 3 and 6+ crop Notion's columns, 2 and 4 pass by luck
-        sampleStride: 1,
+        // docs/perf/2026-11-scrolling-capture.md, Task 3 "sampleStride": 1–64 all stitch both pages; 8 is 3.3–3.6x faster than 1
+        sampleStride: 8,
         // same doc, "minMatchFraction": late-painted frames need >= 0.68, the worst real pair matches 0.7711
         minMatchFraction: 0.72,
-        // same doc, "minDistinctRows": wrong shifts on Notion match <= 6 rows, real pairs >= 620; 16 rows is one 8 pt line
-        minDistinctRows: 16,
-        // same doc, "maxOutputHeight": past Slack's 25,000 px preview cap; 80,000 px needs ~3.4 GB to stitch and save
+        // same doc, "minDistinctRows": wrong shifts on Notion match <= 24 rows at stride 8, real pairs >= 620
+        minDistinctRows: 32,
+        // same doc, "maxOutputHeight": past Slack's 25,000 px inline preview; 80,000 px peaks ~2.9 GB to stitch and save
         maxOutputHeight: 40_000,
         // same doc, "floatingBlockSize": smallest block that still sees a 2-row toast; no false zone on either page
         floatingBlockSize: 2
@@ -188,7 +188,7 @@ public final class Stitcher {
 
     private func learnBands(_ a: Frame, _ b: Frame) -> Bands {
         let width = a.width
-        let aColumns = a.columnSignatures(stride: tuning.sampleStride), bColumns = b.columnSignatures(stride: tuning.sampleStride)
+        let aColumns = a.columnSignatures(stride: 1), bColumns = b.columnSignatures(stride: 1)
         var leading = 0
         while leading < width && aColumns[leading] == bColumns[leading] { leading += 1 }
         var trailing = width
@@ -316,21 +316,20 @@ public final class Stitcher {
     }
 
     private func makeImage(rows: Range<Int>) -> CGImage? {
-        guard !rows.isEmpty else { return nil }
         let rowBytes = bands.columns.count * 4
-        var bytes = [UInt8]()
-        bytes.reserveCapacity(rowBytes * rows.count)
-        for row in rows {
+        guard !rows.isEmpty, let buffer = NSMutableData(length: rowBytes * rows.count) else { return nil }
+        for (index, row) in rows.enumerated() {
             let contentRow = row - bands.headerRows
-            if row < bands.headerRows {
-                bytes.append(contentsOf: segment(first, row: row, columns: bands.columns))
+            let source = if row < bands.headerRows {
+                segment(first, row: row, columns: bands.columns)
             } else if contentRow < committedRows {
-                bytes.append(contentsOf: committed[(contentRow * rowBytes)..<((contentRow + 1) * rowBytes)])
+                committed[(contentRow * rowBytes)..<((contentRow + 1) * rowBytes)]
             } else {
-                bytes.append(contentsOf: segment(deepest.frame, row: bands.headerRows + contentRow - deepest.top, columns: bands.columns))
+                segment(deepest.frame, row: bands.headerRows + contentRow - deepest.top, columns: bands.columns)
             }
+            source.withUnsafeBytes { buffer.mutableBytes.advanced(by: index * rowBytes).copyMemory(from: $0.baseAddress!, byteCount: rowBytes) }
         }
-        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+        guard let provider = CGDataProvider(data: buffer) else { return nil }
         return CGImage(
             width: bands.columns.count, height: rows.count, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: rowBytes,
             space: first.colorSpace,

@@ -325,6 +325,18 @@ private let white: [UInt8] = [255, 255, 255, 255]
     #expect(try bytes(stitcher.image()) == rows(frames[0], 0..<30, columns: 60..<140) + rows(source, 30..<250, columns: 60..<140))
 }
 
+@Test func stillSidebarIsFoundWhenContentColumnsDifferOnlyBetweenSamples() throws {
+    let divided = repainted(page(width: 140, height: 400)) { x, y in
+        guard (60..<100).contains(x) else { return nil }
+        return y == 50 ? [0, 0, 0, 255] : white
+    }
+    var strided = tuning
+    strided.sampleStride = 6
+    let (stitcher, _) = stitch(viewports(of: divided, tops: [0, 40, 95, 150], height: 100, sidebar: 60), tuning: strided)
+    #expect(stitcher.image()?.width == 80)
+    #expect(try bytes(stitcher.image()) == rows(divided, 0..<250, columns: 60..<140))
+}
+
 @Test func whiteMarginsAreKept() throws {
     let margined = repainted(page(width: 144, height: 400)) { x, _ in x < 40 || x >= 104 ? white : nil }
     let (stitcher, _) = stitch(viewports(of: margined, tops: [0, 40, 95, 150], height: 100))

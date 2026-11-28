@@ -153,28 +153,32 @@ share tells them apart. At stride 32 the worst wrong share on GitHub rises to 0.
 ### sampleStride
 
 Pass = every append `.tracking`, floating zone 0, and the same tops and the same image bytes as stride 1. Swept with
-`minMatchFraction` 0.5–0.9 and `minDistinctRows` 4–128; the stride result doesn't depend on them in 0.5–0.75. Median
-`append` per frame at 0.70 / 32:
+`minMatchFraction` 0.5–0.8 and `minDistinctRows` 4–128. Median `append` per frame at 0.70 / 32, after still columns are
+learned from every pixel (below):
 
-| stride | github-pr | median ms | notion | median ms |
+| stride | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 | 24 | 32 | 48 | 64 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| both pages | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass | pass |
+| github-pr ms | 15.91 | 8.58 | 6.31 | 5.62 | 4.22 | 4.36 | 3.13 | 2.78 | 2.68 | 2.32 | 2.47 | 2.38 |
+| notion ms | 19.18 | 11.48 | 9.09 | 7.68 | 6.37 | 5.80 | 5.17 | 4.84 | 4.48 | 5.63 | 4.47 | 4.68 |
+
+Wrong shifts get closer as the stride grows, because sampled rows look alike more often:
+
+| stride | github-pr worst wrong share | github-pr most rows a wrong shift matches | notion worst wrong share | notion most rows |
 | --- | --- | --- | --- | --- |
-| 1 | pass | 15.05 | pass | 20.21 |
-| 2 | pass | 8.34 | pass | 12.21 |
-| 3 | pass | 6.19 | **fail** | 4.18 |
-| 4 | pass | 5.03 | pass | 8.14 |
-| 6 | pass | 4.00 | **fail** | 2.62 |
-| 8 | pass | 3.41 | **fail** | 2.25 |
-| 16 | pass | 2.64 | **fail** | 2.25 |
-| 32 | pass | 2.32 | **fail** | 1.74 |
-| 64 | pass | 2.37 | **fail** | 1.58 |
+| 1 | 0.5658 | 715 | 0.0090 | 6 |
+| 8 | 0.5721 | 724 | 0.0359 | 24 |
+| 16 | 0.5793 | 740 | 0.0732 | 49 |
+| 32 | 0.6027 | 776 | 0.1151 | 77 |
 
-Notion fails the same way at every failing stride: the tops are right but the stitcher learns columns 1031..<2439
-instead of 12..<2600, cropping both sides of the page. `learnBands` compares column signatures sampled every
-`sampleStride` rows, and the only content outside 1031..<2439 is a 2-row divider (2 rows with ink in columns 12..<1031
-in frames 1, 2, 9, 10). When the samples miss it, those columns look still and get cropped. Strides 2 and 4 pass only
-because their samples happen to land on the divider. Chosen: **1**, the only stride with margin today. Learning columns
-at stride 1 while keeping the tuning stride elsewhere (a one-line change, tried and reverted) makes every stride up to
-32 learn 12..<2600; that would let `sampleStride` drop to ~8 (3.4 ms vs 15 ms on GitHub). Left for a follow-up.
+The worst true share stays 0.7711 (GitHub) at every stride. Chosen: **8**, 3.6x faster than stride 1 on GitHub and 3.3x
+on Notion. Past 8 the gain is about 1 ms per frame while the wrong shifts keep closing in on `minMatchFraction`.
+
+First run, before the fix: `learnBands` compared column signatures sampled every `sampleStride` rows. On Notion, strides
+3, 6 and 8–64 learned columns 1031..<2439 instead of 12..<2600 and cropped both sides of the page. The only content
+outside 1031..<2439 is a 2-row divider, and when the samples missed it those columns looked still. Strides 2 and 4
+passed only because their samples landed on it. Still columns are now always learned from every pixel; it runs once
+per capture. `stillSidebarIsFoundWhenContentColumnsDifferOnlyBetweenSamples` covers it at stride 6.
 
 ### minMatchFraction
 
@@ -189,15 +193,16 @@ clean run's. 13 pairs (9 GitHub, 4 Notion):
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | pairs passing | 10 | 12 | 12 | 12 | 13 | 13 | 13 | 13 | 13 |
 
-Below 0.68 a painted frame gets stitched, and the white rows stay in the image. Chosen: **0.72**, between the late-paint
+Below 0.68 a painted frame gets stitched, and the white rows stay in the image. Stride 8 and stride 16 give the same
+counts at every value. Chosen: **0.72**, between the late-paint
 floor (0.68) and the worst real pair (0.7711), 0.04–0.05 from each. It also sits above every wrong shift's share
-(0.5658 at stride 1). `latePaintedFrameIsRefusedAndTheNextOneRecovers` locks the floor on GitHub 08→09.
+(0.5721 at stride 8). `latePaintedFrameIsRefusedAndTheNextOneRecovers` locks the floor on GitHub 08→09.
 
 ### minDistinctRows
 
-Every value 4–128 passes both fixtures. Wrong shifts on Notion match at most 6 rows; real pairs match at least 620.
-GitHub's wrong shifts match up to 715 rows, so there only the share protects. Chosen: **16**, about one line of text
-at 8 pt on Retina, 2.7x Notion's worst wrong match and 39x under the smallest real match.
+Every value 4–128 passes both fixtures at every stride. Real pairs match at least 620 rows. At stride 8, wrong shifts on
+Notion match at most 24 rows; GitHub's match up to 724, so there only the share protects. Chosen: **32**, above Notion's
+worst wrong match at stride 8, 19x under the smallest real match, about one line of text at 16 pt on Retina.
 
 ### floatingBlockSize
 
@@ -216,8 +221,8 @@ px sticky footer, vertical rules), a bottom toast of 4–24 px, and both fixture
 A toast shorter than the block is never detected and gets stitched in once per frame (Task 2's open question). With
 block 2 that only leaves 1-row toasts. On the real pages, across every scrolled fixture pair, no bottom block forms a
 floating block at 2, 4 or 16 px: every still bottom block is blank background (7729 still 2-px blocks on GitHub, 8719
-on Notion, all uniform), GitHub's hover **+** included. Median `append` is the same at 2 and 16 (14.49 vs 14.56 ms
-GitHub, 19.27 vs 19.36 ms Notion). Chosen: **2**, the smallest value that passes everything. No real floating-widget
+on Notion, all uniform), GitHub's hover **+** included. Median `append` at stride 1 is the same at block 2 and 16 (14.49 vs
+14.56 ms GitHub, 19.27 vs 19.36 ms Notion). Chosen: **2**, the smallest value that passes everything. No real floating-widget
 fixture exists, so this rests on the synthetic scenarios only. `toastOneBlockTallAppearsOnce` covers blocks 2 and 16.
 
 ### maxOutputHeight
@@ -234,15 +239,18 @@ step.
 | 80,000 | 793 MB | 47.7 MB | 1643 ms | 194 MB | 691 ms | 794 MB |
 
 Through the stitcher, worst case (incompressible content, 2600 px wide, 1600-row frames scrolled 1000 rows at a time).
-`image()` copies the committed rows into an array and again into `Data`, so its peak is twice the image on top of the
-committed rows:
+`image()` used to copy the committed rows into an array and again into `Data`. It now writes them once into the buffer
+the `CGDataProvider` keeps, so its peak is the image itself.
 
-| height | committed | footprint before `image()` | `image()` | `image()` peak over that | + `PNGWriter.encode` | PNG |
-| --- | --- | --- | --- | --- | --- | --- |
-| 10,600 | 105 MB | 248 MB | 30 ms | 211 MB | 932 ms | 39 MB |
-| 20,600 | 204 MB | 473 MB | 66 ms | 409 MB | 1828 ms | 76 MB |
-| 40,600 | 403 MB | 925 MB | 138 ms | 806 MB | 3680 ms | 149 MB |
-| 80,600 | 799 MB | 1824 MB | 467 ms | 1600 MB | 7137 ms | 296 MB |
+| height | committed | footprint before `image()` | `image()` before → after | `image()` peak before → after | + `PNGWriter.encode` | encode peak, after | PNG |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 10,600 | 105 MB | 248 MB | 30 → 9 ms | 211 → 106 MB | 924 ms | 148 MB | 39 MB |
+| 20,600 | 204 MB | 473 MB | 66 → 20 ms | 409 → 205 MB | 1820 ms | 284 MB | 76 MB |
+| 40,600 | 403 MB | 925 MB | 138 → 43 ms | 806 → 403 MB | 3547 ms | 556 MB | 149 MB |
+| 80,600 | 799 MB | 1824 MB | 467 → 69 ms | 1600 → 800 MB | 7052 ms | 1100 MB | 296 MB |
+
+The footprint before `image()` is about twice the committed rows because the committed buffer doubles its capacity as
+it grows. Peaks are over that footprint.
 
 What the places João shares to accept, read 2026-11-28 (nothing uploaded):
 
@@ -255,10 +263,11 @@ What the places João shares to accept, read 2026-11-28 (nothing uploaded):
   "The maximum file size is:" "10MB for images and gifs". No dimension limit. At the doc rate above (about 0.6 MB per
   1,000 rows), 10 MB is about 16,000 px.
 
-Chosen: **40,000 px**, a tripwire. Anything João would share inline tops out around 16,000–25,000 px, so a good capture
-never touches it. At 40,000 px a real doc encodes in under a second, and the stitcher peaks around 1.7 GB in the worst
-case; at 80,000 px that doubles to about 3.4 GB and 1.6–7 s to encode. The `image()` double copy is most of that peak
-and is worth removing in a follow-up.
+Chosen: **40,000 px**, a tripwire, kept after the `image()` fix. Anything João would share inline tops out around
+16,000–25,000 px, so a good capture never touches it. Slack shows no inline preview past 25,000 px on the longest side
+(45 Mpx at this width is already 17,307 px): a capture between 25,000 and 40,000 px uploads to Slack as a file without
+an inline preview. At 40,000 px a real doc encodes in under a second, and the worst case peaks around 1.5 GB to stitch
+and save (925 MB + 556 MB); at 80,000 px that doubles to about 2.9 GB and 1.6–7 s to encode.
 
 The limit is 17x the tallest frame this Mac can produce (the display's backing height is 2338 px). With
 `StitchTuning.measured`, Task 2's open case "limit below one frame's height is silent" can't happen; it can only come
@@ -267,11 +276,11 @@ from a hand-made `StitchTuning`.
 ### no-unique-row fallback cost
 
 One 2200x1600 frame whose rows alternate between two different non-blank rows, then the same frame scrolled by 1 row.
-No signature is unique in the reference, so every row votes for every matching row.
+No signature is unique in the reference, so every row votes for every matching row. `StitchTuning.measured`:
 
 | case | first `append` (median of 7 fresh stitchers) | `rowComparisons` | later appends (median of 7) |
 | --- | --- | --- | --- |
-| fully repeated rows | 79.5 ms | 1,284,798 | 23.8 ms |
-| `github-pr` real frames | 14.5 ms median per append | | |
+| fully repeated rows | 24.6 ms (79.5 ms at stride 1) | 1,284,798 | 12.4 ms |
+| `github-pr` real frames | 3.4 ms median per append | | |
 
-About 5x a real append on the first frame of a pathological view, still under 100 ms. No limit needed.
+About 7x a real append on the first frame of a pathological view, still under 30 ms. No limit needed.
