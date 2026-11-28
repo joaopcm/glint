@@ -179,6 +179,11 @@ private final class FailureBox: Sendable {
         return queue.enqueue(project)
     }
 
+    func closeCard(of presenter: ThumbnailPresenter) async throws {
+        presenter.perform(.close, onCardAt: 0)
+        try await Task.sleep(for: .seconds(ThumbnailPresenter.exitDuration) + .milliseconds(300))
+    }
+
     func finishRender() { renderGate.continuation.yield() }
     func finishCompression() { compressionGate.continuation.yield() }
 
@@ -326,8 +331,7 @@ private final class FailureBox: Sendable {
     let job = try fixture.record()
     presenter.show(fixture.file, precomputedThumbnail: try fixture.firstFrame(), render: job)
 
-    presenter.perform(.close, onCardAt: 0)
-    try await Task.sleep(for: .milliseconds(100))
+    try await fixture.closeCard(of: presenter)
     fixture.finishRender()
     await job.finished()
     try await Task.sleep(for: .milliseconds(100))
@@ -348,11 +352,11 @@ private final class FailureBox: Sendable {
     try await Task.sleep(for: .milliseconds(100))
     fixture.finishCompression()
     await job.finished()
-    try await Task.sleep(for: .milliseconds(100))
+    try await Task.sleep(for: .milliseconds(400))
 
     #expect(job.phase == .done(nil))
     #expect(fixture.problems == ["Lunetta couldn't compress the capture: The disk is full."])
-    #expect(presenter.statusTexts != ["Couldn't render"])
+    #expect(presenter.statusTexts == [nil])
     presenter.perform(.retryRender, onCardAt: 0)
     #expect(fixture.renders == 1)
 }

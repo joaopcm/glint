@@ -203,8 +203,7 @@ private let shotsUpload = UploadedCapture(
     let job = try fixture.record()
     presenter.show(fixture.file, precomputedThumbnail: try fixture.firstFrame(), render: job)
 
-    presenter.perform(.close, onCardAt: 0)
-    try await Task.sleep(for: .milliseconds(100))
+    try await fixture.closeCard(of: presenter)
     fixture.finishRender()
     await job.finished()
     try await Task.sleep(for: .milliseconds(200))
