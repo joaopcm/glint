@@ -2027,6 +2027,64 @@ func rawRecordingsShowOverlaysOutOfTheCapture(recordsRaw: Bool) async throws {
     #expect(harness.clickRings.shownOver.isEmpty)
 }
 
+@MainActor @Test(arguments: [true, false])
+func windowInPlaceOverlaysStayOutOfARawCaptureAndInAFilmedOne(recordsRaw: Bool) async throws {
+    let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
+    let harness = try Harness(
+        capturer: FakeCapturer(windows: [window]),
+        selection: .window(42),
+        recordCamera: true,
+        showsKeys: true,
+        showsClicks: true,
+        recordsRaw: recordsRaw
+    )
+    await harness.coordinator.toggleRecording(.window)
+    #expect(harness.keystrokes.excluded == [recordsRaw])
+    #expect(harness.clickRings.excluded == [recordsRaw])
+    #expect(harness.camera.excluded == [recordsRaw])
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func aRawWindowInPlaceRecordingDrawsTheCameraKeysAndRingsOverItsFixedCrop() async throws {
+    let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
+    let recorder = FakeRecorder()
+    let camera = FakeCamera()
+    let bubble = CGRect(x: 300, y: 600, width: 80, height: 80)
+    camera.initialBubble = bubble
+    var recorded: [RecordingProject] = []
+    let harness = try Harness(
+        capturer: FakeCapturer(windows: [window]),
+        recorder: recorder,
+        camera: camera,
+        selection: .window(42),
+        recordCamera: true,
+        showsKeys: true,
+        showsClicks: true,
+        recordsRaw: true,
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    await harness.coordinator.toggleRecording(.window)
+    let crop = CGRect(x: 50, y: 982 - 400, width: 400, height: 300)
+    let start = try #require(await recorder.starts.first)
+    #expect(start.target == .windowInPlace(42, frame: crop, on: mainDisplay))
+    #expect(!start.options.showsClicks, "the render draws Lunetta's rings, so macOS's circles shouldn't double them")
+    let pressKey = try #require(harness.keystrokes.onKey)
+    pressKey("⌘S")
+    await harness.coordinator.stopRecording()
+
+    let project = try #require(recorded.first)
+    #expect(project.mode == .area && project.windowID == nil, "a fixed crop must not follow the window's frame")
+    #expect(project.region == crop)
+    #expect(project.overlays.camera && project.overlays.keys && project.overlays.clicks)
+    let folder = harness.projects.folder(for: project.id)
+    #expect(camera.takeURLs == [folder.appending(path: "part-1.camera.mov")])
+    #expect(project.parts.map(\.camera) == ["part-1.camera.mov"])
+    let events = try loggedEvents(folder.appending(path: "part-1.events.jsonl"))
+    #expect(firstBubble(in: events) == bubble)
+    #expect(pressedKeys(in: events) == ["⌘S"])
+    #expect(harness.alerts.presented.isEmpty)
+}
+
 @MainActor @Test func discardingARawRecordingDeletesItsProjectFolder() async throws {
     var recorded = 0
     let harness = try Harness(selection: .area(recordedArea), recordsRaw: true, onRecorded: { _, _ in recorded += 1 })

@@ -490,7 +490,10 @@ final class CaptureCoordinator {
         output: URL
     ) throws -> RawCapture? {
         guard settings.recordsRaw else { return nil }
-        let (mode, windowID): (RecordingMode, UInt32?) = if case .window(let id) = target { (.window, id) } else { (.area, nil) }
+        let (mode, windowID): (RecordingMode, UInt32?) = switch target {
+        case .window(let id): (.window, id)
+        case .area, .windowInPlace: (.area, nil)
+        }
         let project = RecordingProject(
             id: UUID(),
             createdAt: now(),

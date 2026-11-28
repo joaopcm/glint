@@ -260,6 +260,30 @@ private let arrowAt300x250: [CaptureEvent] = [
     #expect(outside.at(2, 147).isScreenGray)
 }
 
+@Test func aWindowRecordedInPlaceDrawsEverythingAgainstItsFixedCrop() throws {
+    let moved = CGRect(x: 500, y: 400, width: 400, height: 300)
+    let events: [CaptureEvent] = [
+        .window(t: 0, frame: area),
+        .window(t: 1, frame: moved),
+        .bubble(t: 0, frame: CGRect(x: 380, y: 300, width: 80, height: 80)),
+        .cursor(t: 0, image: "arrow.png", hotspotX: 1, hotspotY: 1),
+        .pointer(t: 0, x: 98, y: 250),
+        .click(t: 5, x: 300, y: 250),
+        .key(t: 5, label: "⌘S"),
+    ]
+    let studio = try renderer(project(mode: .area, region: area), events: [events])
+    let red = CIImage(color: CIColor(red: 1, green: 0, blue: 0)).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 120))
+    let frame = render(studio.frame(screen: gray(sourceSize), camera: red, part: 0, hostTime: 5.05), size: sourceSize)
+
+    // Against the crop the bubble centers on (320, 240), the ring on (200, 150) and the keys capsule spans y 24..75 at x 200.
+    #expect(frame.at(320, 240).r > 240)
+    let ring = frame.at(200, 150)
+    #expect(ring.r > ring.g + 15)
+    #expect(frame.at(200, 27).g < 80)
+    // 2 pt left of the crop, the cursor's right edge still shows, as it would in the filmed crop of the display.
+    #expect(frame.at(2, 147).isCursorBlack)
+}
+
 @Test func outputScalesTheWholeFrame() throws {
     let source = PixelSize(width: 6016, height: 3384)
     let output = PixelSize(width: 3840, height: 2160)
