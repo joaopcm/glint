@@ -18,6 +18,7 @@ public struct RecordingOptions: Sendable, Equatable {
     /// nil records the system default input.
     public var microphoneID: String?
     public var showsClicks: Bool
+    public var capturesCursor: Bool
 
     public init(
         codec: VideoCodec,
@@ -25,7 +26,8 @@ public struct RecordingOptions: Sendable, Equatable {
         systemAudio: Bool,
         microphone: Bool,
         microphoneID: String? = nil,
-        showsClicks: Bool = false
+        showsClicks: Bool = false,
+        capturesCursor: Bool = true
     ) {
         self.codec = codec
         self.frameRate = frameRate
@@ -33,6 +35,7 @@ public struct RecordingOptions: Sendable, Equatable {
         self.microphone = microphone
         self.microphoneID = microphoneID
         self.showsClicks = showsClicks
+        self.capturesCursor = capturesCursor
     }
 }
 
@@ -57,6 +60,12 @@ public actor ScreenRecording {
         await withCheckedContinuation { continuation in
             stream.stopCapture { _ in continuation.resume() }
         }
+    }
+
+    /// Nil when the recording ended before any complete frame arrived.
+    public func firstFrameHostTime() async -> Double? {
+        await events.waitUntilFirstFrameOrEnd()
+        return events.firstFrameHostTime
     }
 
     /// Returns once the file is finalized; throws when it is missing or only partly recorded.
@@ -96,7 +105,7 @@ extension ScreenCapturer {
     }
 
     static func apply(_ options: RecordingOptions, to configuration: SCStreamConfiguration) {
-        configuration.showsCursor = true
+        configuration.showsCursor = options.capturesCursor
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(options.frameRate.rawValue))
         configuration.capturesAudio = options.systemAudio
         configuration.excludesCurrentProcessAudio = true
@@ -144,6 +153,7 @@ private enum RecordingOutcome: Sendable {
 private final class RecordingEvents: NSObject, SCRecordingOutputDelegate, SCStreamDelegate, SCStreamOutput, Sendable {
     private struct State {
         var hasFirstFrame = false
+        var firstFrameHostTime: Double?
         var streamError: String?
         var outcome: RecordingOutcome?
         var startWaiters: [CheckedContinuation<Void, Never>] = []
@@ -153,6 +163,8 @@ private final class RecordingEvents: NSObject, SCRecordingOutputDelegate, SCStre
     private let hasSeenFirstFrame = Atomic<Bool>(false)
     private let state = Mutex(State())
     let queue = DispatchQueue(label: "com.joaopcm.lunetta.recording-frames")
+
+    var firstFrameHostTime: Double? { state.withLock { $0.firstFrameHostTime } }
 
     func waitUntilFirstFrameOrEnd() async {
         await withCheckedContinuation { continuation in
@@ -177,9 +189,11 @@ private final class RecordingEvents: NSObject, SCRecordingOutputDelegate, SCStre
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard !hasSeenFirstFrame.load(ordering: .relaxed), Self.isCompleteFrame(sampleBuffer) else { return }
+        let hostTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
         let (becameReady, waiters) = state.withLock { state -> (Bool, [CheckedContinuation<Void, Never>]) in
             guard !state.hasFirstFrame else { return (false, []) }
             state.hasFirstFrame = true
+            state.firstFrameHostTime = hostTime
             defer { state.startWaiters = [] }
             return (true, state.startWaiters)
         }

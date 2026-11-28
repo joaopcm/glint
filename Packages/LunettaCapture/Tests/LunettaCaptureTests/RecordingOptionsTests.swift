@@ -14,6 +14,12 @@ func eachAudioToggleAddsOnlyItsOwnStream(systemAudio: Bool, microphone: Bool) {
     #expect(configuration.showsCursor)
 }
 
+@Test func rawRecordingsLeaveTheCursorOut() {
+    let configuration = SCStreamConfiguration()
+    ScreenCapturer.apply(RecordingOptions(codec: .h264, systemAudio: false, microphone: false, capturesCursor: false), to: configuration)
+    #expect(!configuration.showsCursor)
+}
+
 @Test func theChosenInputAndClickHighlightsReachTheStream() {
     let configuration = SCStreamConfiguration()
     ScreenCapturer.apply(RecordingOptions(codec: .h264, systemAudio: false, microphone: true, microphoneID: "usb-1", showsClicks: true), to: configuration)

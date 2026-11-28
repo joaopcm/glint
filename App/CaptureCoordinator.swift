@@ -96,6 +96,7 @@ protocol RecordingStaging {
 protocol ActiveRecording: Sendable {
     func stop() async
     func finished() async throws
+    func firstFrameHostTime() async -> Double?
 }
 
 /// A capture being compressed in place; nil when it came out no smaller and the saved file stays.

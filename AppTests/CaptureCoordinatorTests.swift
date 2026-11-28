@@ -110,6 +110,8 @@ private actor FakeRecording: ActiveRecording {
         FileManager.default.createFile(atPath: url.path, contents: Data("part \(url.lastPathComponent);".utf8))
         if let outcome { throw outcome }
     }
+
+    func firstFrameHostTime() async -> Double? { 1 }
 }
 
 private actor FakeRecorder: Recording {
