@@ -10,6 +10,10 @@ enum CaptureChrome {
         windows.add(window)
     }
 
+    static func unmark(_ window: NSWindow) {
+        windows.remove(window)
+    }
+
     static func windowIDs() -> [UInt32] {
         windows.allObjects.compactMap { UInt32(exactly: $0.windowNumber) }
     }

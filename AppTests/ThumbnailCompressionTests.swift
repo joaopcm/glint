@@ -84,6 +84,6 @@ import Testing
 }
 
 @MainActor @Test func onlyActionsThatReadTheFileWaitForCompression() {
-    let waiting = [ThumbnailView.Action.copy, .upload, .saveAs, .annotate, .pin, .close, .expand, .open, .dropped].filter(\.readsTheFile)
+    let waiting = [ThumbnailView.Action.copy, .upload, .saveAs, .annotate, .pin, .close, .expand, .open, .dropped, .retryRender].filter(\.readsTheFile)
     #expect(waiting == [.copy, .upload, .saveAs, .annotate, .pin, .open])
 }

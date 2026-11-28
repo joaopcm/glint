@@ -14,6 +14,12 @@ func eachAudioToggleAddsOnlyItsOwnStream(systemAudio: Bool, microphone: Bool) {
     #expect(configuration.showsCursor)
 }
 
+@Test func rawRecordingsLeaveTheCursorOut() {
+    let configuration = SCStreamConfiguration()
+    ScreenCapturer.apply(RecordingOptions(codec: .h264, systemAudio: false, microphone: false, capturesCursor: false), to: configuration)
+    #expect(!configuration.showsCursor)
+}
+
 @Test func theChosenInputAndClickHighlightsReachTheStream() {
     let configuration = SCStreamConfiguration()
     ScreenCapturer.apply(RecordingOptions(codec: .h264, systemAudio: false, microphone: true, microphoneID: "usb-1", showsClicks: true), to: configuration)
@@ -33,4 +39,11 @@ func theChosenFrameRateCapsTheStream(frameRate: RecordingFrameRate) {
     let configuration = SCStreamConfiguration()
     ScreenCapturer.apply(RecordingOptions(codec: .h264, frameRate: frameRate, systemAudio: false, microphone: false), to: configuration)
     #expect(configuration.minimumFrameInterval == CMTime(value: 1, timescale: CMTimeScale(frameRate.rawValue)))
+}
+
+@Test func aFirstFrameWithoutAValidTimeHasNoHostTime() {
+    #expect(ScreenRecording.hostTime(of: CMTime(seconds: 12.5, preferredTimescale: 600)) == 12.5)
+    #expect(ScreenRecording.hostTime(of: .invalid) == nil)
+    #expect(ScreenRecording.hostTime(of: .indefinite) == nil)
+    #expect(ScreenRecording.hostTime(of: .positiveInfinity) == nil)
 }

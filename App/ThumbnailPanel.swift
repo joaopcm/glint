@@ -22,10 +22,14 @@ final class ThumbnailPresenter {
     static let spacing: CGFloat = 10
 
     enum Edge { case left, right }
-    // emil-design-eng: enter and exit under 300 ms, exit faster than enter, and its strong ease-out curve (#92).
-    static let enterDuration: TimeInterval = 0.25
-    static let exitDuration: TimeInterval = 0.2
-    static let easeOut = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+    static let enterDuration: TimeInterval = OverlayStyle.enterDuration
+    static let exitDuration: TimeInterval = OverlayStyle.exitDuration
+    static let easeOut = CAMediaTimingFunction(
+        controlPoints: Float(OverlayStyle.easeOutControlPoints.0),
+        Float(OverlayStyle.easeOutControlPoints.1),
+        Float(OverlayStyle.easeOutControlPoints.2),
+        Float(OverlayStyle.easeOutControlPoints.3)
+    )
 
     /// The side of the screen a card belongs to: it comes in from that edge and leaves through it.
     static func edge(of frame: CGRect, on screen: CGRect) -> Edge {
@@ -57,6 +61,8 @@ final class ThumbnailPresenter {
     private let pointerLocation: @MainActor () -> CGPoint
     private let uploadFile: @MainActor (URL, _ replacing: UploadedCapture?) async throws -> UploadedCapture
     private let onUploaded: @MainActor (UploadedCapture) -> Void
+    private let pasteboard: NSPasteboard
+    private let reportProblem: (@MainActor (_ title: String, _ message: String) -> Void)?
     private var observers: [NSObjectProtocol] = []
     private var liveWidth: CGFloat?
     private var resizeStartWidth: CGFloat?
@@ -68,9 +74,13 @@ final class ThumbnailPresenter {
         upload: @escaping @MainActor (URL, _ replacing: UploadedCapture?) async throws -> UploadedCapture,
         onUploaded: @escaping @MainActor (UploadedCapture) -> Void,
         autoDismissDelay: Duration = .seconds(6),
-        pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation }
+        pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
+        pasteboard: NSPasteboard = .general,
+        reportProblem: (@MainActor (_ title: String, _ message: String) -> Void)? = nil
     ) {
         self.settings = settings
+        self.pasteboard = pasteboard
+        self.reportProblem = reportProblem
         uploadFile = upload
         self.onUploaded = onUploaded
         self.autoDismissDelay = autoDismissDelay
@@ -107,21 +117,39 @@ final class ThumbnailPresenter {
     /// `isCapture` false is for files Lunetta didn't capture, like a copied image it compressed: upload after capture
     /// leaves those alone.
     func show(_ url: URL, precomputedThumbnail: CGImage?, compression: PendingCompression? = nil, isCapture: Bool = true) {
+        show(url, precomputedThumbnail: precomputedThumbnail, pending: compression.map(PendingFile.compression), isCapture: isCapture)
+    }
+
+    /// The card appears now, with `render`'s progress on it; `url` is where the video lands, so a card with no
+    /// precomputed thumbnail has nothing to show until the render is done.
+    func show(_ url: URL, precomputedThumbnail: CGImage?, render: RenderJob) {
+        show(url, precomputedThumbnail: precomputedThumbnail, pending: .render(render), isCapture: true)
+    }
+
+    private func show(_ url: URL, precomputedThumbnail: CGImage?, pending: PendingFile?, isCapture: Bool) {
         let screen = NSScreen.screens.first { $0.frame.contains(pointerLocation()) } ?? NSScreen.main
         guard let screen else { return }
         if let precomputedThumbnail {
-            let scaled = ThumbnailDownsampler.downsample(precomputedThumbnail, maxPixelSize: ThumbnailItem.maxPixelSize(on: screen))
+            let scaled = ThumbnailDownsampler.downsample(
+                precomputedThumbnail, maxPixelSize: ThumbnailItem.maxPixelSize(on: screen), keepsWholeFrame: ThumbnailItem.isVideo(url)
+            )
             let fullPixelSize = ThumbnailItem.pixelSource(of: url).map(\.fullPixelSize)
-            return show(url, thumbnail: scaled, fullPixelSize: fullPixelSize, on: screen, compression: compression, isCapture: isCapture)
+            return show(url, thumbnail: scaled, fullPixelSize: fullPixelSize, on: screen, pending: pending, isCapture: isCapture)
         }
         guard ThumbnailItem.isVideo(url) else {
             guard let (thumbnail, fullPixelSize) = ThumbnailItem.thumbnail(of: url, on: screen) else { return }
-            return show(url, thumbnail: thumbnail, fullPixelSize: fullPixelSize, on: screen, compression: compression, isCapture: isCapture)
+            return show(url, thumbnail: thumbnail, fullPixelSize: fullPixelSize, on: screen, pending: pending, isCapture: isCapture)
         }
         Task {
             do {
+                if case let .render(job) = pending {
+                    await job.finished()
+                    if case let .failed(reason) = job.phase {
+                        return showError("Lunetta couldn't render the recording", message: reason)
+                    }
+                }
                 let thumbnail = try await ThumbnailItem.videoThumbnail(of: url, on: screen)
-                show(url, thumbnail: thumbnail, fullPixelSize: nil, on: screen, compression: compression, isCapture: isCapture)
+                show(url, thumbnail: thumbnail, fullPixelSize: nil, on: screen, pending: pending, isCapture: isCapture)
             } catch {
                 Logger(subsystem: "com.joaopcm.lunetta", category: "thumbnail")
                     .error("no thumbnail for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -130,7 +158,7 @@ final class ThumbnailPresenter {
     }
 
     private func show(
-        _ url: URL, thumbnail: CGImage, fullPixelSize: CGSize?, on screen: NSScreen, compression: PendingCompression?, isCapture: Bool
+        _ url: URL, thumbnail: CGImage, fullPixelSize: CGSize?, on screen: NSScreen, pending: PendingFile?, isCapture: Bool
     ) {
         let item = ThumbnailItem(url: url, screen: screen, thumbnail: thumbnail, fullPixelSize: fullPixelSize)
         item.view.onAction = { [weak self, weak item] action in
@@ -149,9 +177,14 @@ final class ThumbnailPresenter {
         expansion.collapse(on: screen)
         cancelAutoDismiss() // still stacking: restart the countdown (layout() schedules it again)
         layout()
-        if let compression {
+        switch pending {
+        case let .compression(compression):
             finish(compression, for: item, isCapture: isCapture)
-        } else if isCapture, settings.uploadAfterCapture {
+        case let .render(job):
+            item.render = job
+            follow(job, on: item)
+        case nil:
+            guard isCapture, settings.uploadAfterCapture else { break }
             upload(item, closingCard: false)
         }
     }
@@ -159,25 +192,70 @@ final class ThumbnailPresenter {
     /// The card says it's compressing until the file is final. Actions that read the file wait for it, and so does
     /// upload after capture.
     private func finish(_ compression: PendingCompression, for item: ThumbnailItem, isCapture: Bool) {
-        item.isCompressing = true
+        item.status = .working("Compressing")
         refreshHover()
         Task {
             let outcome = await compression.result
-            item.isCompressing = false
+            item.status = .idle
             switch outcome {
             case .success(let result):
                 item.view.showCompressed(result)
             case .failure(let error):
                 showError("Lunetta couldn't compress the capture", error)
             }
-            if isCapture, settings.uploadAfterCapture { upload(item, closingCard: false) }
-            let waiting = item.actionsAfterCompression
-            item.actionsAfterCompression = []
-            if items.contains(where: { $0 === item }) {
-                waiting.forEach { handle($0, for: item) }
-            }
-            refreshHover()
+            releaseWaitingActions(of: item, isCapture: isCapture)
         }
+    }
+
+    /// The card follows the render until the file is final, the same way it follows compression. A failed render
+    /// stops here and waits for Try Again. The chain keeps the item alive until the job ends, so a card closed mid-render
+    /// still reports a failure and still uploads after capture.
+    private func follow(_ job: RenderJob, on item: ThumbnailItem) {
+        switch job.phase {
+        case .queued:
+            item.status = .working("Rendering")
+            item.view.isFileReady = false
+        case let .rendering(fraction):
+            item.status = .working("Rendering \(Int((fraction * 100).rounded()))%")
+            item.view.isFileReady = false
+        case .compressing:
+            item.sawCompression = true
+            item.status = .working("Compressing")
+            item.view.isFileReady = true
+        case let .done(result):
+            item.status = .idle
+            item.view.isFileReady = true
+            if let failure = job.compressionFailure {
+                showError("Lunetta couldn't compress the capture", message: failure)
+            } else if item.sawCompression {
+                item.view.showCompressed(result)
+            }
+            return releaseWaitingActions(of: item, isCapture: true)
+        case let .failed(reason):
+            item.status = .failed("Couldn't render")
+            item.view.isFileReady = false
+            item.actionsWhenFileIsReady = []
+            refreshHover()
+            return showError("Lunetta couldn't render the recording", message: reason)
+        }
+        refreshHover()
+        withObservationTracking {
+            _ = job.phase
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.follow(job, on: item)
+            }
+        }
+    }
+
+    private func releaseWaitingActions(of item: ThumbnailItem, isCapture: Bool) {
+        if isCapture, settings.uploadAfterCapture { upload(item, closingCard: false) }
+        let waiting = item.actionsWhenFileIsReady
+        item.actionsWhenFileIsReady = []
+        if items.contains(where: { $0 === item }) {
+            waiting.forEach { handle($0, for: item) }
+        }
+        refreshHover()
     }
 
     static func columnCapacity(in visible: CGRect, width: CGFloat) -> Int {
@@ -258,8 +336,8 @@ final class ThumbnailPresenter {
         for item in items { item.view.isHovered = item === hovered }
         scheduleFolding(pointerOver: hovered?.screen)
 
-        // Hovering any thumbnail, dragging one out, a modal panel (Save As), an open editor, a running compression or upload pauses auto-hide for the whole overlay.
-        if hovered != nil || isDraggingOut || isRunningModal || !editors.isEmpty || items.contains(where: { $0.isCompressing || $0.isUploading }) {
+        // Hovering any thumbnail, dragging one out, a modal panel (Save As), an open editor, a running render or compression, a failed render or a running upload pauses auto-hide for the whole overlay.
+        if hovered != nil || isDraggingOut || isRunningModal || !editors.isEmpty || items.contains(where: { $0.isWorking || $0.hasFailed || $0.isUploading }) {
             cancelAutoDismiss()
             return
         }
@@ -334,6 +412,13 @@ final class ThumbnailPresenter {
 
     /// Thumbnails currently in the overlay (for tests).
     var count: Int { items.count }
+
+    /// Each card's status capsule text, newest first; nil while it shows none.
+    var statusTexts: [String?] { items.map(\.view.statusText) }
+
+    func perform(_ action: ThumbnailView.Action, onCardAt index: Int) {
+        handle(action, for: items[index])
+    }
     var urls: [URL] { items.map(\.url) }
     var frames: [CGRect?] { items.map(\.targetFrame) }
 
@@ -348,22 +433,27 @@ final class ThumbnailPresenter {
     }
 
     private func handle(_ action: ThumbnailView.Action, for item: ThumbnailItem) {
-        if item.isCompressing, action.readsTheFile {
-            item.actionsAfterCompression.append(action)
+        if item.hasFailed, action.readsTheFile { return }
+        if item.isWorking, action.readsTheFile {
+            item.actionsWhenFileIsReady.append(action)
             return
         }
         switch action {
         case .copy:
             do {
                 if ThumbnailItem.isVideo(item.url) {
-                    try NSPasteboard.general.copyFileReference(item.url)
+                    try pasteboard.copyFileReference(item.url)
                 } else {
-                    try NSPasteboard.general.copyPNGFile(at: item.url)
+                    try pasteboard.copyPNGFile(at: item.url)
                 }
                 remove(item)
             } catch {
                 showError("Lunetta couldn't copy the screenshot", error)
             }
+        case .retryRender:
+            guard item.hasFailed, let job = item.render else { break }
+            job.retry()
+            follow(job, on: item)
         case .upload:
             upload(item, closingCard: true)
         case .saveAs:
@@ -545,10 +635,15 @@ final class ThumbnailPresenter {
     }
 
     private func showError(_ title: String, _ error: any Error) {
+        showError(title, message: error.localizedDescription)
+    }
+
+    private func showError(_ title: String, message: String) {
+        if let reportProblem { return reportProblem(title, message) }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = title
-        alert.informativeText = error.localizedDescription
+        alert.informativeText = message
         runActivated { _ = alert.runModal() }
     }
 
@@ -561,6 +656,11 @@ final class ThumbnailPresenter {
         }
         return runWithLunettaActive(body)
     }
+}
+
+private enum PendingFile {
+    case compression(PendingCompression)
+    case render(RenderJob)
 }
 
 @MainActor
@@ -579,11 +679,21 @@ private final class ThumbnailItem {
     var isUploading = false {
         didSet { view.isUploading = isUploading }
     }
-    var isCompressing = false {
-        didSet { view.isCompressing = isCompressing }
+    var status = ThumbnailView.Status.idle {
+        didSet { view.status = status }
     }
-    /// Pressed while the file was being compressed; they run on the final file.
-    var actionsAfterCompression: [ThumbnailView.Action] = []
+    var render: RenderJob?
+    var sawCompression = false
+    /// Pressed while the file was being rendered or compressed; they run on the final file.
+    var actionsWhenFileIsReady: [ThumbnailView.Action] = []
+
+    var isWorking: Bool {
+        if case .working = status { true } else { false }
+    }
+
+    var hasFailed: Bool {
+        if case .failed = status { true } else { false }
+    }
 
     static func isVideo(_ url: URL) -> Bool {
         UTType(filenameExtension: url.pathExtension)?.conforms(to: .movie) == true
@@ -661,14 +771,20 @@ private final class ThumbnailItem {
 
 final class ThumbnailView: NSView, NSDraggingSource {
     enum Action: Int {
-        case copy, upload, saveAs, annotate, pin, close, expand, open, dropped
+        case copy, upload, saveAs, annotate, pin, close, expand, open, dropped, retryRender
 
         var readsTheFile: Bool {
             switch self {
             case .copy, .upload, .saveAs, .annotate, .pin, .open: true
-            case .close, .expand, .dropped: false
+            case .close, .expand, .dropped, .retryRender: false
             }
         }
+    }
+
+    enum Status: Equatable {
+        case idle
+        case working(String)
+        case failed(String)
     }
 
     /// "62% smaller" once the file shrank; "Already small" when the compressed copy wasn't smaller and the original stays.
@@ -714,7 +830,8 @@ final class ThumbnailView: NSView, NSDraggingSource {
     private let compressionSpinner = NSProgressIndicator()
     private let compressionDone = NSImageView()
     private let compressionLabel = NSTextField(labelWithString: "Compressing")
-    private lazy var compressionContent = NSStackView(views: [compressionSpinner, compressionDone, compressionLabel])
+    private let renderRetry = NSButton(title: "Try Again", target: nil, action: nil)
+    private lazy var compressionContent = NSStackView(views: [compressionSpinner, compressionDone, compressionLabel, renderRetry])
     private lazy var compressionStatus = Glass.capsule(holding: compressionContent)
     private var compressionStatusHide: Task<Void, Never>?
     private var mouseDownPoint: CGPoint?
@@ -763,23 +880,41 @@ final class ThumbnailView: NSView, NSDraggingSource {
         }
     }
 
-    /// Shows the pill with its spinner right away: it arrives with the card, so it needs no entrance of its own.
-    var isCompressing = false {
+    /// A working pill shows with its spinner right away: it arrives with the card, so it needs no entrance of its own.
+    var status = Status.idle {
         didSet {
-            guard isCompressing != oldValue else { return }
-            if isCompressing {
+            guard status != oldValue else { return }
+            switch status {
+            case let .working(label):
                 compressionStatusHide?.cancel()
                 compressionSpinner.isHidden = false
                 compressionDone.isHidden = true
-                compressionLabel.stringValue = "Compressing"
+                renderRetry.isHidden = true
+                compressionLabel.stringValue = label
                 compressionStatus.alphaValue = 1
                 compressionStatus.isHidden = false
                 compressionSpinner.startAnimation(nil)
-            } else {
+            case let .failed(label):
+                compressionStatusHide?.cancel()
+                compressionSpinner.stopAnimation(nil)
+                compressionSpinner.isHidden = true
+                compressionDone.isHidden = true
+                renderRetry.isHidden = false
+                compressionLabel.stringValue = label
+                compressionStatus.alphaValue = 1
+                compressionStatus.isHidden = false
+            case .idle:
                 compressionSpinner.stopAnimation(nil)
                 hideCompressionStatus(after: .zero)
             }
         }
+    }
+
+    /// False while the video is still being rendered or its render failed: there is no file to drag out yet.
+    var isFileReady = true
+
+    var statusText: String? {
+        compressionStatus.isHidden ? nil : compressionLabel.stringValue
     }
 
     /// The spinner crossfades into a checkmark and the result while the pill eases to its new width, then the pill fades.
@@ -797,6 +932,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
             context.timingFunction = ThumbnailPresenter.easeOut
             context.allowsImplicitAnimation = true
             compressionSpinner.isHidden = true
+            renderRetry.isHidden = true
             compressionDone.isHidden = false
             compressionLabel.stringValue = Self.compressionSummary(result)
             layoutSubtreeIfNeeded()
@@ -820,7 +956,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
                 self.compressionStatus.animator().alphaValue = 0
             } completionHandler: {
                 MainActor.assumeIsolated {
-                    guard !self.isCompressing else { return }
+                    guard self.status == .idle else { return }
                     self.compressionStatus.isHidden = true
                 }
             }
@@ -926,8 +1062,15 @@ final class ThumbnailView: NSView, NSDraggingSource {
         compressionDone.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 10, weight: .bold))
         compressionDone.contentTintColor = .labelColor
-        compressionLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        compressionLabel.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
         compressionLabel.textColor = .labelColor
+        renderRetry.isBordered = false
+        renderRetry.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        renderRetry.contentTintColor = .controlAccentColor
+        renderRetry.isHidden = true
+        renderRetry.setAccessibilityIdentifier(AccessibilityID.renderRetry)
+        renderRetry.target = self
+        renderRetry.action = #selector(retryRender)
         compressionLabel.setAccessibilityIdentifier(AccessibilityID.compressionStatus)
         compressionContent.orientation = .horizontal
         compressionContent.spacing = 5
@@ -988,6 +1131,10 @@ final class ThumbnailView: NSView, NSDraggingSource {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    @objc private func retryRender() {
+        onAction?(.retryRender)
+    }
 
     /// A tall capture's thumbnail is already its top, cropped to the card: it fills the card and the badge gives the full height.
     func show(_ thumbnail: CGImage, fullPixelSize: CGSize?) {
@@ -1119,7 +1266,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
             onResize?(.drag(translation: translation, ended: false))
             return
         }
-        guard let start = mouseDownPoint, !isStacked else { return }
+        guard let start = mouseDownPoint, !isStacked, isFileReady else { return }
         let p = event.locationInWindow
         guard hypot(p.x - start.x, p.y - start.y) > Self.dragThreshold else { return }
         mouseDownPoint = nil
@@ -1258,8 +1405,10 @@ enum ThumbnailCentering {
 }
 
 enum ThumbnailDownsampler {
-    static func downsample(_ image: CGImage, maxPixelSize: CGFloat) -> CGImage {
-        if TallCapture.isTall(width: image.width, height: image.height) { return topCrop(image, maxPixelWidth: maxPixelSize) }
+    static func downsample(_ image: CGImage, maxPixelSize: CGFloat, keepsWholeFrame: Bool = false) -> CGImage {
+        if !keepsWholeFrame, TallCapture.isTall(width: image.width, height: image.height) {
+            return topCrop(image, maxPixelWidth: maxPixelSize)
+        }
         let longest = CGFloat(max(image.width, image.height))
         guard longest > maxPixelSize, maxPixelSize > 0 else { return image }
         return scaled(image, by: maxPixelSize / longest)

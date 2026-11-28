@@ -143,6 +143,16 @@ private final class ChangeFlag: @unchecked Sendable {
     #expect(!next.recordingCountdown && !next.recordingSounds)
 }
 
+@MainActor @Test func theHiddenRenderSettingsDefaultOnAndAreRemembered() {
+    let store = MemoryStore()
+    let first = LunettaSettings(store: store, defaultSaveFolder: desktop)
+    #expect(first.recordsRaw && first.capsRenderToUHD)
+    first.recordsRaw = false
+    first.capsRenderToUHD = false
+    let next = LunettaSettings(store: store, defaultSaveFolder: desktop)
+    #expect(!next.recordsRaw && !next.capsRenderToUHD)
+}
+
 @MainActor @Test func audioTogglesDefaultOffAndAreRemembered() {
     let store = MemoryStore()
     let first = LunettaSettings(store: store, defaultSaveFolder: desktop)

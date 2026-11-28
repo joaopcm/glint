@@ -14,11 +14,11 @@ public enum OverlayCorner: String, CaseIterable, Sendable {
     case bottomLeft, bottomRight
 }
 
-public enum VideoCodec: String, CaseIterable, Sendable {
+public enum VideoCodec: String, CaseIterable, Codable, Sendable {
     case h264, hevc
 }
 
-public enum RecordingFrameRate: Int, CaseIterable, Sendable {
+public enum RecordingFrameRate: Int, CaseIterable, Codable, Sendable {
     case thirty = 30, sixty = 60
 }
 
@@ -49,6 +49,8 @@ public final class LunettaSettings {
         static let showMouseClicks = "showMouseClicks"
         static let recordingCountdown = "recordingCountdown"
         static let recordingSounds = "recordingSounds"
+        static let recordsRaw = "recordsRaw"
+        static let capsRenderToUHD = "capsRenderToUHD"
         static let bucketEndpoint = "bucketEndpoint"
         static let bucketRegion = "bucketRegion"
         static let bucketName = "bucketName"
@@ -320,6 +322,25 @@ public final class LunettaSettings {
             return store.bool(forKey: Key.recordingSounds) ?? true
         }
         set { withMutation(keyPath: \.recordingSounds) { store.set(newValue, forKey: Key.recordingSounds) } }
+    }
+
+    /// Hidden: on records the screen, camera and input events as separate files in a project and renders the video from
+    /// them; off films everything into one file, as before slice 2 retires that path.
+    public var recordsRaw: Bool {
+        get {
+            access(keyPath: \.recordsRaw)
+            return store.bool(forKey: Key.recordsRaw) ?? true
+        }
+        set { withMutation(keyPath: \.recordsRaw) { store.set(newValue, forKey: Key.recordsRaw) } }
+    }
+
+    /// Renders bigger than 3840x2160 are scaled to fit inside it unless this is off.
+    public var capsRenderToUHD: Bool {
+        get {
+            access(keyPath: \.capsRenderToUHD)
+            return store.bool(forKey: Key.capsRenderToUHD) ?? true
+        }
+        set { withMutation(keyPath: \.capsRenderToUHD) { store.set(newValue, forKey: Key.capsRenderToUHD) } }
     }
 
     public var bucketEndpoint: String {

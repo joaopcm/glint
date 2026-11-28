@@ -132,6 +132,10 @@ private struct RecordingSettingsView: View {
                 Text("60 fps").tag(RecordingFrameRate.sixty)
             }
             .accessibilityIdentifier(AccessibilityID.recordingFrameRate)
+            Toggle(isOn: $settings.capsRenderToUHD) {
+                Text("Limit recordings to 4K")
+                Text("Recordings of a bigger screen are scaled down to fit 3840 × 2160 when they render. Off keeps the screen's own size.")
+            }
             Toggle(isOn: $settings.recordingCountdown) {
                 Text("Count down before recording")
                 Text("Counts down \(RecordingHUD.countdownSeconds) seconds over the area before the first frame.")

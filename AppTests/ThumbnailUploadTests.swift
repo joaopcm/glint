@@ -169,3 +169,44 @@ private let shotsUpload = UploadedCapture(
 
     #expect(presenter.count == 1)
 }
+
+@MainActor @Test func uploadAfterCaptureWaitsForTheRender() async throws {
+    let fixture = RenderingCardFixture()
+    defer { fixture.remove() }
+    fixture.settings.uploadAfterCapture = true
+    var uploaded: [URL] = []
+    let presenter = fixture.presenter(upload: { file, _ in
+        uploaded.append(file)
+        return shotsUpload
+    })
+    let job = try fixture.record()
+
+    presenter.show(fixture.file, precomputedThumbnail: try fixture.firstFrame(), render: job)
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(uploaded.isEmpty)
+
+    fixture.finishRender()
+    await job.finished()
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(uploaded == [fixture.file])
+}
+
+@MainActor @Test func uploadAfterCaptureStillRunsWhenTheCardWasClosedDuringTheRender() async throws {
+    let fixture = RenderingCardFixture()
+    defer { fixture.remove() }
+    fixture.settings.uploadAfterCapture = true
+    var uploaded: [URL] = []
+    let presenter = fixture.presenter(upload: { file, _ in
+        uploaded.append(file)
+        return shotsUpload
+    })
+    let job = try fixture.record()
+    presenter.show(fixture.file, precomputedThumbnail: try fixture.firstFrame(), render: job)
+
+    try await fixture.closeCard(of: presenter)
+    fixture.finishRender()
+    await job.finished()
+    try await Task.sleep(for: .milliseconds(200))
+
+    #expect(uploaded == [fixture.file])
+}

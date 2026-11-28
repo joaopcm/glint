@@ -91,12 +91,14 @@ private actor FakeCapturer: Capturing {
 private actor FakeRecording: ActiveRecording {
     let url: URL
     let outcome: CaptureError?
+    let firstFrame: Double?
     private let stopGate = Gate()
     private(set) var stopCount = 0
 
-    init(url: URL, outcome: CaptureError?, endsOnItsOwn: Bool) {
+    init(url: URL, outcome: CaptureError?, endsOnItsOwn: Bool, firstFrame: Double? = 1) {
         self.url = url
         self.outcome = outcome
+        self.firstFrame = firstFrame
         if endsOnItsOwn { Task { [stopGate] in await stopGate.open() } }
     }
 
@@ -110,6 +112,8 @@ private actor FakeRecording: ActiveRecording {
         FileManager.default.createFile(atPath: url.path, contents: Data("part \(url.lastPathComponent);".utf8))
         if let outcome { throw outcome }
     }
+
+    func firstFrameHostTime() async -> Double? { firstFrame }
 }
 
 private actor FakeRecorder: Recording {
@@ -118,6 +122,8 @@ private actor FakeRecorder: Recording {
     let outcome: CaptureError?
     let endsOnItsOwn: Bool
     let joinFailure: CaptureError?
+    let framelessStarts: Set<Int>
+    let startGate: (reached: Gate, release: Gate)?
     private(set) var starts: [(target: RecordingTarget, url: URL, options: RecordingOptions)] = []
     private(set) var recordings: [FakeRecording] = []
     private(set) var joins: [(parts: [URL], url: URL)] = []
@@ -128,8 +134,12 @@ private actor FakeRecorder: Recording {
         failingStart: Int? = nil,
         outcome: CaptureError? = nil,
         endsOnItsOwn: Bool = false,
-        joinFailure: CaptureError? = nil
+        joinFailure: CaptureError? = nil,
+        framelessStarts: Set<Int> = [],
+        startGate: (reached: Gate, release: Gate)? = nil
     ) {
+        self.framelessStarts = framelessStarts
+        self.startGate = startGate
         self.startFailure = startFailure
         self.failingStart = failingStart
         self.outcome = outcome
@@ -138,9 +148,13 @@ private actor FakeRecorder: Recording {
     }
 
     func startRecording(_ target: RecordingTarget, to url: URL, options: RecordingOptions) async throws -> any ActiveRecording {
+        if let startGate {
+            await startGate.reached.open()
+            await startGate.release.wait()
+        }
         if let startFailure, failingStart == nil || failingStart == starts.count + 1 { throw startFailure }
         starts.append((target, url, options))
-        let recording = FakeRecording(url: url, outcome: outcome, endsOnItsOwn: endsOnItsOwn)
+        let recording = FakeRecording(url: url, outcome: outcome, endsOnItsOwn: endsOnItsOwn, firstFrame: framelessStarts.contains(starts.count) ? nil : 1)
         recordings.append(recording)
         return recording
     }
@@ -195,14 +209,18 @@ private final class FakeMicrophone: MicrophoneAccess {
 private final class FakeKeystrokes: KeystrokeShowing {
     var isAllowed: Bool
     private(set) var shownOver: [CGRect] = []
+    private(set) var excluded: [Bool] = []
     private(set) var hideCount = 0
     private(set) var settingsOpened = 0
+    private(set) var onKey: (@MainActor (String) -> Void)?
 
     init(allowed: Bool = true) { isAllowed = allowed }
 
-    func show(over region: CGRect) throws {
+    func show(over region: CGRect, excludedFromCapture: Bool, onKey: @escaping @MainActor (String) -> Void) throws {
         guard isAllowed else { throw RecordingProblem.inputMonitoringDenied }
         shownOver.append(region)
+        excluded.append(excludedFromCapture)
+        self.onKey = onKey
     }
 
     func hide() { hideCount += 1 }
@@ -213,10 +231,12 @@ private final class FakeKeystrokes: KeystrokeShowing {
 @MainActor
 private final class FakeClickRings: ClickShowing {
     private(set) var shownOver: [CGRect] = []
+    private(set) var excluded: [Bool] = []
     private(set) var hideCount = 0
 
-    func show(over region: CGRect) {
+    func show(over region: CGRect, excludedFromCapture: Bool) {
         shownOver.append(region)
+        excluded.append(excludedFromCapture)
     }
 
     func hide() { hideCount += 1 }
@@ -230,8 +250,17 @@ private final class FakeCamera: CameraShowing {
     var access: DeviceAccess
     var cameras: [CameraInput]
     var refusal: CameraBubbleError?
+    var takeFailure: (any Error)?
+    var endTakeFailure: (any Error)?
+    var initialBubble: CGRect?
+    var takeStartHostTime: Double? = 7
     private(set) var shown: [(region: CGRect, camera: CameraInput?)] = []
+    private(set) var excluded: [Bool] = []
     private(set) var hideCount = 0
+    private(set) var calls: [String] = []
+    private(set) var takeURLs: [URL] = []
+    private(set) var onFrame: (@MainActor (CGRect) -> Void)?
+    private var runningTake: URL?
     private(set) var requestCount = 0
     private(set) var settingsOpened = 0
 
@@ -248,12 +277,34 @@ private final class FakeCamera: CameraShowing {
 
     func openSettings() { settingsOpened += 1 }
 
-    func show(over region: CGRect, camera: CameraInput?) throws {
+    func show(over region: CGRect, camera: CameraInput?, excludedFromCapture: Bool, onFrame: @escaping @MainActor (CGRect) -> Void) throws {
         if let refusal { throw refusal }
         shown.append((region, camera))
+        excluded.append(excludedFromCapture)
+        self.onFrame = onFrame
+        if let initialBubble { onFrame(initialBubble) }
     }
 
-    func hide() { hideCount += 1 }
+    func hide() {
+        hideCount += 1
+        calls.append("hide")
+    }
+
+    func startTake(to url: URL) throws {
+        if let takeFailure { throw takeFailure }
+        precondition(runningTake == nil, "a take is already running")
+        runningTake = url
+        takeURLs.append(url)
+        calls.append("startTake")
+    }
+
+    func endTake() async throws -> CameraTake? {
+        calls.append("endTake")
+        defer { runningTake = nil }
+        if let endTakeFailure { throw endTakeFailure }
+        guard let url = runningTake, let takeStartHostTime else { return nil }
+        return CameraTake(url: url, startHostTime: takeStartHostTime)
+    }
 }
 
 @MainActor
@@ -327,6 +378,8 @@ private struct Harness {
     let camera: FakeCamera
     let stager = FakeStager()
     let countdown = FakeCountdown()
+    let projectsRoot: URL
+    let projects: ProjectStore
     let coordinator: CaptureCoordinator
 
     init(
@@ -350,6 +403,7 @@ private struct Harness {
         cameraInput: CameraInput? = nil,
         showsKeys: Bool = false,
         showsClicks: Bool = false,
+        recordsRaw: Bool = false,
         countsDown: Bool = false,
         soundOn: Bool = true,
         now: @escaping () -> Date = { recordingStart },
@@ -361,6 +415,7 @@ private struct Harness {
         compress: @escaping @Sendable (URL) async throws -> CompressionResult? = { _ in nil },
         onSaved: @escaping @MainActor (URL) -> Void = { _ in },
         onCompression: @escaping @MainActor (PendingCompression?) -> Void = { _ in },
+        onRecorded: @escaping @MainActor (RecordingProject, CGImage?) -> Void = { _, _ in },
         onRecordingEvent: @escaping @MainActor (RecordingEvent) -> Void = { _ in }
     ) throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "LunettaTests-\(UUID().uuidString)")
@@ -384,7 +439,10 @@ private struct Harness {
         settings.showMouseClicks = showsClicks
         settings.recordingCountdown = countsDown
         settings.playSoundOnCapture = soundOn
+        settings.recordsRaw = recordsRaw
         self.settings = settings
+        projectsRoot = FileManager.default.temporaryDirectory.appending(path: "LunettaTests-projects-\(UUID().uuidString)")
+        projects = ProjectStore(root: projectsRoot)
         self.microphone = microphone
         self.keystrokes = keystrokes
         self.camera = camera
@@ -400,6 +458,7 @@ private struct Harness {
             selector: selector,
             alerts: alerts,
             settings: settings,
+            projects: projects,
             now: now,
             fileExists: { FileManager.default.fileExists(atPath: $0.path) },
             pointerLocation: { pointer },
@@ -414,9 +473,15 @@ private struct Harness {
                 onSaved(url)
                 onCompression(compression)
             },
+            onRecorded: onRecorded,
             onRecordingEvent: onRecordingEvent,
             countDown: { [countdown] in await countdown.run($0) }
         )
+    }
+
+    func projectFolders() throws -> [String] {
+        guard FileManager.default.fileExists(atPath: projectsRoot.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(atPath: projectsRoot.path)
     }
 
     func savedFiles() throws -> [String] {
@@ -1398,6 +1463,7 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     let harness = try Harness(recorder: recorder, selection: .area(recordedArea), showsClicks: true)
     await harness.coordinator.toggleRecording(.area)
     #expect(harness.clickRings.shownOver == [recordedArea])
+    #expect(harness.clickRings.excluded == [false])
     let options = try #require(await recorder.starts.first?.options)
     #expect(!options.showsClicks, "macOS's circles drew nothing in area recordings, and would double up with the rings if they ever did")
     await harness.coordinator.togglePause()
@@ -1429,6 +1495,7 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     let harness = try Harness(selection: .area(recordedArea), recordCamera: true, cameraInput: deskCam)
     await harness.coordinator.toggleRecording(.area)
     #expect(harness.camera.shown.map(\.region) == [recordedArea])
+    #expect(harness.camera.excluded == [false])
     #expect(harness.camera.shown.map(\.camera) == [deskCam])
     await harness.coordinator.togglePause()
     await harness.coordinator.togglePause()
@@ -1516,6 +1583,7 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     let harness = try Harness(recorder: recorder, selection: .area(recordedArea), showsKeys: true)
     await harness.coordinator.toggleRecording(.area)
     #expect(harness.keystrokes.shownOver == [recordedArea])
+    #expect(harness.keystrokes.excluded == [false])
     #expect(harness.keystrokes.hideCount == 0)
     await harness.coordinator.togglePause()
     await harness.coordinator.togglePause()
@@ -1816,4 +1884,488 @@ private let deskMic = AudioInput(id: "usb-1", name: "Desk Mic")
     #expect(await recorder.starts.count == 1)
     #expect(harness.stager.staged.count == 1)
     #expect(handed.count == 1)
+}
+
+private func loggedEvents(_ file: URL) throws -> [CaptureEvent] {
+    try Data(contentsOf: file)
+        .split(separator: UInt8(ascii: "\n"))
+        .map { try JSONDecoder().decode(CaptureEvent.self, from: Data($0)) }
+}
+
+private func firstBubble(in events: [CaptureEvent]) -> CGRect? {
+    for case .bubble(_, let frame) in events { return frame }
+    return nil
+}
+
+private func pressedKeys(in events: [CaptureEvent]) -> [String] {
+    events.compactMap { if case .key(_, let label) = $0 { label } else { nil } }
+}
+
+@MainActor private func recordTwoParts(_ harness: Harness) async {
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.togglePause()
+    await harness.coordinator.togglePause()
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func aRawRecordingHandsOverAProjectWithItsParts() async throws {
+    let recorder = FakeRecorder()
+    var recorded: [RecordingProject] = []
+    var handed: [URL] = []
+    let harness = try Harness(
+        recorder: recorder,
+        selection: .area(recordedArea),
+        recordsRaw: true,
+        onSaved: { handed.append($0) },
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    await recordTwoParts(harness)
+    let project = try #require(recorded.first)
+    #expect(recorded.count == 1 && handed.isEmpty)
+    #expect(project.parts.map(\.screen) == ["part-1.screen.mp4", "part-2.screen.mp4"])
+    #expect(project.parts.map(\.events) == ["part-1.events.jsonl", "part-2.events.jsonl"])
+    #expect(project.parts.map(\.camera) == [nil, nil])
+    #expect(project.parts.map(\.screenStartHostTime) == [1, 1])
+    let base = CaptureNaming.baseName(for: recordingStart, timeZone: .current)
+    #expect(project.output.file == harness.folder.appending(path: "\(base).mp4"))
+    #expect(project.output.codec == .h264 && project.output.frameRate == .sixty && project.output.capsToUHD)
+    #expect(project.mode == .area && project.region == recordedArea && project.windowID == nil)
+    #expect(await recorder.joins.isEmpty)
+    #expect(try harness.savedFiles().isEmpty)
+    #expect(try harness.projects.load(project.id) == project)
+    let folder = harness.projects.folder(for: project.id)
+    for part in project.parts {
+        #expect(FileManager.default.fileExists(atPath: folder.appending(path: part.screen).path))
+        #expect(FileManager.default.fileExists(atPath: folder.appending(path: part.events).path))
+    }
+    #expect(await recorder.starts.map(\.url) == project.parts.map { folder.appending(path: $0.screen) })
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func eachFinishedPartIsSavedWhileTheRecordingRuns() async throws {
+    let harness = try Harness(recorder: FakeRecorder(), selection: .area(recordedArea), recordsRaw: true)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.projects.pendingRenders().isEmpty)
+
+    await harness.coordinator.togglePause()
+    #expect(harness.projects.pendingRenders().map { $0.parts.map(\.screen) } == [["part-1.screen.mp4"]])
+
+    await harness.coordinator.togglePause()
+    await harness.coordinator.stopRecording()
+    #expect(harness.projects.pendingRenders().map { $0.parts.map(\.screen) } == [["part-1.screen.mp4", "part-2.screen.mp4"]])
+}
+
+@MainActor @Test func aRawRecordingRecordsWithoutTheCursor() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea), recordsRaw: true)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(await recorder.starts.first?.options.capturesCursor == false)
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func aFilmedRecordingKeepsTheCursorInTheVideo() async throws {
+    let recorder = FakeRecorder()
+    let harness = try Harness(recorder: recorder, selection: .area(recordedArea))
+    await harness.coordinator.toggleRecording(.area)
+    #expect(await recorder.starts.first?.options.capturesCursor == true)
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test(arguments: [true, false])
+func rawRecordingsShowOverlaysOutOfTheCapture(recordsRaw: Bool) async throws {
+    let harness = try Harness(
+        selection: .area(recordedArea),
+        recordCamera: true,
+        showsKeys: true,
+        showsClicks: true,
+        recordsRaw: recordsRaw
+    )
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.keystrokes.excluded == [recordsRaw])
+    #expect(harness.clickRings.excluded == [recordsRaw])
+    #expect(harness.camera.excluded == [recordsRaw])
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func aRawProjectRecordsWhatTheVideoWillDraw() async throws {
+    var recorded: [RecordingProject] = []
+    let harness = try Harness(
+        selection: .area(recordedArea),
+        recordCamera: true,
+        showsKeys: true,
+        showsClicks: true,
+        recordsRaw: true,
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+    let overlays = try #require(recorded.first).overlays
+    #expect(overlays.clicks && overlays.keys && overlays.camera)
+    #expect(overlays.cameraMirrored == OverlayStyle.cameraMirrored)
+    #expect(overlays.clickColorHex.wholeMatch(of: /#[0-9A-F]{6}/) != nil)
+}
+
+@MainActor @Test func aRawWindowRecordingKeepsMacOSClickCirclesAndNamesItsWindow() async throws {
+    let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
+    let recorder = FakeRecorder()
+    var recorded: [RecordingProject] = []
+    let harness = try Harness(
+        capturer: FakeCapturer(windows: [window]),
+        recorder: recorder,
+        selection: .window(42),
+        showsClicks: true,
+        recordsRaw: true,
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    await harness.coordinator.toggleRecording(.window)
+    #expect(await recorder.starts.first?.options.showsClicks == true)
+    await harness.coordinator.stopRecording()
+    let project = try #require(recorded.first)
+    #expect(project.mode == .window && project.windowID == 42)
+    #expect(project.region == CGRect(x: 50, y: 982 - 400, width: 400, height: 300))
+    #expect(!project.overlays.clicks)
+    #expect(harness.clickRings.shownOver.isEmpty)
+}
+
+@MainActor @Test(arguments: [true, false])
+func windowInPlaceOverlaysStayOutOfARawCaptureAndInAFilmedOne(recordsRaw: Bool) async throws {
+    let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
+    let harness = try Harness(
+        capturer: FakeCapturer(windows: [window]),
+        selection: .window(42),
+        recordCamera: true,
+        showsKeys: true,
+        showsClicks: true,
+        recordsRaw: recordsRaw
+    )
+    await harness.coordinator.toggleRecording(.window)
+    #expect(harness.keystrokes.excluded == [recordsRaw])
+    #expect(harness.clickRings.excluded == [recordsRaw])
+    #expect(harness.camera.excluded == [recordsRaw])
+    await harness.coordinator.stopRecording()
+}
+
+@MainActor @Test func aWindowHangingOffItsDisplayIsRecordedInPlaceAsItsVisiblePart() async throws {
+    let window = CapturableWindow(id: 42, frame: CGRect(x: 1312, y: 800, width: 400, height: 300))
+    let recorder = FakeRecorder()
+    var recorded: [RecordingProject] = []
+    let harness = try Harness(
+        capturer: FakeCapturer(windows: [window]),
+        recorder: recorder,
+        selection: .window(42),
+        showsKeys: true,
+        recordsRaw: true,
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    await harness.coordinator.toggleRecording(.window)
+    await harness.coordinator.stopRecording()
+
+    let visible = CGRect(x: 1312, y: 0, width: 200, height: 182)
+    #expect(await recorder.starts.first?.target == .windowInPlace(42, frame: visible, on: mainDisplay))
+    #expect(harness.keystrokes.shownOver == [visible])
+    #expect(try #require(recorded.first).region == visible)
+}
+
+@MainActor @Test func aRawWindowInPlaceRecordingDrawsTheCameraKeysAndRingsOverItsFixedCrop() async throws {
+    let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
+    let recorder = FakeRecorder()
+    let camera = FakeCamera()
+    let bubble = CGRect(x: 300, y: 600, width: 80, height: 80)
+    camera.initialBubble = bubble
+    var recorded: [RecordingProject] = []
+    let harness = try Harness(
+        capturer: FakeCapturer(windows: [window]),
+        recorder: recorder,
+        camera: camera,
+        selection: .window(42),
+        recordCamera: true,
+        showsKeys: true,
+        showsClicks: true,
+        recordsRaw: true,
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    await harness.coordinator.toggleRecording(.window)
+    let crop = CGRect(x: 50, y: 982 - 400, width: 400, height: 300)
+    let start = try #require(await recorder.starts.first)
+    #expect(start.target == .windowInPlace(42, frame: crop, on: mainDisplay))
+    #expect(!start.options.showsClicks, "the render draws Lunetta's rings, so macOS's circles shouldn't double them")
+    #expect(!start.options.capturesCursor)
+    let pressKey = try #require(harness.keystrokes.onKey)
+    pressKey("⌘S")
+    await harness.coordinator.stopRecording()
+
+    let project = try #require(recorded.first)
+    #expect(project.mode == .area && project.windowID == nil, "a fixed crop must not follow the window's frame")
+    #expect(project.region == crop)
+    #expect(project.overlays.camera && project.overlays.keys && project.overlays.clicks)
+    let folder = harness.projects.folder(for: project.id)
+    #expect(camera.takeURLs == [folder.appending(path: "part-1.camera.mov")])
+    #expect(project.parts.map(\.camera) == ["part-1.camera.mov"])
+    let events = try loggedEvents(folder.appending(path: "part-1.events.jsonl"))
+    #expect(firstBubble(in: events) == bubble)
+    #expect(pressedKeys(in: events) == ["⌘S"])
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func discardingARawRecordingDeletesItsProjectFolder() async throws {
+    var recorded = 0
+    let harness = try Harness(selection: .area(recordedArea), recordsRaw: true, onRecorded: { _, _ in recorded += 1 })
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.togglePause()
+    await harness.coordinator.togglePause()
+    #expect(try harness.projectFolders().count == 1)
+    await harness.coordinator.discardRecording()
+    #expect(try harness.projectFolders().isEmpty)
+    #expect(recorded == 0)
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func startOverDeletesTheOldProject() async throws {
+    var recorded: [RecordingProject] = []
+    let harness = try Harness(selection: .area(recordedArea), recordsRaw: true, onRecorded: { project, _ in recorded.append(project) })
+    await harness.coordinator.toggleRecording(.area)
+    let old = try harness.projectFolders()
+    await harness.coordinator.startOverRecording()
+    let current = try harness.projectFolders()
+    #expect(old.count == 1 && current.count == 1 && old != current)
+    await harness.coordinator.stopRecording()
+    #expect(recorded.map(\.id.uuidString) == current)
+}
+
+@MainActor @Test func aSecondRecordingDuringARenderGetsItsOwnName() async throws {
+    var recorded: [RecordingProject] = []
+    let harness = try Harness(selection: .area(recordedArea), recordsRaw: true, onRecorded: { project, _ in recorded.append(project) })
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+    let base = CaptureNaming.baseName(for: recordingStart, timeZone: .current)
+    #expect(recorded.map(\.output.file.lastPathComponent) == ["\(base).mp4", "\(base) (2).mp4"])
+    #expect(harness.projects.pendingRenders().count == 2)
+}
+
+@MainActor @Test func aPartWithoutAFirstFrameIsLeftOutAndItsFilesGo() async throws {
+    var recorded: [RecordingProject] = []
+    let harness = try Harness(
+        recorder: FakeRecorder(framelessStarts: [2]),
+        selection: .area(recordedArea),
+        recordsRaw: true,
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    await recordTwoParts(harness)
+    let project = try #require(recorded.first)
+    #expect(project.parts.map(\.screen) == ["part-1.screen.mp4"])
+    let files = try FileManager.default.contentsOfDirectory(atPath: harness.projects.folder(for: project.id).path)
+    #expect(files.filter { $0.hasPrefix("part-2") }.isEmpty)
+}
+
+@MainActor @Test func aRecordingWithoutAnyFrameHandsOverNothingAndLeavesNoFolder() async throws {
+    var recorded = 0
+    let harness = try Harness(
+        recorder: FakeRecorder(framelessStarts: [1]),
+        selection: .area(recordedArea),
+        recordsRaw: true,
+        onRecorded: { _, _ in recorded += 1 }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+    #expect(recorded == 0)
+    #expect(try harness.projectFolders().isEmpty)
+}
+
+@MainActor @Test func cameraOnRecordsATakePerPart() async throws {
+    var recorded: [RecordingProject] = []
+    let camera = FakeCamera()
+    let harness = try Harness(camera: camera, selection: .area(recordedArea), recordCamera: true, recordsRaw: true, onRecorded: { project, _ in recorded.append(project) })
+    await recordTwoParts(harness)
+    let project = try #require(recorded.first)
+    let folder = harness.projects.folder(for: project.id)
+    #expect(camera.takeURLs == [folder.appending(path: "part-1.camera.mov"), folder.appending(path: "part-2.camera.mov")])
+    #expect(project.parts.map(\.camera) == ["part-1.camera.mov", "part-2.camera.mov"])
+    #expect(project.parts.map(\.cameraStartHostTime) == [7, 7])
+    #expect(harness.alerts.presented.isEmpty)
+}
+
+@MainActor @Test func aPartWhoseTakeHadNoFramesHasNoCameraFile() async throws {
+    var recorded: [RecordingProject] = []
+    let camera = FakeCamera()
+    camera.takeStartHostTime = nil
+    let harness = try Harness(camera: camera, selection: .area(recordedArea), recordCamera: true, recordsRaw: true, onRecorded: { project, _ in recorded.append(project) })
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+    let part = try #require(recorded.first?.parts.first)
+    #expect(part.camera == nil && part.cameraStartHostTime == nil)
+}
+
+@MainActor @Test func theCameraTakeEndsBeforeTheBubbleHides() async throws {
+    let camera = FakeCamera()
+    let harness = try Harness(camera: camera, selection: .area(recordedArea), recordCamera: true, recordsRaw: true)
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+    #expect(camera.calls == ["startTake", "endTake", "hide"])
+
+    let discarded = FakeCamera()
+    let other = try Harness(camera: discarded, selection: .area(recordedArea), recordCamera: true, recordsRaw: true)
+    await other.coordinator.toggleRecording(.area)
+    await other.coordinator.discardRecording()
+    #expect(discarded.calls == ["startTake", "endTake", "hide"])
+}
+
+@MainActor @Test func aTakeThatCantStartFailsTheRecordingAndSaysWhy() async throws {
+    struct NoCamera: LocalizedError { var errorDescription: String? { "Desk Cam stopped answering." } }
+    let recorder = FakeRecorder()
+    let camera = FakeCamera()
+    camera.takeFailure = NoCamera()
+    var events: [RecordingEvent] = []
+    let harness = try Harness(recorder: recorder, camera: camera, selection: .area(recordedArea), recordCamera: true, recordsRaw: true, onRecordingEvent: { events.append($0) })
+    await harness.coordinator.toggleRecording(.area)
+    #expect(await recorder.starts.isEmpty)
+    #expect(harness.alerts.presented.first?.message.contains("Desk Cam stopped answering.") == true)
+    #expect(events.map(name) == ["started", "ended(failed)"])
+    #expect(try harness.projectFolders().isEmpty)
+    #expect(camera.hideCount == 1)
+}
+
+@MainActor @Test func aTakeThatCantStartOnResumeEndsTheRecordingWithWhatWasRecorded() async throws {
+    struct NoCamera: LocalizedError { var errorDescription: String? { "Desk Cam stopped answering." } }
+    var recorded: [RecordingProject] = []
+    let camera = FakeCamera()
+    let harness = try Harness(camera: camera, selection: .area(recordedArea), recordCamera: true, recordsRaw: true, onRecorded: { project, _ in recorded.append(project) })
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.togglePause()
+    camera.takeFailure = NoCamera()
+    await harness.coordinator.togglePause()
+    #expect(recorded.first?.parts.count == 1)
+    #expect(harness.alerts.presented.first?.message.contains("Desk Cam stopped answering.") == true)
+}
+
+@MainActor @Test func everyPartsLogStartsWithTheBubbleAndKeepsTheKeysPressedDuringIt() async throws {
+    var recorded: [RecordingProject] = []
+    let camera = FakeCamera()
+    let bubble = CGRect(x: 120, y: 220, width: 80, height: 80)
+    camera.initialBubble = bubble
+    let harness = try Harness(camera: camera, selection: .area(recordedArea), recordCamera: true, showsKeys: true, recordsRaw: true, onRecorded: { project, _ in recorded.append(project) })
+    await harness.coordinator.toggleRecording(.area)
+    let pressKey = try #require(harness.keystrokes.onKey)
+    let moveBubble = try #require(camera.onFrame)
+    pressKey("A")
+    let moved = CGRect(x: 150, y: 250, width: 80, height: 80)
+    moveBubble(moved)
+    await harness.coordinator.togglePause()
+    pressKey("Z")
+    await harness.coordinator.togglePause()
+    pressKey("B")
+    await harness.coordinator.stopRecording()
+
+    let project = try #require(recorded.first)
+    let folder = harness.projects.folder(for: project.id)
+    let first = try loggedEvents(folder.appending(path: "part-1.events.jsonl"))
+    let second = try loggedEvents(folder.appending(path: "part-2.events.jsonl"))
+    #expect(firstBubble(in: first) == bubble)
+    #expect(firstBubble(in: second) == moved)
+    #expect(pressedKeys(in: first) == ["A"])
+    #expect(pressedKeys(in: second) == ["B"])
+}
+
+@MainActor @Test func keysAndBubbleMovesWhileTheStreamStartsLandInTheFirstPart() async throws {
+    let reached = Gate()
+    let release = Gate()
+    var recorded: [RecordingProject] = []
+    let camera = FakeCamera()
+    let harness = try Harness(
+        recorder: FakeRecorder(startGate: (reached, release)),
+        camera: camera,
+        selection: .area(recordedArea),
+        recordCamera: true,
+        showsKeys: true,
+        recordsRaw: true,
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    let starting = Task { await harness.coordinator.toggleRecording(.area) }
+    await reached.wait()
+    let pressKey = try #require(harness.keystrokes.onKey)
+    let moveBubble = try #require(camera.onFrame)
+    let moved = CGRect(x: 150, y: 250, width: 80, height: 80)
+    pressKey("A")
+    moveBubble(moved)
+    await release.open()
+    await starting.value
+    await harness.coordinator.stopRecording()
+
+    let project = try #require(recorded.first)
+    let events = try loggedEvents(harness.projects.folder(for: project.id).appending(path: "part-1.events.jsonl"))
+    #expect(pressedKeys(in: events) == ["A"])
+    #expect(firstBubble(in: events) == moved)
+}
+
+@MainActor @Test func aRawRecordingThatStopsOnItsOwnPointsAtTheVideoItWillRender() async throws {
+    let reason = "Failed to find any displays or windows to capture."
+    var recorded: [RecordingProject] = []
+    let harness = try Harness(
+        recorder: FakeRecorder(outcome: .recordingStoppedEarly(path: "/tmp/part-1.screen.mp4", reason: reason)),
+        selection: .area(recordedArea),
+        recordsRaw: true,
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+
+    let output = try #require(recorded.first).output.file
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.title == "Lunetta's recording stopped early")
+    #expect(alert.message == CaptureError.recordingStoppedEarly(path: output.path, reason: reason).localizedDescription)
+}
+
+@MainActor @Test func aRawRecordingThatStopsBeforeItsFirstFrameSaysTheVideoWasntRecorded() async throws {
+    let reason = "Failed to find any displays or windows to capture."
+    var recorded = 0
+    let harness = try Harness(
+        recorder: FakeRecorder(outcome: .recordingStoppedEarly(path: "/tmp/part-1.screen.mp4", reason: reason), framelessStarts: [1]),
+        selection: .area(recordedArea),
+        recordsRaw: true,
+        onRecorded: { _, _ in recorded += 1 }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+
+    let output = harness.folder.appending(path: "\(CaptureNaming.baseName(for: recordingStart, timeZone: .current)).mp4")
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(recorded == 0)
+    #expect(alert.title == "Lunetta couldn't finish the recording")
+    #expect(alert.message == CaptureError.recordingFailed(path: output.path, reason: reason).localizedDescription)
+}
+
+@MainActor @Test func losingTheInputOfARawRecordingPointsAtTheVideoItWillRender() async throws {
+    var recorded: [RecordingProject] = []
+    let harness = try Harness(
+        microphone: FakeMicrophone(inputs: [deskMic]),
+        selection: .area(recordedArea),
+        recordMicrophone: true,
+        input: deskMic,
+        recordsRaw: true,
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.inputDisconnected(id: deskMic.id)
+
+    let output = try #require(recorded.first).output.file
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.title == "Lunetta's recording stopped early")
+    #expect(alert.message == InputDisconnected.message(input: deskMic, savedTo: output.path))
+}
+
+@MainActor @Test func aTakeThatFailsToSaveLeavesItsPartWithoutTheCameraAndSaysWhy() async throws {
+    struct DiskFull: LocalizedError { var errorDescription: String? { "The disk is full." } }
+    var recorded: [RecordingProject] = []
+    let camera = FakeCamera()
+    camera.endTakeFailure = DiskFull()
+    let harness = try Harness(camera: camera, selection: .area(recordedArea), recordCamera: true, recordsRaw: true, onRecorded: { project, _ in recorded.append(project) })
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+
+    let part = try #require(recorded.first?.parts.first)
+    #expect(part.camera == nil && part.cameraStartHostTime == nil)
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.title == "Lunetta couldn't finish the recording")
+    #expect(alert.message == "The disk is full.")
 }

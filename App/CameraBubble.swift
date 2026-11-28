@@ -2,14 +2,15 @@ import AppKit
 import AVFoundation
 import LunettaCore
 
-/// The camera in a circle over the recorded area. It isn't capture chrome, so the screen recording films it like any
-/// other window. Its middle moves it and its edge resizes it, both only inside the area; the size carries over to the
+/// The camera in a circle over the recorded area. Unless it is shown out of the capture, it isn't capture chrome, so
+/// the screen recording films it like any other window. Its middle moves it and its edge resizes it, both only inside the area; the size carries over to the
 /// next recording, and a start over brings it back where it was left.
 @MainActor
 final class CameraBubble: CameraShowing {
     private let settings: LunettaSettings
     private var panel: NSPanel?
     private var session: CameraSession?
+    private var take: CameraFileWriter?
     private var placement: (region: CGRect, frame: CGRect)?
 
     init(settings: LunettaSettings) {
@@ -40,7 +41,7 @@ final class CameraBubble: CameraShowing {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")!)
     }
 
-    func show(over region: CGRect, camera: CameraInput?) throws {
+    func show(over region: CGRect, camera: CameraInput?, excludedFromCapture: Bool, onFrame: @escaping @MainActor (CGRect) -> Void) throws {
         hide()
         guard let device = Self.device(for: camera) else {
             throw camera.map(RecordingProblem.cameraMissing) ?? RecordingProblem.noCamera
@@ -53,20 +54,43 @@ final class CameraBubble: CameraShowing {
             self?.placement = (region, frame)
             if resized { self?.settings.cameraBubbleDiameter = frame.width }
         }
+        view.onStep = onFrame
         let panel = Self.makePanel(frame: frame, view: view)
+        if excludedFromCapture { CaptureChrome.mark(panel) }
         session.start()
         panel.orderFrontRegardless()
         view.enter(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         self.session = session
         self.panel = panel
         placement = (region, frame)
+        onFrame(frame)
     }
 
     func hide() {
+        if let finishing = take, let session {
+            session.detach()
+            Task { _ = try? await finishing.finish() }
+        }
+        take = nil
         session?.stop()
         session = nil
+        if let panel { CaptureChrome.unmark(panel) }
         panel?.orderOut(nil)
         panel = nil
+    }
+
+    func startTake(to url: URL) throws {
+        guard let session else { throw CameraBubbleError.notShowing }
+        let writer = try CameraFileWriter(url: url, session: session.capture)
+        try session.attach(writer)
+        take = writer
+    }
+
+    func endTake() async throws -> CameraTake? {
+        guard let writer = take, let session else { return nil }
+        take = nil
+        session.detach()
+        return try await writer.finish()
     }
 
     /// Desk View is left out: it films the desk in front of the Mac, not the person at it.
@@ -96,13 +120,24 @@ final class CameraBubble: CameraShowing {
     }
 }
 
-enum CameraBubbleError: LocalizedError {
+enum CameraBubbleError: LocalizedError, Equatable {
     case refused(String)
+    case notShowing
+    case outputRefused
 
     var errorDescription: String? {
         switch self {
         case .refused(let name): "macOS wouldn't hand Lunetta the camera \"\(name)\". Quit any app using it, or pick another camera in the recording toolbar."
+        case .notShowing: "The camera has to be showing before a take can record it. Show the camera bubble first."
+        case .outputRefused: "macOS wouldn't let Lunetta record the camera while showing it. Quit any app using the camera, or turn the camera off in the recording toolbar."
         }
+    }
+}
+
+extension AVCaptureSession {
+    func attach(_ output: AVCaptureOutput) throws {
+        guard canAddOutput(output) else { throw CameraBubbleError.outputRefused }
+        addOutput(output)
     }
 }
 
@@ -114,6 +149,7 @@ private final class CameraSession: @unchecked Sendable {
 
     let capture = AVCaptureSession()
     private let queue = DispatchQueue(label: "com.joaopcm.lunetta.camera")
+    private var output: AVCaptureVideoDataOutput?
 
     init(device: AVCaptureDevice) throws {
         let input = try AVCaptureDeviceInput(device: device)
@@ -131,6 +167,24 @@ private final class CameraSession: @unchecked Sendable {
     func stop() {
         queue.async { self.capture.stopRunning() }
     }
+
+    func attach(_ writer: CameraFileWriter) throws {
+        let output = AVCaptureVideoDataOutput()
+        output.setSampleBufferDelegate(writer, queue: queue)
+        capture.beginConfiguration()
+        defer { capture.commitConfiguration() }
+        try capture.attach(output)
+        self.output = output
+    }
+
+    func detach() {
+        guard let output else { return }
+        output.setSampleBufferDelegate(nil, queue: nil)
+        capture.beginConfiguration()
+        capture.removeOutput(output)
+        capture.commitConfiguration()
+        self.output = nil
+    }
 }
 
 private final class CameraBubbleView: NSView {
@@ -144,6 +198,9 @@ private final class CameraBubbleView: NSView {
 
     /// The bubble's new frame in screen coordinates, and whether its size changed.
     var onChange: ((CGRect, _ resized: Bool) -> Void)?
+
+    /// The bubble's frame after every step of a drag or resize, not just when the pointer lets go.
+    var onStep: ((CGRect) -> Void)?
 
     private let region: CGRect
     private let disc = CALayer()
@@ -162,14 +219,12 @@ private final class CameraBubbleView: NSView {
 
         disc.masksToBounds = true
         disc.backgroundColor = NSColor.black.cgColor
-        // Keeps the circle's edge from melting into a dark recording.
-        disc.borderColor = NSColor.white.withAlphaComponent(0.25).cgColor
-        disc.borderWidth = 1
+        disc.borderColor = NSColor.white.withAlphaComponent(OverlayStyle.bubbleBorderAlpha).cgColor
+        disc.borderWidth = OverlayStyle.bubbleBorderWidth
         preview.videoGravity = .resizeAspectFill
-        // Mirrored like FaceTime's own view, so pointing left on camera points left on screen.
         if let connection = preview.connection, connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false
-            connection.isVideoMirrored = true
+            connection.isVideoMirrored = OverlayStyle.cameraMirrored
         }
         disc.addSublayer(preview)
         layer?.addSublayer(disc)
@@ -272,6 +327,7 @@ private final class CameraBubbleView: NSView {
         case .resize:
             window.setFrame(CameraBubbleGeometry.resized(grab.frame, grabbedAt: grab.pointer, pointer: pointer, within: region), display: true)
         }
+        onStep?(window.frame)
     }
 
     override func mouseUp(with event: NSEvent) {

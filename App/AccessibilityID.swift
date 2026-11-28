@@ -10,6 +10,7 @@ enum AccessibilityID {
     static let deleteUpload = "lunetta.deleteUpload"
     static let uploadProgress = "lunetta.uploadProgress"
     static let compressionStatus = "lunetta.compressionStatus"
+    static let renderRetry = "lunetta.renderRetry"
     static let stopRecording = "lunetta.stopRecording"
     static let recordingCountdown = "lunetta.recordingCountdown"
     static let recordingTime = "lunetta.recordingTime"

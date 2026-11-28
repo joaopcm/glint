@@ -56,7 +56,7 @@ protocol MicrophoneAccess {
 @MainActor
 protocol KeystrokeShowing {
     var isAllowed: Bool { get }
-    func show(over region: CGRect) throws
+    func show(over region: CGRect, excludedFromCapture: Bool, onKey: @escaping @MainActor (String) -> Void) throws
     func hide()
     func openSettings()
 }
@@ -68,14 +68,16 @@ protocol CameraShowing {
     var cameras: [CameraInput] { get }
     func requestAccess() async -> Bool
     func openSettings()
-    func show(over region: CGRect, camera: CameraInput?) throws
+    func show(over region: CGRect, camera: CameraInput?, excludedFromCapture: Bool, onFrame: @escaping @MainActor (CGRect) -> Void) throws
     func hide()
+    func startTake(to url: URL) throws
+    func endTake() async throws -> CameraTake?
 }
 
 /// The rings drawn under the pointer on each click in a recorded area.
 @MainActor
 protocol ClickShowing {
-    func show(over region: CGRect)
+    func show(over region: CGRect, excludedFromCapture: Bool)
     func hide()
 }
 
@@ -85,6 +87,7 @@ private struct RecordingOverlays {
     var clicks = false
     var camera = false
     var cameraInput: CameraInput?
+    var excludedFromCapture = false
 }
 
 @MainActor
@@ -97,6 +100,7 @@ protocol RecordingStaging {
 protocol ActiveRecording: Sendable {
     func stop() async
     func finished() async throws
+    func firstFrameHostTime() async -> Double?
 }
 
 /// A capture being compressed in place; nil when it came out no smaller and the saved file stays.
@@ -183,6 +187,7 @@ private final class RecordingSession {
     /// The input chosen in the panel; nil when the microphone is off or follows the system default.
     let input: AudioInput?
     let url: URL
+    let raw: RawCapture?
     let partsFolder = FileManager.default.temporaryDirectory.appending(path: "Lunetta-recording-\(UUID().uuidString)")
     var status: RecordingStatus
     var parts: [URL] = []
@@ -192,12 +197,13 @@ private final class RecordingSession {
     private var partCount = 0
     private var queue: Task<Void, Never>?
 
-    init(target: RecordingTarget, options: RecordingOptions, overlays: RecordingOverlays, input: AudioInput?, url: URL, status: RecordingStatus) {
+    init(target: RecordingTarget, options: RecordingOptions, overlays: RecordingOverlays, input: AudioInput?, url: URL, raw: RawCapture?, status: RecordingStatus) {
         self.target = target
         self.options = options
         self.overlays = overlays
         self.input = input
         self.url = url
+        self.raw = raw
         self.status = status
     }
 
@@ -230,6 +236,7 @@ final class CaptureCoordinator {
     private let selector: any Selecting
     private let alerts: any AlertPresenting
     private let settings: LunettaSettings
+    private let projects: ProjectStore
     private let now: () -> Date
     private let fileExists: (URL) -> Bool
     private let pointerLocation: @MainActor () -> CGPoint
@@ -238,13 +245,16 @@ final class CaptureCoordinator {
     private let compress: @Sendable (URL) async throws -> CompressionResult?
     private let playShutterSound: @MainActor () -> Void
     private let onSaved: @MainActor (URL, _ thumbnail: CGImage?, PendingCompression?) -> Void
+    private let onRecorded: @MainActor (RecordingProject, _ thumbnail: CGImage?) -> Void
     private let onRecordingEvent: @MainActor (RecordingEvent) -> Void
     private let countDown: @MainActor (RecordingStatus) async -> Bool
     private var isRunning = false
     private var delivery: Task<SavedScreenshot?, Never>?
     private var clipboardCopy: Task<Void, Never>?
     private var session: RecordingSession?
+    private var startingRaw: RawCapture?
     private var countdown: Task<Bool, Never>?
+    private var latestBubble: CGRect?
 
     init(
         capturer: any Capturing,
@@ -257,6 +267,7 @@ final class CaptureCoordinator {
         selector: any Selecting,
         alerts: any AlertPresenting,
         settings: LunettaSettings,
+        projects: ProjectStore,
         now: @escaping () -> Date = Date.init,
         fileExists: @escaping (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
@@ -265,6 +276,7 @@ final class CaptureCoordinator {
         compress: @escaping @Sendable (URL) async throws -> CompressionResult? = CaptureCompressor.compress,
         playShutterSound: @escaping @MainActor () -> Void = {},
         onSaved: @escaping @MainActor (URL, _ thumbnail: CGImage?, PendingCompression?) -> Void = { _, _, _ in },
+        onRecorded: @escaping @MainActor (RecordingProject, _ thumbnail: CGImage?) -> Void = { _, _ in },
         onRecordingEvent: @escaping @MainActor (RecordingEvent) -> Void = { _ in },
         countDown: @escaping @MainActor (RecordingStatus) async -> Bool = { _ in true }
     ) {
@@ -278,6 +290,7 @@ final class CaptureCoordinator {
         self.selector = selector
         self.alerts = alerts
         self.settings = settings
+        self.projects = projects
         self.now = now
         self.fileExists = fileExists
         self.pointerLocation = pointerLocation
@@ -286,6 +299,7 @@ final class CaptureCoordinator {
         self.compress = compress
         self.playShutterSound = playShutterSound
         self.onSaved = onSaved
+        self.onRecorded = onRecorded
         self.onRecordingEvent = onRecordingEvent
         self.countDown = countDown
     }
@@ -349,14 +363,13 @@ final class CaptureCoordinator {
             if let problem = recordingProblems().first { throw problem }
             let choices = settings.recordingChoices
             // Following a window holds that window alone, so the camera and pressed keys only reach it recorded in place.
+            let followsWindow = mode == .window && !choices.camera && !choices.showsKeys
+            // A crop of the display only holds what's on it, so the overlays and the render map against that part.
+            let recorded = followsWindow ? region : region.intersection(picked.display.frame)
             let target: RecordingTarget = switch picked.target {
-            case .area: .area(region, on: picked.display)
-            case .window(let id) where choices.camera || choices.showsKeys: .windowInPlace(id, frame: region, on: picked.display)
-            case .window, .windowInPlace: picked.target
-            }
-            let followsWindow = switch target {
-            case .window: true
-            case .area, .windowInPlace: false
+            case .area: .area(recorded, on: picked.display)
+            case .window(let id): followsWindow ? .window(id) : .windowInPlace(id, frame: recorded, on: picked.display)
+            case .windowInPlace: picked.target
             }
             selected = true
             let input = choices.microphone ? choices.input : nil
@@ -368,16 +381,18 @@ final class CaptureCoordinator {
                 systemAudio: choices.systemAudio,
                 microphone: choices.microphone,
                 microphoneID: input?.id,
-                showsClicks: choices.showsClicks && !drawsClicks
+                showsClicks: choices.showsClicks && !drawsClicks,
+                capturesCursor: !settings.recordsRaw
             )
             overlays = RecordingOverlays(
                 keys: choices.showsKeys,
                 clicks: drawsClicks,
                 camera: choices.camera,
-                cameraInput: choices.camera ? choices.cameraInput : nil
+                cameraInput: choices.camera ? choices.cameraInput : nil,
+                excludedFromCapture: settings.recordsRaw
             )
-            try show(overlays, over: region)
-            let status = RecordingStatus(region: region, dimsOutside: mode == .area)
+            try show(overlays, over: recorded)
+            let status = RecordingStatus(region: recorded, dimsOutside: mode == .area)
             try await record(target, status: status, options: options, overlays: overlays, input: input)
         } catch {
             if selected { onRecordingEvent(.ended(.failed)) }
@@ -404,14 +419,37 @@ final class CaptureCoordinator {
     }
 
     private func show(_ overlays: RecordingOverlays, over region: CGRect) throws {
-        if overlays.keys { try keystrokes.show(over: region) }
-        if overlays.clicks { clickRings.show(over: region) }
-        if overlays.camera { try camera.show(over: region, camera: overlays.cameraInput) }
+        let excluded = overlays.excludedFromCapture
+        latestBubble = nil
+        if overlays.keys {
+            try keystrokes.show(over: region, excludedFromCapture: excluded, onKey: { [weak self] label in self?.activeRaw?.logKey(label) })
+        }
+        if overlays.clicks { clickRings.show(over: region, excludedFromCapture: excluded) }
+        if overlays.camera {
+            try camera.show(over: region, camera: overlays.cameraInput, excludedFromCapture: excluded, onFrame: { [weak self] frame in
+                self?.latestBubble = frame
+                self?.activeRaw?.logBubble(frame)
+            })
+        }
+    }
+
+    /// The first part logs from before its stream starts, while the session only begins once it has.
+    private var activeRaw: RawCapture? {
+        session?.raw ?? startingRaw
     }
 
     private func hide(_ overlays: RecordingOverlays) {
+        hideKeysAndClicks(overlays)
+        hideCamera(overlays)
+    }
+
+    private func hideKeysAndClicks(_ overlays: RecordingOverlays) {
         if overlays.keys { keystrokes.hide() }
         if overlays.clicks { clickRings.hide() }
+    }
+
+    /// Hiding the bubble mid-take finalizes and discards the take, so it waits until the take has ended.
+    private func hideCamera(_ overlays: RecordingOverlays) {
         if overlays.camera { camera.hide() }
     }
 
@@ -428,10 +466,69 @@ final class CaptureCoordinator {
         status.clock.start(at: now())
         // The HUD has to be on screen before the stream starts, or the recording can't tell to leave it out.
         onRecordingEvent(.started(status))
-        let active = try await recorder.startRecording(target, to: url, options: options)
-        let session = RecordingSession(target: target, options: options, overlays: overlays, input: input, url: url, status: status)
+        let raw = try makeRawCapture(target, status: status, options: options, overlays: overlays, output: url)
+        startingRaw = raw
+        defer { startingRaw = nil }
+        let started: (recording: any ActiveRecording, screenFile: URL)
+        do {
+            started = try await startPart(of: target, options: options, raw: raw) { url }
+        } catch {
+            try? raw?.discard()
+            throw error
+        }
+        let session = RecordingSession(target: target, options: options, overlays: overlays, input: input, url: url, raw: raw, status: status)
         self.session = session
-        attach(active, writingTo: url, in: session)
+        attach(started.recording, writingTo: started.screenFile, in: session)
+    }
+
+    private func makeRawCapture(
+        _ target: RecordingTarget,
+        status: RecordingStatus,
+        options: RecordingOptions,
+        overlays: RecordingOverlays,
+        output: URL
+    ) throws -> RawCapture? {
+        guard settings.recordsRaw else { return nil }
+        let (mode, windowID): (RecordingMode, UInt32?) = switch target {
+        case .window(let id): (.window, id)
+        case .area, .windowInPlace: (.area, nil)
+        }
+        let project = RecordingProject(
+            id: UUID(),
+            createdAt: now(),
+            mode: mode,
+            region: status.region,
+            windowID: windowID,
+            parts: [],
+            overlays: ProjectOverlays(
+                clicks: overlays.clicks,
+                keys: overlays.keys,
+                camera: overlays.camera,
+                clickColorHex: RawCapture.accentColorHex(),
+                cameraMirrored: OverlayStyle.cameraMirrored
+            ),
+            output: ProjectOutput(file: output, codec: options.codec, frameRate: options.frameRate, capsToUHD: settings.capsRenderToUHD)
+        )
+        return try RawCapture(store: projects, project: project, camera: overlays.camera ? camera : nil)
+    }
+
+    private func startPart(
+        of target: RecordingTarget,
+        options: RecordingOptions,
+        raw: RawCapture?,
+        filmedFile: () throws -> URL
+    ) async throws -> (recording: any ActiveRecording, screenFile: URL) {
+        guard let raw else {
+            let file = try filmedFile()
+            return (try await recorder.startRecording(target, to: file, options: options), file)
+        }
+        let file = try raw.beginPart(bubble: latestBubble)
+        do {
+            return (try await recorder.startRecording(target, to: file, options: options), file)
+        } catch {
+            await raw.abandonPart()
+            throw error
+        }
     }
 
     private func countDownIfOn(_ status: RecordingStatus) async -> Bool {
@@ -493,12 +590,20 @@ final class CaptureCoordinator {
         beginEnding(session, as: .discarded)
         await session.serially { [self] in
             _ = await endSegment(of: session)
+            hideCamera(session.overlays)
             var failure: (any Error)?
-            for file in Set(session.parts + [session.url]) where fileExists(file) {
-                do {
-                    try FileManager.default.removeItem(at: file)
-                } catch {
-                    failure = failure ?? error
+            do {
+                try session.raw?.discard()
+            } catch {
+                failure = error
+            }
+            if session.raw == nil {
+                for file in Set(session.parts + [session.url]) where fileExists(file) {
+                    do {
+                        try FileManager.default.removeItem(at: file)
+                    } catch {
+                        failure = failure ?? error
+                    }
                 }
             }
             try? FileManager.default.removeItem(at: session.partsFolder)
@@ -535,12 +640,13 @@ final class CaptureCoordinator {
     }
 
     private func resume(_ session: RecordingSession) async {
-        let url = session.nextPartURL()
         do {
-            try FileManager.default.createDirectory(at: session.partsFolder, withIntermediateDirectories: true)
-            let active = try await recorder.startRecording(session.target, to: url, options: session.options)
+            let started = try await startPart(of: session.target, options: session.options, raw: session.raw) {
+                try FileManager.default.createDirectory(at: session.partsFolder, withIntermediateDirectories: true)
+                return session.nextPartURL()
+            }
             session.status.clock.start(at: now())
-            attach(active, writingTo: url, in: session)
+            attach(started.recording, writingTo: started.screenFile, in: session)
             guard !session.isEnding else { return }
             onRecordingEvent(.resumed(session.status))
         } catch {
@@ -557,13 +663,23 @@ final class CaptureCoordinator {
     /// The controls go away on the click; joining the parts and handing over the file follow.
     private func beginEnding(_ session: RecordingSession, as end: RecordingEnd) {
         session.isEnding = true
-        hide(session.overlays)
+        hideKeysAndClicks(session.overlays)
         onRecordingEvent(.ended(end))
     }
 
     private func finish(_ session: RecordingSession, failure: (any Error)?) async {
         let segmentFailure = await endSegment(of: session)
-        var problem = failure ?? segmentFailure
+        hideCamera(session.overlays)
+        let problem = failure ?? segmentFailure
+        if let raw = session.raw {
+            await finishRaw(session, raw, problem: problem)
+        } else {
+            await finishFilmed(session, problem: problem)
+        }
+    }
+
+    private func finishFilmed(_ session: RecordingSession, problem: (any Error)?) async {
+        var problem = problem
         do {
             try await assemble(session)
         } catch {
@@ -572,7 +688,35 @@ final class CaptureCoordinator {
         if self.session === session { self.session = nil }
         let saved = fileExists(session.url)
         if saved { onSaved(session.url, nil, compressIfOn(session.url)) }
-        if let lost = session.lostInput { problem = CoordinatorError.inputDisconnected(lost, savedTo: saved ? session.url : nil) }
+        report(problem, of: session, savedTo: saved ? session.url : nil)
+    }
+
+    /// The project is saved before it is handed over, so a crash from here on still leaves a render to resume.
+    private func finishRaw(_ session: RecordingSession, _ raw: RawCapture, problem: (any Error)?) async {
+        var problem = problem
+        var recorded: RecordingProject?
+        do {
+            recorded = try raw.finish()
+        } catch {
+            problem = problem ?? error
+        }
+        if self.session === session { self.session = nil }
+        if let recorded { onRecorded(recorded, await raw.firstFrame(maxPixelSize: maxThumbnailPixels)) }
+        let output = raw.project.output.file
+        report(problem.map { Self.pointing($0, at: output, saved: recorded != nil) }, of: session, savedTo: recorded == nil ? nil : output)
+    }
+
+    /// A raw part's screen file has no cursor and is never the recording; the video its render writes is.
+    private static func pointing(_ problem: any Error, at output: URL, saved: Bool) -> any Error {
+        guard case let .recordingStoppedEarly(_, reason) = problem as? CaptureError else { return problem }
+        return saved
+            ? CaptureError.recordingStoppedEarly(path: output.path, reason: reason)
+            : CaptureError.recordingFailed(path: output.path, reason: reason)
+    }
+
+    private func report(_ problem: (any Error)?, of session: RecordingSession, savedTo saved: URL?) {
+        var problem = problem
+        if let lost = session.lostInput { problem = CoordinatorError.inputDisconnected(lost, savedTo: saved) }
         guard let problem else { return }
         let stoppedEarly = if case .recordingStoppedEarly = problem as? CaptureError { true } else { session.lostInput != nil }
         present(problem, failure: stoppedEarly ? "Lunetta's recording stopped early" : "Lunetta couldn't finish the recording")
@@ -584,6 +728,10 @@ final class CaptureCoordinator {
         session.status.clock.pause(at: now())
         await segment.recording.stop()
         let failure = await segment.end.value
+        if let raw = session.raw {
+            let logFailure = await raw.endPart(screenStartHostTime: await segment.recording.firstFrameHostTime())
+            return failure ?? logFailure
+        }
         if fileExists(segment.url) { session.parts.append(segment.url) }
         return failure
     }
@@ -642,18 +790,23 @@ final class CaptureCoordinator {
     }
 
     private func nextFileURL(ext: String) -> URL {
-        CaptureNaming.uniqueFileURL(
+        let reserved = ext == "mp4" ? projects.reservedOutputFiles() : []
+        return CaptureNaming.uniqueFileURL(
             in: settings.saveFolder,
             baseName: CaptureNaming.baseName(for: now(), timeZone: .current),
             ext: ext,
-            exists: fileExists
+            exists: { fileExists($0) || reserved.contains($0.standardizedFileURL) }
         )
+    }
+
+    private var maxThumbnailPixels: CGFloat {
+        let maxScale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
+        return LunettaSettings.thumbnailWidthRange.upperBound * maxScale
     }
 
     private func save(_ image: CGImage) async throws -> SavedScreenshot {
         let url = nextFileURL(ext: "png")
-        let maxScale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
-        let maxThumbnailPixels = LunettaSettings.thumbnailWidthRange.upperBound * maxScale
+        let maxThumbnailPixels = self.maxThumbnailPixels
         let writePNG = writePNG
         let (pngData, thumbnail) = try await Task.detached(priority: .userInitiated) {
             let data = try await writePNG(image, url)

@@ -1,4 +1,5 @@
 import AppKit
+import LunettaCore
 import QuartzCore
 
 /// Pulses a soft disc under the pointer on each click inside the recorded area. ScreenCaptureKit's own `showMouseClicks`
@@ -7,15 +8,16 @@ import QuartzCore
 /// apps' clicks without any permission; only key events need one.
 @MainActor
 final class ClickRingOverlay: ClickShowing {
-    static let diameter: CGFloat = 36
-    static let fillAlpha: CGFloat = 0.2
+    static let diameter = CGFloat(OverlayStyle.clickDiameter)
+    static let fillAlpha = CGFloat(OverlayStyle.clickFillAlpha)
 
     private var panel: NSPanel?
     private var monitor: Any?
 
-    func show(over region: CGRect) {
+    func show(over region: CGRect, excludedFromCapture: Bool) {
         hide()
         let panel = Self.makePanel(over: region)
+        if excludedFromCapture { CaptureChrome.mark(panel) }
         panel.orderFrontRegardless()
         self.panel = panel
         monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
@@ -28,6 +30,7 @@ final class ClickRingOverlay: ClickShowing {
     func hide() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        if let panel { CaptureChrome.unmark(panel) }
         panel?.orderOut(nil)
         panel = nil
     }
@@ -57,7 +60,7 @@ final class ClickRingOverlay: ClickShowing {
 
     /// Spreads out from the click while it fades, over the time a thumbnail takes to come and go.
     static func pulse(reduceMotion: Bool) -> CAAnimationGroup {
-        let duration = ThumbnailPresenter.enterDuration + ThumbnailPresenter.exitDuration
+        let duration = OverlayStyle.clickPulseDuration
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1
         fade.toValue = 0
@@ -68,7 +71,7 @@ final class ClickRingOverlay: ClickShowing {
             group.animations = [fade]
         } else {
             let spread = CABasicAnimation(keyPath: "transform.scale")
-            spread.fromValue = 0.3
+            spread.fromValue = OverlayStyle.clickStartScale
             spread.toValue = 1
             spread.duration = duration
             spread.timingFunction = ThumbnailPresenter.easeOut

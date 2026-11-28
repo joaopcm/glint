@@ -59,6 +59,8 @@ final class AppState {
         )
     )
     private let shutterSound = ShutterSound()
+    private let projects = ProjectStore(root: URL.applicationSupportDirectory.appending(path: "Lunetta/Projects"))
+    private lazy var renders = RenderQueue(store: projects, settings: settings)
 
     init() {
         #if DEBUG
@@ -103,9 +105,14 @@ final class AppState {
             ),
             alerts: NSAlertPresenter(),
             settings: settings,
+            projects: projects,
             playShutterSound: { [shutterSound] in shutterSound.play() },
             onSaved: { [weak self] url, precomputedThumbnail, compression in
                 self?.thumbnail.show(url, precomputedThumbnail: precomputedThumbnail, compression: compression)
+            },
+            onRecorded: { [weak self] project, firstFrame in
+                guard let self else { return }
+                self.thumbnail.show(project.output.file, precomputedThumbnail: firstFrame, render: self.renders.enqueue(project))
             },
             onRecordingEvent: { [weak self] event in self?.recordingHUD.handle(event) },
             countDown: { [weak self] status in await self?.recordingHUD.countDown(status) ?? true }
@@ -132,6 +139,7 @@ final class AppState {
         KeyboardShortcuts.onKeyDown(for: .recordArea) { [weak self] in self?.record(.area) }
         KeyboardShortcuts.onKeyDown(for: .recordWindow) { [weak self] in self?.record(.window) }
         watchInputs()
+        resumeRenders()
     }
 
     /// A recording's input going away ends it, and the stage's input and camera menus follow what's plugged in.
@@ -144,6 +152,20 @@ final class AppState {
                     self.recordingStage.refresh()
                     if let disconnectedID { Task { await self.coordinator.inputDisconnected(id: disconnectedID) } }
                 }
+            }
+        }
+    }
+
+    /// Long enough to fix a recording shared last week, which is why raw media is kept at all.
+    private static let renderedProjectsKeptFor: TimeInterval = 30 * 24 * 60 * 60
+
+    private func resumeRenders() {
+        _ = projects.sweep(olderThan: Date.now.addingTimeInterval(-Self.renderedProjectsKeptFor))
+        for job in renders.resumePending() {
+            Task { [weak self] in
+                await job.finished()
+                guard !job.isRepeatFailure else { return }
+                self?.toast.show(job.outcomeMessage)
             }
         }
     }

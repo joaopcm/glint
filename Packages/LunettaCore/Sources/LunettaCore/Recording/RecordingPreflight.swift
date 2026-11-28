@@ -1,6 +1,6 @@
 import Foundation
 
-public enum RecordingMode: String, CaseIterable, Sendable {
+public enum RecordingMode: String, CaseIterable, Codable, Sendable {
     case area, window
 }
 
