@@ -97,7 +97,7 @@ final class AppState {
             clickRings: clickRings,
             camera: camera,
             stager: recordingStage,
-            scrollStager: UnbuiltScrollStage(),
+            scrollStager: ScrollingStage(),
             selector: SelectionOverlayController(
                 showsMagnifier: { [settings] in settings.showMagnifierWhileSelecting },
                 snapshot: { try await capturer.captureDisplay($0) }
@@ -123,6 +123,7 @@ final class AppState {
         )
         let shortcuts: [(KeyboardShortcuts.Name, CaptureMode)] = [
             (.captureArea, .area),
+            (.captureScrolling, .scrolling),
             (.captureWindow, .window),
             (.captureFullScreen, .fullScreen),
         ]
@@ -216,6 +217,8 @@ private struct MenuContent: View {
     var body: some View {
         Button("Capture Area") { state.capture(.area) }
             .globalKeyboardShortcut(.captureArea)
+        Button("Capture Scrolling") { state.capture(.scrolling) }
+            .globalKeyboardShortcut(.captureScrolling)
         Button("Capture Window") { state.capture(.window) }
             .globalKeyboardShortcut(.captureWindow)
         Button("Capture Full Screen") { state.capture(.fullScreen) }
@@ -236,14 +239,4 @@ private struct MenuContent: View {
         Divider()
         Text(BuildInfo.label(from: Bundle.main.infoDictionary))
     }
-}
-
-/// Stands in until the scrolling stage exists; nothing in the menu or shortcuts starts a scrolling capture yet.
-@MainActor
-private struct UnbuiltScrollStage: ScrollStaging {
-    let previewPixelHeight = 0
-    func prepare(_ area: CGRect, on display: DisplayInfo) {}
-    func decision() async -> ScrollStageDecision { .cancelled }
-    func show(_ update: StitchUpdate, preview: CGImage?) {}
-    func dismiss() {}
 }

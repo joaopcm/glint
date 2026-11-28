@@ -20,7 +20,13 @@ import Testing
 
     @Test func everyLunettaShortcutHasTheDocumentedDefault() {
         let defaults = names.map { $0.defaultShortcut.map(ShortcutKeyPress.label) }
-        #expect(defaults == ["⇧⌘2", "⌃⇧⌘2", "⇧⌘1", "⌥⇧⌘2", "⌥⇧⌘5", "⌃⌥⇧⌘5"])
+        #expect(defaults == ["⇧⌘2", "⌥⇧⌘4", "⌃⇧⌘2", "⇧⌘1", "⌥⇧⌘2", "⌥⇧⌘5", "⌃⌥⇧⌘5"])
+    }
+
+    @Test func captureScrollingFollowsCaptureArea() {
+        let titles = LunettaShortcuts.all.map(\.title)
+        #expect(titles.prefix(2) == ["Capture Area", "Capture Scrolling"])
+        #expect(names[1] == .captureScrolling)
     }
 
     @Test func restoreWritesEveryDefaultThroughTheStoreThatRegistersHotkeys() {

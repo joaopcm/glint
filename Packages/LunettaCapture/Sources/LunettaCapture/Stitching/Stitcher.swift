@@ -37,6 +37,12 @@ public struct StitchUpdate: Sendable, Equatable {
     public let state: State
     public let height: Int
     public let appendedRows: Int
+
+    public init(state: State, height: Int, appendedRows: Int) {
+        self.state = state
+        self.height = height
+        self.appendedRows = appendedRows
+    }
 }
 
 public final class Stitcher {
