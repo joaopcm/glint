@@ -2045,6 +2045,27 @@ func windowInPlaceOverlaysStayOutOfARawCaptureAndInAFilmedOne(recordsRaw: Bool) 
     await harness.coordinator.stopRecording()
 }
 
+@MainActor @Test func aWindowHangingOffItsDisplayIsRecordedInPlaceAsItsVisiblePart() async throws {
+    let window = CapturableWindow(id: 42, frame: CGRect(x: 1312, y: 800, width: 400, height: 300))
+    let recorder = FakeRecorder()
+    var recorded: [RecordingProject] = []
+    let harness = try Harness(
+        capturer: FakeCapturer(windows: [window]),
+        recorder: recorder,
+        selection: .window(42),
+        showsKeys: true,
+        recordsRaw: true,
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    await harness.coordinator.toggleRecording(.window)
+    await harness.coordinator.stopRecording()
+
+    let visible = CGRect(x: 1312, y: 0, width: 200, height: 182)
+    #expect(await recorder.starts.first?.target == .windowInPlace(42, frame: visible, on: mainDisplay))
+    #expect(harness.keystrokes.shownOver == [visible])
+    #expect(try #require(recorded.first).region == visible)
+}
+
 @MainActor @Test func aRawWindowInPlaceRecordingDrawsTheCameraKeysAndRingsOverItsFixedCrop() async throws {
     let window = CapturableWindow(id: 42, frame: CGRect(x: 50, y: 100, width: 400, height: 300))
     let recorder = FakeRecorder()
@@ -2068,6 +2089,7 @@ func windowInPlaceOverlaysStayOutOfARawCaptureAndInAFilmedOne(recordsRaw: Bool) 
     let start = try #require(await recorder.starts.first)
     #expect(start.target == .windowInPlace(42, frame: crop, on: mainDisplay))
     #expect(!start.options.showsClicks, "the render draws Lunetta's rings, so macOS's circles shouldn't double them")
+    #expect(!start.options.capturesCursor)
     let pressKey = try #require(harness.keystrokes.onKey)
     pressKey("⌘S")
     await harness.coordinator.stopRecording()

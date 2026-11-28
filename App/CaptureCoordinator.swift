@@ -363,14 +363,13 @@ final class CaptureCoordinator {
             if let problem = recordingProblems().first { throw problem }
             let choices = settings.recordingChoices
             // Following a window holds that window alone, so the camera and pressed keys only reach it recorded in place.
+            let followsWindow = mode == .window && !choices.camera && !choices.showsKeys
+            // A crop of the display only holds what's on it, so the overlays and the render map against that part.
+            let recorded = followsWindow ? region : region.intersection(picked.display.frame)
             let target: RecordingTarget = switch picked.target {
-            case .area: .area(region, on: picked.display)
-            case .window(let id) where choices.camera || choices.showsKeys: .windowInPlace(id, frame: region, on: picked.display)
-            case .window, .windowInPlace: picked.target
-            }
-            let followsWindow = switch target {
-            case .window: true
-            case .area, .windowInPlace: false
+            case .area: .area(recorded, on: picked.display)
+            case .window(let id): followsWindow ? .window(id) : .windowInPlace(id, frame: recorded, on: picked.display)
+            case .windowInPlace: picked.target
             }
             selected = true
             let input = choices.microphone ? choices.input : nil
@@ -392,8 +391,8 @@ final class CaptureCoordinator {
                 cameraInput: choices.camera ? choices.cameraInput : nil,
                 excludedFromCapture: settings.recordsRaw
             )
-            try show(overlays, over: region)
-            let status = RecordingStatus(region: region, dimsOutside: mode == .area)
+            try show(overlays, over: recorded)
+            let status = RecordingStatus(region: recorded, dimsOutside: mode == .area)
             try await record(target, status: status, options: options, overlays: overlays, input: input)
         } catch {
             if selected { onRecordingEvent(.ended(.failed)) }
