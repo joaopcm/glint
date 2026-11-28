@@ -21,13 +21,13 @@ extension StitchTuning {
     public static let measured = StitchTuning(
         // docs/perf/2026-11-scrolling-capture.md, Task 3 "sampleStride": 1–64 all stitch both pages; 8 is 3.3–3.6x faster than 1
         sampleStride: 8,
-        // same doc, "minMatchFraction": late-painted frames need >= 0.68, the worst real pair matches 0.7711
-        minMatchFraction: 0.72,
+        // same doc, "minMatchFraction": late-painted frames need >= 0.70, the worst real pair matches 0.7711
+        minMatchFraction: 0.73,
         // same doc, "minDistinctRows": wrong shifts on Notion match <= 24 rows at stride 8, real pairs >= 620
         minDistinctRows: 32,
         // same doc, "maxOutputHeight": past Slack's 25,000 px inline preview; 80,000 px peaks ~2.9 GB to stitch and save
         maxOutputHeight: 40_000,
-        // same doc, "floatingBlockSize": smallest block that still sees a 2-row toast; no false zone on either page
+        // same doc, "floatingBlockSize": 1 can never float; 2 sees a 2-row toast (toastOneBlockTallAppearsOnce(block: 2))
         floatingBlockSize: 2
     )
 }
@@ -197,7 +197,7 @@ public final class Stitcher {
         while trailing < width && a.isUniformColumn(trailing) { trailing += 1 }
         let columns = leading < trailing ? leading..<trailing : 0..<width
 
-        let aRows = a.rowSignatures(columns: columns, stride: tuning.sampleStride), bRows = b.rowSignatures(columns: columns, stride: tuning.sampleStride)
+        let aRows = a.rowSignatures(columns: columns, stride: 1), bRows = b.rowSignatures(columns: columns, stride: 1)
         var header = 0
         while header < a.height && aRows[header] == bRows[header] { header += 1 }
         while header > 0 && a.isUniformRow(header - 1, columns: columns) { header -= 1 }

@@ -177,26 +177,36 @@ on Notion. Past 8 the gain is about 1 ms per frame while the wrong shifts keep c
 First run, before the fix: `learnBands` compared column signatures sampled every `sampleStride` rows. On Notion, strides
 3, 6 and 8–64 learned columns 1031..<2439 instead of 12..<2600 and cropped both sides of the page. The only content
 outside 1031..<2439 is a 2-row divider, and when the samples missed it those columns looked still. Strides 2 and 4
-passed only because their samples landed on it. Still columns are now always learned from every pixel; it runs once
-per capture. `stillSidebarIsFoundWhenContentColumnsDifferOnlyBetweenSamples` covers it at stride 6.
+passed only because their samples landed on it. Still columns and the header are now always learned from every pixel;
+it runs once per capture. `stillSidebarIsFoundWhenContentColumnsDifferOnlyBetweenSamples` covers columns at stride 6,
+`sparseTopRowsAreNotAHeader` covers the header at stride 8 (top rows that differ only between samples used to become a
+4-row header).
 
 ### minMatchFraction
 
 Real fixtures: every value 0.50–0.75 passes, 0.80+ fails (GitHub 01→02 matches 0.7711).
 
-Late paint, synthetic: for every downward pair, the newer frame's content columns are painted white from the middle of
-the overlap to the bottom (Task 0's worst case: blank rows over half the overlap), inserted before the real frame.
-Pass = the painted frame is refused (`.lostOverlap`), every other append is `.tracking`, and the final image equals the
-clean run's. 13 pairs (9 GitHub, 4 Notion):
+Late paint, synthetic, laid out exactly like `latePaintedFrameIsRefusedAndTheNextOneRecovers`: start a run at frame
+*s*, append the real frames up to the one before *i*, then frame *i* with its content columns painted white from the
+middle of the overlap to the bottom (Task 0's worst case: blank rows over half the overlap), then the real frame *i*
+and the rest. Every downward pair *i* and every start *s* ≤ *i* − 2, so the bands are learned from different first
+pairs: 36 GitHub scenarios, 6 Notion. Pass = the painted frame is refused (`.lostOverlap`), every other append is
+`.tracking`, and the final image equals a clean run from the same start.
 
-| minMatchFraction | 0.60 | 0.62 | 0.64 | 0.66 | 0.68 | 0.70 | 0.72 | 0.74 | 0.76 |
+| minMatchFraction | 0.60 | 0.62 | 0.64 | 0.66 | 0.67 | 0.68 | 0.69 | 0.70 | 0.71–0.76 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| pairs passing | 10 | 12 | 12 | 12 | 13 | 13 | 13 | 13 | 13 |
+| github-pr (of 36) | 21 | 22 | 23 | 25 | 29 | 30 | 34 | **36** | 36 |
+| notion (of 6) | 3 | 6 | 6 | 6 | 6 | 6 | 6 | 6 | 6 |
 
-Below 0.68 a painted frame gets stitched, and the white rows stay in the image. Stride 8 and stride 16 give the same
-counts at every value. Chosen: **0.72**, between the late-paint
-floor (0.68) and the worst real pair (0.7711), 0.04–0.05 from each. It also sits above every wrong shift's share
-(0.5721 at stride 8). `latePaintedFrameIsRefusedAndTheNextOneRecovers` locks the floor on GitHub 08→09.
+Strides 1, 8 and 16 give identical counts. At 0.69 the last failures are GitHub 06→09 and 07→09; the committed test is
+07→09 (frame 08→09 painted). Below the floor a painted frame gets stitched, and the white rows stay in the image.
+
+An earlier sweep started every run at frame 01 only and found a floor of 0.68. Runs that start later learn other
+bands and need 0.70; that sweep was wrong and is replaced by this one.
+
+Chosen: **0.73**, about midway between the late-paint floor (0.70) and the worst real pair (0.7711): 0.03 above one,
+0.041 below the other. It also sits above every wrong shift's share (0.5721 at stride 8).
+`latePaintedFrameIsRefusedAndTheNextOneRecovers` fails at 0.69 and passes from 0.70.
 
 ### minDistinctRows
 
@@ -218,12 +228,17 @@ px sticky footer, vertical rules), a bottom toast of 4–24 px, and both fixture
 | 24 | late footer **fails** | **fail** | **fail** | **fail** | **fail** | pass | pass | pass |
 | 32 | late footer, sticky footer **fail** | **fail** | **fail** | **fail** | **fail** | **fail** | pass | pass |
 
-A toast shorter than the block is never detected and gets stitched in once per frame (Task 2's open question). With
-block 2 that only leaves 1-row toasts. On the real pages, across every scrolled fixture pair, no bottom block forms a
+A toast shorter than the block is never detected and gets stitched in once per frame (Task 2's open question). Block 1
+can never float: a floating block needs at least two distinct rows, so 2 is the floor, and with block 2 only 1-row toasts
+go undetected. `toastOneBlockTallAppearsOnce(block: 2)` covers the 2-row toast. On the real pages, across every scrolled fixture pair, no bottom block forms a
 floating block at 2, 4 or 16 px: every still bottom block is blank background (7729 still 2-px blocks on GitHub, 8719
 on Notion, all uniform), GitHub's hover **+** included. Median `append` at stride 1 is the same at block 2 and 16 (14.49 vs
 14.56 ms GitHub, 19.27 vs 19.36 ms Notion). Chosen: **2**, the smallest value that passes everything. No real floating-widget
-fixture exists, so this rests on the synthetic scenarios only. `toastOneBlockTallAppearsOnce` covers blocks 2 and 16.
+fixture exists, so this rests on the synthetic scenarios only.
+
+Open risk: content that repeats with the scroll's period (a striped table scrolled by exactly one stripe) can make a
+2-px block at the bottom look still and distinct, which would raise a false floating zone. Neither fixture has such
+content, so this is unmeasured.
 
 ### maxOutputHeight
 

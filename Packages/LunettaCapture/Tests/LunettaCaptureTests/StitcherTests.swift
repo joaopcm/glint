@@ -558,3 +558,15 @@ func toastOneBlockTallAppearsOnce(block: Int) throws {
     let (stitcher, _) = stitch(frames, tuning: blocks)
     #expect(try bytes(stitcher.image()) == rows(source, 0..<(900 - block)) + rows(frames[3], (600 - block)..<600))
 }
+
+@Test func sparseTopRowsAreNotAHeader() {
+    let sparseTop = repainted(page(width: 64, height: 400)) { x, y in
+        guard y % 40 < 4 else { return nil }
+        return x == 1 + y % 7 ? [0, 0, 0, 255] : white
+    }
+    var strided = tuning
+    strided.sampleStride = 8
+    let (stitcher, updates) = stitch(viewports(of: sparseTop, tops: [0, 40, 95, 150], height: 100), tuning: strided)
+    #expect(updates.map(\.state) == [.tracking, .tracking, .tracking])
+    #expect(stitcher.headerRows == 0)
+}

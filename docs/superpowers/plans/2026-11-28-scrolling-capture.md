@@ -271,20 +271,18 @@ truth: the test checks the final image against every fixture frame at the offset
 `docs/perf/2026-11-scrolling-capture.md`.
 
 **Files:**
-- Create: `Packages/LunettaCapture/Tests/LunettaCaptureTests/Fixtures/scrolling/<page>/ground-truth.png`
 - Modify: `Stitcher.swift` (add `StitchTuning.measured`), `StitcherTests.swift`
 - Modify: `docs/perf/2026-11-scrolling-capture.md` (created in Task 0)
 
 **Interfaces:**
 - Produces: `StitchTuning.measured`, used by Task 5.
 
-- [ ] **Step 1: Add ground truth** for Task 0's fixtures: each page's full-page screenshot (browser) or export to PNG,
-  cropped to the content column where available.
-- [ ] **Step 2: Write `@Test(arguments: ["github-pr", "notion", "google-doc", "slack-thread"]) func realPageStitches(_ page: String)`**
-  which appends every frame and asserts: final state `.tracking`, no `.lostOverlap` along the way, Slack output width
-  excludes the channel list, and output height within the page's ground-truth height ± header height.
-- [ ] **Step 3: Measure `sampleStride`, `minMatchFraction`, `minDistinctRows`, `floatingBlockSize`.** Add a docs page
-  with a chat bubble (any site with an Intercom-style widget) to Task 0's fixture set for `floatingBlockSize`. Sweep values over the fixtures; record
+- [ ] **Step 1: Write `@Test(arguments: ["github-pr", "notion"]) func realPageStitches(_ page: String)`** which appends
+  every frame with `StitchTuning.measured` and asserts: every update `.tracking`, height never decreases, floating zone
+  0, and each frame's moving rows match the final image at the top the stitcher placed it.
+- [ ] **Step 2: Add a late-paint test**: a real frame with half its overlap blank is refused and the next frame recovers.
+- [ ] **Step 3: Measure `sampleStride`, `minMatchFraction`, `minDistinctRows`, `floatingBlockSize`.** `floatingBlockSize`
+  rests on Task 2's synthetic widget scenarios plus a toast sweep (no real floating-widget fixture). Sweep values over the fixtures; record
   pass/fail and `append` time per frame (median of the fixture run) in the perf doc. Pick the cheapest values that pass
   every fixture with margin.
 - [ ] **Step 4: Measure `maxOutputHeight`.** Record decode memory and `PNGWriter` encode time for outputs of 10k, 20k,
