@@ -20,7 +20,8 @@ final class EventRecorder {
     private let cursor: () -> NSCursor?
     private let windowFrame: (UInt32) -> CGRect?
 
-    private var lastPointer: CGPoint?
+    private var lastPointer: (point: CGPoint, t: Double)?
+    private var lastTick: Double?
     private var lastShape: CursorShape?
     private var lastWindowFrame: CGRect?
     private var monitors: [Any] = []
@@ -68,16 +69,23 @@ final class EventRecorder {
         self.link = link
     }
 
+    /// The log only says where the pointer went, and a reader draws it gliding from one sample to the next. A pointer
+    /// that rested gets the resting point again at the last tick before it moved, so it holds still until then.
     func tick() {
+        let t = now()
         let location = pointer()
-        if location != lastPointer {
-            lastPointer = location
-            record(.pointer(t: now(), x: location.x, y: location.y))
+        if location != lastPointer?.point {
+            if let held = lastPointer, let lastTick, lastTick > held.t {
+                record(.pointer(t: lastTick, x: held.point.x, y: held.point.y))
+            }
+            lastPointer = (location, t)
+            record(.pointer(t: t, x: location.x, y: location.y))
         }
-        logCursorChange()
+        lastTick = t
+        logCursorChange(at: t)
         if let windowID, let frame = windowFrame(windowID), frame != lastWindowFrame {
             lastWindowFrame = frame
-            record(.window(t: now(), frame: frame))
+            record(.window(t: t, frame: frame))
         }
     }
 
@@ -111,13 +119,13 @@ final class EventRecorder {
         record(.click(t: now(), x: location.x, y: location.y))
     }
 
-    private func logCursorChange() {
+    private func logCursorChange(at t: Double) {
         guard let current = cursor() else { return }
         do {
             let shape = CursorShape(image: try cursors.name(for: current), hotspot: current.hotSpot)
             guard shape != lastShape else { return }
             lastShape = shape
-            record(.cursor(t: now(), image: shape.image, hotspotX: shape.hotspot.x, hotspotY: shape.hotspot.y))
+            record(.cursor(t: t, image: shape.image, hotspotX: shape.hotspot.x, hotspotY: shape.hotspot.y))
         } catch {
             failure = failure ?? error
         }

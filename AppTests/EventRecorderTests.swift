@@ -63,6 +63,38 @@ private struct Fixture {
 }
 
 @MainActor
+@Test func aPointerAtRestStaysPutUntilItMoves() throws {
+    let fixture = try Fixture()
+    defer { fixture.remove() }
+    let rest = CGPoint(x: 10, y: 20)
+    let next = CGPoint(x: 110, y: 220)
+    var time = 1.0
+    var location = rest
+    let recorder = EventRecorder(
+        writer: fixture.writer,
+        cursors: CursorImageStore(folder: fixture.cursorsFolder),
+        windowID: nil,
+        now: { time },
+        pointer: { location },
+        cursor: { nil }
+    )
+
+    for tick in [1.0, 2, 3, 4, 5] {
+        time = tick
+        recorder.tick()
+    }
+    time = 5.016
+    location = next
+    recorder.tick()
+    try recorder.stop()
+
+    let log = CaptureEventLog.read(jsonLines: try Data(contentsOf: fixture.logFile))
+    #expect(log.pointer(at: 3) == rest)
+    #expect(log.pointer(at: 5) == rest)
+    #expect(log.pointer(at: 5.016) == next)
+}
+
+@MainActor
 @Test func aNewCursorShapeWritesItsImageOnce() throws {
     let fixture = try Fixture()
     defer { fixture.remove() }
