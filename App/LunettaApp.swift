@@ -2,6 +2,7 @@ import AVFoundation
 import LunettaCapture
 import LunettaCore
 import KeyboardShortcuts
+import OSLog
 import SwiftUI
 
 @main
@@ -103,9 +104,13 @@ final class AppState {
             ),
             alerts: NSAlertPresenter(),
             settings: settings,
+            projects: ProjectStore(root: URL.applicationSupportDirectory.appending(path: "Lunetta/Projects")),
             playShutterSound: { [shutterSound] in shutterSound.play() },
             onSaved: { [weak self] url, precomputedThumbnail, compression in
                 self?.thumbnail.show(url, precomputedThumbnail: precomputedThumbnail, compression: compression)
+            },
+            onRecorded: { project, _ in
+                Logger(subsystem: "com.joaopcm.lunetta", category: "recording").info("Recorded project \(project.id.uuidString, privacy: .public), pending render")
             },
             onRecordingEvent: { [weak self] event in self?.recordingHUD.handle(event) },
             countDown: { [weak self] status in await self?.recordingHUD.countDown(status) ?? true }
