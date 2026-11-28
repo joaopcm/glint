@@ -92,6 +92,7 @@ enum ScrollStageDecision: Equatable {
     case done, cancelled
 }
 
+/// The stage around a scrolling capture. It closes itself once `decision()` resolves, and ignores `show` after that.
 @MainActor
 protocol ScrollStaging {
     /// The height of the stage's preview strip, in pixels of the captured area.
@@ -101,7 +102,7 @@ protocol ScrollStaging {
     /// Resolves once: Done/Return or Cancel/Esc.
     func decision() async -> ScrollStageDecision
     func show(_ update: StitchUpdate, preview: CGImage?)
-    /// Closes the stage when the stream fails while it is up.
+    /// Closes the stage when the stream fails, resolving a pending `decision()` with `.cancelled`; a closed stage stays closed.
     func dismiss()
 }
 
@@ -264,6 +265,7 @@ final class CaptureCoordinator {
     private var clipboardCopy: Task<Void, Never>?
     private var session: RecordingSession?
     private var countdown: Task<Bool, Never>?
+    private var scrollStageIsDeciding = false
 
     init(
         capturer: any Capturing,
@@ -767,7 +769,9 @@ final class CaptureCoordinator {
             scrollStager.dismiss()
             throw error
         }
-        let stitching = stitch(frames.frames, previewRows: scrollStager.previewPixelHeight)
+        let (firstFrame, firstFrameArrived) = AsyncStream<Void>.makeStream()
+        scrollStageIsDeciding = true
+        let stitching = stitch(frames.frames, previewRows: scrollStager.previewPixelHeight, firstFrameArrived: firstFrameArrived)
         let (outcomes, post) = AsyncStream<Result<ScrollStageDecision, any Error>>.makeStream()
         let deciding = Task { post.yield(.success(await scrollStager.decision())) }
         Task {
@@ -776,36 +780,56 @@ final class CaptureCoordinator {
         var next = outcomes.makeAsyncIterator()
         let outcome = await next.next()
         post.finish()
-        await frames.stop()
-        switch outcome {
-        case .success(.done):
-            return try await stitching.value
-        case .success(.cancelled), nil:
-            return nil
-        case .failure(let error):
-            deciding.cancel()
+        scrollStageIsDeciding = false
+        do {
+            switch outcome {
+            case .success(.done):
+                // Done can come before the stream's first frame, which would leave nothing to save.
+                for await _ in firstFrame {}
+                await frames.stop()
+                return try await stitching.value
+            case .success(.cancelled), nil:
+                stitching.cancel()
+                _ = await stitching.result
+                await frames.stop()
+                return nil
+            case .failure(let error):
+                deciding.cancel()
+                await frames.stop()
+                throw error
+            }
+        } catch {
             scrollStager.dismiss()
             throw error
         }
     }
 
-    private func stitch(_ frames: AsyncThrowingStream<Frame, any Error>, previewRows: Int) -> Task<CGImage?, any Error> {
+    private func stitch(
+        _ frames: AsyncThrowingStream<Frame, any Error>,
+        previewRows: Int,
+        firstFrameArrived: AsyncStream<Void>.Continuation
+    ) -> Task<CGImage?, any Error> {
         Task.detached { [self] in
+            defer { firstFrameArrived.finish() }
             var stitcher: Stitcher?
             for try await frame in frames {
+                guard !Task.isCancelled else { return nil }
                 guard let current = stitcher else {
                     stitcher = Stitcher(first: frame, tuning: .measured)
+                    firstFrameArrived.finish()
                     continue
                 }
                 let update = current.append(frame)
                 let preview = current.tail(maxRows: previewRows)
                 await showOnStage(update, preview: preview)
             }
+            guard !Task.isCancelled else { return nil }
             return stitcher?.image()
         }
     }
 
     private func showOnStage(_ update: StitchUpdate, preview: CGImage?) {
+        guard scrollStageIsDeciding else { return }
         scrollStager.show(update, preview: preview)
     }
 

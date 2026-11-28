@@ -3,6 +3,7 @@ import Foundation
 import ImageIO
 import LunettaCapture
 import LunettaCore
+import Synchronization
 import Testing
 @testable import Lunetta
 
@@ -35,6 +36,9 @@ private actor FakeCapturer: Capturing {
     let scrollError: CaptureError?
     let scrollStartError: CaptureError?
     let onScrollingFrames: (@Sendable () async -> Void)?
+    let scrollDelay: Duration?
+    let scrollFramesAfterStop: [CGImage]
+    nonisolated let scrollTerminations = Mutex<[String]>([])
     private(set) var scrollStopCount = 0
     private(set) var capturedDisplayIDs: [UInt32] = []
     private(set) var capturedWindowIDs: [UInt32] = []
@@ -51,8 +55,12 @@ private actor FakeCapturer: Capturing {
         scrollFrames: [CGImage] = [],
         scrollError: CaptureError? = nil,
         scrollStartError: CaptureError? = nil,
-        onScrollingFrames: (@Sendable () async -> Void)? = nil
+        onScrollingFrames: (@Sendable () async -> Void)? = nil,
+        scrollDelay: Duration? = nil,
+        scrollFramesAfterStop: [CGImage] = []
     ) {
+        self.scrollDelay = scrollDelay
+        self.scrollFramesAfterStop = scrollFramesAfterStop
         displayList = displays
         self.windows = windows
         self.scrollFrames = scrollFrames
@@ -96,10 +104,26 @@ private actor FakeCapturer: Capturing {
         await onScrollingFrames?()
         if let scrollStartError { throw scrollStartError }
         let (frames, continuation) = AsyncThrowingStream<Frame, any Error>.makeStream()
-        for image in scrollFrames { continuation.yield(Frame(image)!) }
-        if let scrollError { continuation.finish(throwing: scrollError) }
+        continuation.onTermination = { [self] reason in
+            let name = if case .cancelled = reason { "cancelled" } else { "finished" }
+            scrollTerminations.withLock { $0.append(name) }
+        }
+        let deliver = { [scrollFrames, scrollError] in
+            for image in scrollFrames { continuation.yield(Frame(image)!) }
+            if let scrollError { continuation.finish(throwing: scrollError) }
+        }
+        if let scrollDelay {
+            Task {
+                try? await Task.sleep(for: scrollDelay)
+                deliver()
+            }
+        } else {
+            deliver()
+        }
+        let late = scrollFramesAfterStop
         return ScrollingFrames(frames: frames, stop: { [self] in
             await recordScrollStop()
+            for image in late { continuation.yield(Frame(image)!) }
             continuation.finish()
         })
     }
@@ -306,6 +330,8 @@ private final class FakeScrollStager: ScrollStaging {
     private(set) var prepared: [(area: CGRect, display: DisplayInfo)] = []
     private(set) var shown: [(update: StitchUpdate, preview: CGImage?)] = []
     private(set) var dismissCount = 0
+    private(set) var lateShows = 0
+    private var decided = false
     private var waiting: CheckedContinuation<ScrollStageDecision, Never>?
 
     init(_ answer: ScrollStageDecision? = .done) { self.answer = answer }
@@ -320,20 +346,29 @@ private final class FakeScrollStager: ScrollStaging {
     }
 
     func show(_ update: StitchUpdate, preview: CGImage?) {
+        guard !decided else {
+            lateShows += 1
+            return
+        }
         shown.append((update, preview))
         resolveIfReady()
     }
 
     func dismiss() {
         dismissCount += 1
-        waiting?.resume(returning: .cancelled)
-        waiting = nil
+        resolve(.cancelled)
     }
 
     private func resolveIfReady() {
-        guard let answer, shown.count >= expectedShows, let waiting else { return }
+        guard let answer, shown.count >= expectedShows else { return }
+        resolve(answer)
+    }
+
+    private func resolve(_ decision: ScrollStageDecision) {
+        guard let waiting else { return }
         self.waiting = nil
-        waiting.resume(returning: answer)
+        decided = true
+        waiting.resume(returning: decision)
     }
 }
 
@@ -2021,4 +2056,38 @@ private func savedImage(_ harness: Harness) throws -> CGImage {
     #expect(stager.shown.count == 2)
     #expect(stager.shown.last?.update.height == scrollFrameHeight + 80)
     #expect(stager.shown.last?.preview?.height == stager.previewPixelHeight)
+}
+
+@MainActor @Test func scrollingDoneBeforeFirstFrameWaitsForIt() async throws {
+    let frame = scrolledFrames(tops: [0])[0]
+    let capturer = FakeCapturer(scrollFrames: [frame], scrollDelay: .milliseconds(100))
+    let harness = try Harness(capturer: capturer, selection: .area(scrollArea))
+    await harness.coordinator.run(.scrolling)
+    let saved = try savedImage(harness)
+    #expect(Frame(saved)?.pixels == Frame(frame)?.pixels)
+    #expect(harness.alerts.presented.isEmpty)
+    #expect(await capturer.scrollStopCount == 1)
+}
+
+@MainActor @Test func scrollingCancelStopsStitching() async throws {
+    let stager = FakeScrollStager(.cancelled)
+    stager.expectedShows = 1
+    let tops = scrolledFrames(tops: [0, 40, 80])
+    let capturer = FakeCapturer(scrollFrames: Array(tops[0...1]), scrollFramesAfterStop: [tops[2]])
+    let harness = try Harness(capturer: capturer, scrollStager: stager, selection: .area(scrollArea))
+    await harness.coordinator.run(.scrolling)
+    #expect(capturer.scrollTerminations.withLock { $0 } == ["cancelled"])
+    #expect(stager.shown.count == 1)
+    #expect(stager.lateShows == 0)
+    #expect(try harness.savedFiles().isEmpty)
+}
+
+@MainActor @Test func scrollingStreamFailureAfterDoneDismissesStage() async throws {
+    let capturer = FakeCapturer(scrollError: .permissionDenied, scrollDelay: .milliseconds(100))
+    let harness = try Harness(capturer: capturer, selection: .area(scrollArea))
+    await harness.coordinator.run(.scrolling)
+    #expect(harness.scrollStager.dismissCount == 1)
+    #expect(harness.alerts.presented.count == 1)
+    #expect(try harness.savedFiles().isEmpty)
+    #expect(await capturer.scrollStopCount == 1)
 }
