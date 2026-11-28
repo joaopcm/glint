@@ -26,7 +26,7 @@ private struct Broke: LocalizedError {
     var store: ProjectStore { ProjectStore(root: root.appending(path: "Projects")) }
     let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
 
-    func make(name: String, createdAt: Date = Date(), renderedAt: Date? = nil) throws -> RecordingProject {
+    func make(name: String, createdAt: Date = Date(), renderedAt: Date? = nil, renderFailedAt: Date? = nil) throws -> RecordingProject {
         let project = RecordingProject(
             id: UUID(),
             createdAt: createdAt,
@@ -36,7 +36,8 @@ private struct Broke: LocalizedError {
             parts: [ProjectPart(screen: "part-1.screen.mp4", camera: nil, events: "part-1.events.jsonl", screenStartHostTime: 1000, cameraStartHostTime: nil)],
             overlays: ProjectOverlays(clicks: false, keys: false, camera: false, clickColorHex: "#FF0000", cameraMirrored: false),
             output: ProjectOutput(file: root.appending(path: "saved/\(name).mp4"), codec: .h264, frameRate: .thirty, capsToUHD: true),
-            renderedAt: renderedAt
+            renderedAt: renderedAt,
+            renderFailedAt: renderFailedAt
         )
         try store.create(project)
         return project
@@ -186,6 +187,41 @@ private struct Broke: LocalizedError {
 
     #expect(watch.log == [pending.id.uuidString])
     #expect(projects.store.pendingRenders().isEmpty)
+}
+
+@MainActor @Test func aFailedRenderIsMarkedOnItsProjectAndASuccessClearsTheMark() async throws {
+    let projects = Projects()
+    defer { projects.remove() }
+    let project = try projects.make(name: "Demo")
+    let watch = Watch()
+    let queue = RenderQueue(store: projects.store, settings: projects.settings, render: { _, _ in
+        watch.log.append("render")
+        if watch.log.count == 1 { throw Broke() }
+    })
+
+    let job = queue.enqueue(project)
+    await job.finished()
+    #expect(try projects.store.load(project.id).renderFailedAt != nil)
+
+    job.retry()
+    await job.finished()
+    let rendered = try projects.store.load(project.id)
+    #expect(rendered.renderFailedAt == nil)
+    #expect(rendered.renderedAt != nil)
+}
+
+@MainActor @Test func aProjectThatFailedAtAnEarlierLaunchFailsQuietly() async throws {
+    let projects = Projects()
+    defer { projects.remove() }
+    let failedBefore = try projects.make(name: "Before", createdAt: Date(timeIntervalSinceNow: -120), renderFailedAt: Date(timeIntervalSinceNow: -60))
+    let failsNow = try projects.make(name: "Now", createdAt: Date(timeIntervalSinceNow: -60))
+    let queue = RenderQueue(store: projects.store, settings: projects.settings, render: { _, _ in throw Broke() })
+
+    let jobs = queue.resumePending()
+    for job in jobs { await job.finished() }
+
+    #expect(jobs.map(\.project.id) == [failedBefore.id, failsNow.id])
+    #expect(jobs.map(\.isRepeatFailure) == [true, false])
 }
 
 @MainActor @Test func aCancelledRenderStaysPendingWithoutFailing() async throws {

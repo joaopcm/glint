@@ -75,19 +75,21 @@ struct ProjectStoreTests {
         #expect(throws: ProjectError.self) { try store.load(UUID()) }
     }
 
-    @Test func sweepDeletesRenderedProjectsOlderThanTheCutoffAndKeepsUnrenderedOnes() throws {
+    @Test func sweepDeletesProjectsRenderedOrRecordedBeforeTheCutoff() throws {
         let store = ProjectStore(root: makeRoot())
         let now = Date()
         let cutoff = now.addingTimeInterval(-100)
-        let oldRendered = project(renderedAt: now.addingTimeInterval(-200))
-        let freshRendered = project(renderedAt: now.addingTimeInterval(-10))
+        let oldRendered = project(createdAt: now.addingTimeInterval(-300), renderedAt: now.addingTimeInterval(-200))
+        let freshRendered = project(createdAt: now.addingTimeInterval(-300), renderedAt: now.addingTimeInterval(-10))
         let oldUnrendered = project(createdAt: now.addingTimeInterval(-500))
-        for project in [oldRendered, freshRendered, oldUnrendered] { try store.create(project) }
+        let freshUnrendered = project(createdAt: now.addingTimeInterval(-10))
+        for project in [oldRendered, freshRendered, oldUnrendered, freshUnrendered] { try store.create(project) }
 
-        #expect(store.sweep(olderThan: cutoff) == [oldRendered.id])
+        #expect(Set(store.sweep(olderThan: cutoff)) == [oldRendered.id, oldUnrendered.id])
         #expect(!FileManager.default.fileExists(atPath: store.folder(for: oldRendered.id).path))
+        #expect(!FileManager.default.fileExists(atPath: store.folder(for: oldUnrendered.id).path))
         #expect(try store.load(freshRendered.id) == freshRendered)
-        #expect(try store.load(oldUnrendered.id) == oldUnrendered)
+        #expect(try store.load(freshUnrendered.id) == freshUnrendered)
     }
 
     @Test func sweepDeletesOldFoldersThatNeverGotAProject() throws {

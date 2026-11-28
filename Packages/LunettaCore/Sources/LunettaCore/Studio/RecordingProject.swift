@@ -73,6 +73,7 @@ public struct RecordingProject: Codable, Equatable, Sendable {
     public var overlays: ProjectOverlays
     public var output: ProjectOutput
     public var renderedAt: Date?
+    public var renderFailedAt: Date?
 
     public init(
         schemaVersion: Int = RecordingProject.currentSchemaVersion,
@@ -84,7 +85,8 @@ public struct RecordingProject: Codable, Equatable, Sendable {
         parts: [ProjectPart],
         overlays: ProjectOverlays,
         output: ProjectOutput,
-        renderedAt: Date? = nil
+        renderedAt: Date? = nil,
+        renderFailedAt: Date? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.id = id
@@ -96,6 +98,7 @@ public struct RecordingProject: Codable, Equatable, Sendable {
         self.overlays = overlays
         self.output = output
         self.renderedAt = renderedAt
+        self.renderFailedAt = renderFailedAt
     }
 
     public static func decode(_ data: Data, file: String) throws(ProjectError) -> RecordingProject {

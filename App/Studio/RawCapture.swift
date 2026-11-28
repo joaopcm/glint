@@ -90,6 +90,8 @@ final class RawCapture {
             screenStartHostTime: screenStartHostTime,
             cameraStartHostTime: take?.startHostTime
         ))
+        // Only for recovering a recording after a crash: finish() saves again and reports its own failure.
+        try? store.save(project)
         return failure
     }
 

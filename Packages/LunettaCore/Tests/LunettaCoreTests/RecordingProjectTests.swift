@@ -26,6 +26,17 @@ struct RecordingProjectTests {
         #expect(decoded == project)
     }
 
+    @Test func aProjectThatNeverFailedLeavesTheFailureOutSoOlderFilesStillLoad() throws {
+        let project = project()
+        let json = String(decoding: try project.encoded(), as: UTF8.self)
+        #expect(!json.contains("renderFailedAt"))
+        #expect(try RecordingProject.decode(Data(json.utf8), file: "p.json").renderFailedAt == nil)
+
+        var failed = project
+        failed.renderFailedAt = Date(timeIntervalSinceReferenceDate: 1000)
+        #expect(try RecordingProject.decode(failed.encoded(), file: "p.json") == failed)
+    }
+
     @Test func aNewerSchemaSaysWhichVersionsAreInvolved() throws {
         let data = Data(#"{"schemaVersion": 2}"#.utf8)
         let error = try #require(throws: ProjectError.self) {

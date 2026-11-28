@@ -50,11 +50,12 @@ public struct ProjectStore: Sendable {
         try FileManager.default.removeItem(at: folder(for: id))
     }
 
-    /// Also takes folders that never got a project, left by a recording that crashed or failed to save.
+    /// Unrendered projects count from when they were recorded, so one whose render fails at every launch doesn't stay
+    /// forever. Folders that never got a project, left by a recording that crashed or failed to save, go too.
     public func sweep(olderThan cutoff: Date) -> [UUID] {
         folderIDs()
             .filter { id in
-                if let project = try? load(id) { return project.renderedAt.map { $0 < cutoff } ?? false }
+                if let project = try? load(id) { return (project.renderedAt ?? project.createdAt) < cutoff }
                 return !FileManager.default.fileExists(atPath: projectFile(for: id).path) && modified(folder(for: id), before: cutoff)
             }
             .filter { (try? delete($0)) != nil }

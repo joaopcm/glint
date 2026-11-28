@@ -1915,6 +1915,19 @@ private func pressedKeys(in events: [CaptureEvent]) -> [String] {
     #expect(harness.alerts.presented.isEmpty)
 }
 
+@MainActor @Test func eachFinishedPartIsSavedWhileTheRecordingRuns() async throws {
+    let harness = try Harness(recorder: FakeRecorder(), selection: .area(recordedArea), recordsRaw: true)
+    await harness.coordinator.toggleRecording(.area)
+    #expect(harness.projects.pendingRenders().isEmpty)
+
+    await harness.coordinator.togglePause()
+    #expect(harness.projects.pendingRenders().map { $0.parts.map(\.screen) } == [["part-1.screen.mp4"]])
+
+    await harness.coordinator.togglePause()
+    await harness.coordinator.stopRecording()
+    #expect(harness.projects.pendingRenders().map { $0.parts.map(\.screen) } == [["part-1.screen.mp4", "part-2.screen.mp4"]])
+}
+
 @MainActor @Test func aRawRecordingRecordsWithoutTheCursor() async throws {
     let recorder = FakeRecorder()
     let harness = try Harness(recorder: recorder, selection: .area(recordedArea), recordsRaw: true)

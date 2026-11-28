@@ -157,8 +157,7 @@ final class AppState {
         }
     }
 
-    /// João's call: fixing a recording shared last week is why raw media is kept at all
-    /// (docs/superpowers/specs/2026-11-28-native-video-editor-design.md, open question 1).
+    /// Long enough to fix a recording shared last week, which is why raw media is kept at all.
     private static let renderedProjectsKeptFor: TimeInterval = 30 * 24 * 60 * 60
 
     private func resumeRenders() {
@@ -166,6 +165,7 @@ final class AppState {
         for job in renders.resumePending() {
             Task { [weak self] in
                 await job.finished()
+                guard !job.isRepeatFailure else { return }
                 self?.toast.show(job.outcomeMessage)
             }
         }

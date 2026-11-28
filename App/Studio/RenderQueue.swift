@@ -37,6 +37,11 @@ final class RenderJob {
         return if case let .failed(reason) = phase { "Couldn't render \(name): \(reason)" } else { "Rendered \(name)" }
     }
 
+    var isRepeatFailure: Bool {
+        guard case .failed = phase else { return false }
+        return project.renderFailedAt != nil
+    }
+
     func retry() {
         guard case .failed = phase else { return }
         queue?.schedule(self)
@@ -120,6 +125,7 @@ final class RenderQueue {
             job.move(to: .queued)
             return
         } catch {
+            markFailed(job.project)
             job.move(to: .failed(error.localizedDescription))
             return
         }
@@ -127,6 +133,7 @@ final class RenderQueue {
         let file = job.project.output.file
         var rendered = job.project
         rendered.renderedAt = Date()
+        rendered.renderFailedAt = nil
         do {
             try store.save(rendered)
         } catch {
@@ -147,6 +154,13 @@ final class RenderQueue {
             job.compressionFailure = error.localizedDescription
             job.move(to: .done(nil))
         }
+    }
+
+    /// The mark only decides whether the next launch announces this failure again; if it can't be saved, it announces again.
+    private func markFailed(_ project: RecordingProject) {
+        var failed = project
+        failed.renderFailedAt = Date()
+        try? store.save(failed)
     }
 
     nonisolated static func renderInService(_ projectFolder: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
