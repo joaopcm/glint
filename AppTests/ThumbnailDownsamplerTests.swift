@@ -27,6 +27,12 @@ import Testing
     #expect(topLeft.red > 200 && topLeft.blue < 50)
 }
 
+@Test func aTallVideoFrameThumbnailKeepsTheWholeFrame() throws {
+    let frame = try solidImage(width: 1600, height: 20000)
+    let thumbnail = ThumbnailDownsampler.downsample(frame, maxPixelSize: 960, keepsWholeFrame: true)
+    #expect(thumbnail.width == 77 && thumbnail.height == 960)
+}
+
 @Test func normalImageThumbnailIsUnchanged() throws {
     let normal = try solidImage(width: 1600, height: 1000)
     let thumbnail = ThumbnailDownsampler.downsample(normal, maxPixelSize: 960)

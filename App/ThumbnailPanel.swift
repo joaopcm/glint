@@ -130,7 +130,9 @@ final class ThumbnailPresenter {
         let screen = NSScreen.screens.first { $0.frame.contains(pointerLocation()) } ?? NSScreen.main
         guard let screen else { return }
         if let precomputedThumbnail {
-            let scaled = ThumbnailDownsampler.downsample(precomputedThumbnail, maxPixelSize: ThumbnailItem.maxPixelSize(on: screen))
+            let scaled = ThumbnailDownsampler.downsample(
+                precomputedThumbnail, maxPixelSize: ThumbnailItem.maxPixelSize(on: screen), keepsWholeFrame: ThumbnailItem.isVideo(url)
+            )
             let fullPixelSize = ThumbnailItem.pixelSource(of: url).map(\.fullPixelSize)
             return show(url, thumbnail: scaled, fullPixelSize: fullPixelSize, on: screen, pending: pending, isCapture: isCapture)
         }
@@ -1403,8 +1405,11 @@ enum ThumbnailCentering {
 }
 
 enum ThumbnailDownsampler {
-    static func downsample(_ image: CGImage, maxPixelSize: CGFloat) -> CGImage {
-        if TallCapture.isTall(width: image.width, height: image.height) { return topCrop(image, maxPixelWidth: maxPixelSize) }
+    /// `keepsWholeFrame` is for video frames: a video card shows its whole frame, like `videoThumbnail`, however tall.
+    static func downsample(_ image: CGImage, maxPixelSize: CGFloat, keepsWholeFrame: Bool = false) -> CGImage {
+        if !keepsWholeFrame, TallCapture.isTall(width: image.width, height: image.height) {
+            return topCrop(image, maxPixelWidth: maxPixelSize)
+        }
         let longest = CGFloat(max(image.width, image.height))
         guard longest > maxPixelSize, maxPixelSize > 0 else { return image }
         return scaled(image, by: maxPixelSize / longest)

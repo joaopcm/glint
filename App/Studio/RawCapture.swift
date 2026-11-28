@@ -122,7 +122,7 @@ final class RawCapture {
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: folder.appending(path: first.screen)))
         generator.appliesPreferredTrackTransform = true
         guard let image = try? await generator.image(at: .zero).image else { return nil }
-        return ThumbnailDownsampler.downsample(image, maxPixelSize: maxPixelSize)
+        return ThumbnailDownsampler.downsample(image, maxPixelSize: maxPixelSize, keepsWholeFrame: true)
     }
 
     nonisolated static func accentColorHex() -> String {
