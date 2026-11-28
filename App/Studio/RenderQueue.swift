@@ -23,6 +23,7 @@ enum RenderPhase: Equatable {
 final class RenderJob {
     let project: RecordingProject
     private(set) var phase: RenderPhase = .queued
+    fileprivate(set) var compressionFailure: String?
     @ObservationIgnored private weak var queue: RenderQueue?
     @ObservationIgnored private var waiters: [CheckedContinuation<Void, Never>] = []
 
@@ -138,7 +139,8 @@ final class RenderQueue {
         do {
             job.move(to: .done(try await compress(file)))
         } catch {
-            job.move(to: .failed(error.localizedDescription))
+            job.compressionFailure = error.localizedDescription
+            job.move(to: .done(nil))
         }
     }
 

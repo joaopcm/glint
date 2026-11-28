@@ -1,5 +1,7 @@
 import AppKit
 import CoreGraphics
+import LunettaCapture
+import LunettaCore
 import LunettaUI
 import Testing
 @testable import Lunetta
@@ -47,7 +49,7 @@ import Testing
     #expect(ThumbnailCentering.centered(screen).height == 90)
 }
 
-private func image(width: Int, height: Int, opaque: CGRect) throws -> CGImage {
+func image(width: Int, height: Int, opaque: CGRect) throws -> CGImage {
     let context = try #require(CGContext(
         data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
         space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
@@ -90,4 +92,209 @@ private func image(width: Int, height: Int, opaque: CGRect) throws -> CGImage {
     #expect(ThumbnailPresenter.swipeEdge(scrollDelta: -80, naturalScrolling: true) == .left)
     #expect(ThumbnailPresenter.swipeEdge(scrollDelta: 80, naturalScrolling: false) == .left)
     #expect(ThumbnailPresenter.swipeEdge(scrollDelta: -80, naturalScrolling: false) == .right)
+}
+
+private struct DiskFull: LocalizedError {
+    var errorDescription: String? { "The disk is full." }
+}
+
+/// Renders that run until a test lets them end, so a card can be looked at mid-render.
+@MainActor final class RenderingCardFixture {
+    let root = FileManager.default.temporaryDirectory.appending(path: "LunettaCardRender-\(UUID().uuidString)")
+    let settings = LunettaSettings(store: Defaults(), defaultSaveFolder: FileManager.default.temporaryDirectory)
+    let store: ProjectStore
+    let pasteboard = NSPasteboard.withUniqueName()
+    var progress = 0.0
+    var failure: (any Error)?
+    var renders = 0
+    var problems: [String] = []
+    private let renderGate = AsyncStream<Void>.makeStream()
+    private let compressionGate = AsyncStream<Void>.makeStream()
+    private var queue: RenderQueue!
+
+    init() {
+        store = ProjectStore(root: root.appending(path: "Projects"))
+        queue = RenderQueue(
+            store: store,
+            settings: settings,
+            render: { [unowned self] _, report in
+                renders += 1
+                report(progress)
+                for await _ in renderGate.stream { break }
+                if let failure {
+                    self.failure = nil
+                    throw failure
+                }
+            },
+            compress: { [unowned self] _ in
+                for await _ in compressionGate.stream { break }
+                return CompressionResult(originalBytes: 1000, compressedBytes: 380)
+            }
+        )
+    }
+
+    var file: URL { root.appending(path: "saved/Recording.mp4") }
+
+    func presenter(autoDismissDelay: Duration = .seconds(6)) -> ThumbnailPresenter {
+        ThumbnailPresenter(
+            settings: settings,
+            upload: noUpload,
+            onUploaded: { _ in },
+            autoDismissDelay: autoDismissDelay,
+            pointerLocation: { offScreen },
+            pasteboard: pasteboard,
+            reportProblem: { [unowned self] title, message in problems.append("\(title): \(message)") }
+        )
+    }
+
+    func presenter(upload: @escaping @MainActor (URL, UploadedCapture?) async throws -> UploadedCapture) -> ThumbnailPresenter {
+        ThumbnailPresenter(settings: settings, upload: upload, onUploaded: { _ in }, pointerLocation: { offScreen }, pasteboard: pasteboard)
+    }
+
+    func record() throws -> RenderJob {
+        let project = RecordingProject(
+            id: UUID(),
+            createdAt: Date(),
+            mode: .area,
+            region: CGRect(x: 0, y: 0, width: 64, height: 48),
+            windowID: nil,
+            parts: [ProjectPart(screen: "part-1.screen.mp4", camera: nil, events: "part-1.events.jsonl", screenStartHostTime: 1000, cameraStartHostTime: nil)],
+            overlays: ProjectOverlays(clicks: false, keys: false, camera: false, clickColorHex: "#FF0000", cameraMirrored: false),
+            output: ProjectOutput(file: file, codec: .h264, frameRate: .thirty, capsToUHD: true)
+        )
+        try store.create(project)
+        return queue.enqueue(project)
+    }
+
+    func finishRender() { renderGate.continuation.yield() }
+    func finishCompression() { compressionGate.continuation.yield() }
+
+    func firstFrame() throws -> CGImage {
+        try image(width: 48, height: 32, opaque: CGRect(x: 0, y: 0, width: 48, height: 32))
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: root)
+    }
+}
+
+@MainActor @Test func aRenderingCardSaysSoWithItsProgress() async throws {
+    let fixture = RenderingCardFixture()
+    defer { fixture.remove() }
+    fixture.progress = 0.42
+    let presenter = fixture.presenter()
+
+    presenter.show(fixture.file, precomputedThumbnail: try fixture.firstFrame(), render: try fixture.record())
+    try await Task.sleep(for: .milliseconds(200))
+
+    #expect(presenter.count == 1)
+    #expect(presenter.statusTexts == ["Rendering 42%"])
+}
+
+@MainActor @Test func copyWaitsForTheRenderThenRuns() async throws {
+    let fixture = RenderingCardFixture()
+    defer { fixture.remove() }
+    let presenter = fixture.presenter()
+    let job = try fixture.record()
+    presenter.show(fixture.file, precomputedThumbnail: try fixture.firstFrame(), render: job)
+
+    presenter.perform(.copy, onCardAt: 0)
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(presenter.count == 1)
+    #expect(fixture.pasteboard.pasteboardItems?.isEmpty ?? true)
+
+    try FileManager.default.createDirectory(at: fixture.file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data().write(to: fixture.file)
+    fixture.finishRender()
+    await job.finished()
+    try await Task.sleep(for: .milliseconds(100))
+
+    #expect(presenter.count == 0)
+    let copied = fixture.pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL]
+    #expect(copied == [fixture.file])
+}
+
+@MainActor @Test func closingARenderingCardLeavesTheRenderRunning() async throws {
+    let fixture = RenderingCardFixture()
+    defer { fixture.remove() }
+    let presenter = fixture.presenter()
+    let job = try fixture.record()
+    presenter.show(fixture.file, precomputedThumbnail: try fixture.firstFrame(), render: job)
+
+    presenter.perform(.close, onCardAt: 0)
+    #expect(presenter.count == 0)
+    fixture.finishRender()
+    await job.finished()
+
+    #expect(job.phase == .done(nil))
+    #expect(fixture.renders == 1)
+    #expect(fixture.problems.isEmpty)
+}
+
+@MainActor @Test func aFailedRenderShowsWhyAndTryAgainRetries() async throws {
+    let fixture = RenderingCardFixture()
+    defer { fixture.remove() }
+    fixture.failure = DiskFull()
+    let presenter = fixture.presenter()
+    let job = try fixture.record()
+    presenter.show(fixture.file, precomputedThumbnail: try fixture.firstFrame(), render: job)
+
+    fixture.finishRender()
+    await job.finished()
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(presenter.statusTexts == ["Couldn't render"])
+    #expect(fixture.problems == ["Lunetta couldn't render the recording: The disk is full."])
+
+    presenter.perform(.copy, onCardAt: 0)
+    #expect(presenter.count == 1)
+    #expect(fixture.pasteboard.pasteboardItems?.isEmpty ?? true)
+
+    presenter.perform(.retryRender, onCardAt: 0)
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(presenter.statusTexts == ["Rendering"] || presenter.statusTexts == ["Rendering 0%"])
+    fixture.finishRender()
+    await job.finished()
+
+    #expect(job.phase == .done(nil))
+    #expect(fixture.renders == 2)
+    #expect(fixture.problems.count == 1)
+}
+
+@MainActor @Test func compressionAfterTheRenderShowsCompressingThenTheSummary() async throws {
+    let fixture = RenderingCardFixture()
+    defer { fixture.remove() }
+    fixture.settings.compressAfterCapture = true
+    let presenter = fixture.presenter()
+    let job = try fixture.record()
+    presenter.show(fixture.file, precomputedThumbnail: try fixture.firstFrame(), render: job)
+
+    fixture.finishRender()
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(presenter.statusTexts == ["Compressing"])
+
+    fixture.finishCompression()
+    await job.finished()
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(presenter.statusTexts == ["62% smaller"])
+}
+
+@MainActor @Test func aRenderingCardHoldsAutoHideUntilTheRenderFinishes() async throws {
+    let fixture = RenderingCardFixture()
+    defer { fixture.remove() }
+    fixture.settings.overlayAutoDismiss = true
+    let presenter = fixture.presenter(autoDismissDelay: .milliseconds(100))
+    let job = try fixture.record()
+    presenter.show(fixture.file, precomputedThumbnail: try fixture.firstFrame(), render: job)
+
+    try await Task.sleep(for: .milliseconds(400))
+    #expect(presenter.count == 1)
+
+    fixture.finishRender()
+    await job.finished()
+    try await Task.sleep(for: .milliseconds(400))
+    #expect(presenter.count == 0)
+}
+
+@MainActor @Test func retryRenderIsNotAnActionThatReadsTheFile() {
+    #expect(!ThumbnailView.Action.retryRender.readsTheFile)
 }

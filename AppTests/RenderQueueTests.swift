@@ -107,6 +107,27 @@ private struct Broke: LocalizedError {
     #expect(store.pendingRenders().isEmpty)
 }
 
+@MainActor @Test func aCompressionFailureKeepsTheRenderedVideoAndSaysWhy() async throws {
+    let projects = Projects()
+    defer { projects.remove() }
+    projects.settings.compressAfterCapture = true
+    let project = try projects.make(name: "Recording")
+    let queue = RenderQueue(
+        store: projects.store,
+        settings: projects.settings,
+        render: { _, _ in },
+        compress: { _ in throw Broke() }
+    )
+
+    let job = queue.enqueue(project)
+    await job.finished()
+
+    #expect(job.phase == .done(nil))
+    #expect(job.compressionFailure == "The disk is full.")
+    #expect(try projects.store.load(project.id).renderedAt != nil)
+    #expect(projects.store.pendingRenders().isEmpty)
+}
+
 @MainActor @Test func aFailureSaysWhyAndRetryRunsAgain() async throws {
     let projects = Projects()
     defer { projects.remove() }

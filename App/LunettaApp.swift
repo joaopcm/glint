@@ -110,7 +110,10 @@ final class AppState {
             onSaved: { [weak self] url, precomputedThumbnail, compression in
                 self?.thumbnail.show(url, precomputedThumbnail: precomputedThumbnail, compression: compression)
             },
-            onRecorded: { [weak self] project, _ in _ = self?.renders.enqueue(project) },
+            onRecorded: { [weak self] project, firstFrame in
+                guard let self else { return }
+                self.thumbnail.show(project.output.file, precomputedThumbnail: firstFrame, render: self.renders.enqueue(project))
+            },
             onRecordingEvent: { [weak self] event in self?.recordingHUD.handle(event) },
             countDown: { [weak self] status in await self?.recordingHUD.countDown(status) ?? true }
         )
