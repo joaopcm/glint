@@ -694,7 +694,16 @@ final class CaptureCoordinator {
         }
         if self.session === session { self.session = nil }
         if let recorded { onRecorded(recorded, await raw.firstFrame(maxPixelSize: maxThumbnailPixels)) }
-        report(problem, of: session, savedTo: nil)
+        let output = raw.project.output.file
+        report(problem.map { Self.pointing($0, at: output, saved: recorded != nil) }, of: session, savedTo: recorded == nil ? nil : output)
+    }
+
+    /// A raw part's screen file has no cursor and is never the recording; the video its render writes is.
+    private static func pointing(_ problem: any Error, at output: URL, saved: Bool) -> any Error {
+        guard case let .recordingStoppedEarly(_, reason) = problem as? CaptureError else { return problem }
+        return saved
+            ? CaptureError.recordingStoppedEarly(path: output.path, reason: reason)
+            : CaptureError.recordingFailed(path: output.path, reason: reason)
     }
 
     private func report(_ problem: (any Error)?, of session: RecordingSession, savedTo saved: URL?) {

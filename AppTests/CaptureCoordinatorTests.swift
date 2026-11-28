@@ -2175,3 +2175,59 @@ func rawRecordingsShowOverlaysOutOfTheCapture(recordsRaw: Bool) async throws {
     #expect(pressedKeys(in: events) == ["A"])
     #expect(firstBubble(in: events) == moved)
 }
+
+@MainActor @Test func aRawRecordingThatStopsOnItsOwnPointsAtTheVideoItWillRender() async throws {
+    let reason = "Failed to find any displays or windows to capture."
+    var recorded: [RecordingProject] = []
+    let harness = try Harness(
+        recorder: FakeRecorder(outcome: .recordingStoppedEarly(path: "/tmp/part-1.screen.mp4", reason: reason)),
+        selection: .area(recordedArea),
+        recordsRaw: true,
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+
+    let output = try #require(recorded.first).output.file
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.title == "Lunetta's recording stopped early")
+    #expect(alert.message == CaptureError.recordingStoppedEarly(path: output.path, reason: reason).localizedDescription)
+}
+
+@MainActor @Test func aRawRecordingThatStopsBeforeItsFirstFrameSaysTheVideoWasntRecorded() async throws {
+    let reason = "Failed to find any displays or windows to capture."
+    var recorded = 0
+    let harness = try Harness(
+        recorder: FakeRecorder(outcome: .recordingStoppedEarly(path: "/tmp/part-1.screen.mp4", reason: reason), framelessStarts: [1]),
+        selection: .area(recordedArea),
+        recordsRaw: true,
+        onRecorded: { _, _ in recorded += 1 }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.stopRecording()
+
+    let output = harness.folder.appending(path: "\(CaptureNaming.baseName(for: recordingStart, timeZone: .current)).mp4")
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(recorded == 0)
+    #expect(alert.title == "Lunetta couldn't finish the recording")
+    #expect(alert.message == CaptureError.recordingFailed(path: output.path, reason: reason).localizedDescription)
+}
+
+@MainActor @Test func losingTheInputOfARawRecordingPointsAtTheVideoItWillRender() async throws {
+    var recorded: [RecordingProject] = []
+    let harness = try Harness(
+        microphone: FakeMicrophone(inputs: [deskMic]),
+        selection: .area(recordedArea),
+        recordMicrophone: true,
+        input: deskMic,
+        recordsRaw: true,
+        onRecorded: { project, _ in recorded.append(project) }
+    )
+    await harness.coordinator.toggleRecording(.area)
+    await harness.coordinator.inputDisconnected(id: deskMic.id)
+
+    let output = try #require(recorded.first).output.file
+    let alert = try #require(harness.alerts.presented.first)
+    #expect(alert.title == "Lunetta's recording stopped early")
+    #expect(alert.message == InputDisconnected.message(input: deskMic, savedTo: output.path))
+}
