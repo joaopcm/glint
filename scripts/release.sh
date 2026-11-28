@@ -157,6 +157,15 @@ rm -f "$dmg"
 mkdir "$work_dir/dmg"
 ditto "$app" "$work_dir/dmg/Lunetta.app"
 ln -s /Applications "$work_dir/dmg/Applications"
+if [[ -n "${DMG_EXPERIMENT:-}" ]]; then
+  ps -Ao pid,pcpu,rss,comm | sort -k2 -nr | head -8
+  vm_stat | head -6
+  exp() { local label="$1"; shift; "$@" >/dev/null 2>&1; local c=$?; hdiutil verify "$dmg" >/dev/null 2>&1 && echo "== $label create=$c verify=OK" || echo "== $label create=$c verify=FAILED"; rm -f "$dmg"; }
+  exp convert-first bash -c "hdiutil create -volname 'Lunetta $version' -srcfolder '$work_dir/dmg' -fs HFS+ -format UDRW -ov '$work_dir/rw.dmg' && hdiutil convert '$work_dir/rw.dmg' -format UDZO -ov -o '$dmg'"
+  exp udzo-second hdiutil create -volname "Lunetta $version" -srcfolder "$work_dir/dmg" -fs HFS+ -format UDZO -ov "$dmg"
+  exp ulfo-third hdiutil create -volname "Lunetta $version" -srcfolder "$work_dir/dmg" -fs HFS+ -format ULFO -ov "$dmg"
+  exp udzo-fourth hdiutil create -volname "Lunetta $version" -srcfolder "$work_dir/dmg" -fs HFS+ -format UDZO -ov "$dmg"
+fi
 hdiutil create -volname "Lunetta $version" -srcfolder "$work_dir/dmg" -fs HFS+ -format UDZO -ov "$dmg" >/dev/null
 
 if [[ "$dry_run" == false ]]; then
