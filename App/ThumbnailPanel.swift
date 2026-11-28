@@ -13,7 +13,10 @@ import UniformTypeIdentifiers
 @MainActor
 final class ThumbnailPresenter {
     static func size(width: CGFloat) -> CGSize {
-        CGSize(width: width, height: (width * 2 / 3).rounded())
+        CGSize(width: width, height: height(forWidth: width).rounded())
+    }
+    nonisolated static func height(forWidth width: CGFloat) -> CGFloat {
+        width * 2 / 3
     }
     static let margin: CGFloat = 24
     static let spacing: CGFloat = 10
@@ -108,15 +111,17 @@ final class ThumbnailPresenter {
         guard let screen else { return }
         if let precomputedThumbnail {
             let scaled = ThumbnailDownsampler.downsample(precomputedThumbnail, maxPixelSize: ThumbnailItem.maxPixelSize(on: screen))
-            return show(url, thumbnail: scaled, on: screen, compression: compression, isCapture: isCapture)
+            let fullPixelSize = ThumbnailItem.pixelSource(of: url).map(\.fullPixelSize)
+            return show(url, thumbnail: scaled, fullPixelSize: fullPixelSize, on: screen, compression: compression, isCapture: isCapture)
         }
         guard ThumbnailItem.isVideo(url) else {
-            guard let thumbnail = ThumbnailItem.thumbnail(of: url, on: screen) else { return }
-            return show(url, thumbnail: thumbnail, on: screen, compression: compression, isCapture: isCapture)
+            guard let (thumbnail, fullPixelSize) = ThumbnailItem.thumbnail(of: url, on: screen) else { return }
+            return show(url, thumbnail: thumbnail, fullPixelSize: fullPixelSize, on: screen, compression: compression, isCapture: isCapture)
         }
         Task {
             do {
-                show(url, thumbnail: try await ThumbnailItem.videoThumbnail(of: url, on: screen), on: screen, compression: compression, isCapture: isCapture)
+                let thumbnail = try await ThumbnailItem.videoThumbnail(of: url, on: screen)
+                show(url, thumbnail: thumbnail, fullPixelSize: nil, on: screen, compression: compression, isCapture: isCapture)
             } catch {
                 Logger(subsystem: "com.joaopcm.lunetta", category: "thumbnail")
                     .error("no thumbnail for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -124,8 +129,10 @@ final class ThumbnailPresenter {
         }
     }
 
-    private func show(_ url: URL, thumbnail: CGImage, on screen: NSScreen, compression: PendingCompression?, isCapture: Bool) {
-        let item = ThumbnailItem(url: url, screen: screen, thumbnail: thumbnail)
+    private func show(
+        _ url: URL, thumbnail: CGImage, fullPixelSize: CGSize?, on screen: NSScreen, compression: PendingCompression?, isCapture: Bool
+    ) {
+        let item = ThumbnailItem(url: url, screen: screen, thumbnail: thumbnail, fullPixelSize: fullPixelSize)
         item.view.onAction = { [weak self, weak item] action in
             guard let self, let item else { return }
             self.handle(action, for: item)
@@ -590,10 +597,10 @@ private final class ThumbnailItem {
         return try await generator.image(at: .zero).image
     }
 
-    init(url: URL, screen: NSScreen, thumbnail: CGImage) {
+    init(url: URL, screen: NSScreen, thumbnail: CGImage, fullPixelSize: CGSize?) {
         self.url = url
         self.screen = screen
-        view = ThumbnailView(url: url, thumbnail: thumbnail, isVideo: Self.isVideo(url))
+        view = ThumbnailView(url: url, thumbnail: thumbnail, isVideo: Self.isVideo(url), fullPixelSize: fullPixelSize)
         panel = NSPanel(
             contentRect: CGRect(origin: .zero, size: ThumbnailPresenter.size(width: LunettaSettings.defaultThumbnailWidth)), // layout() sets the real frame
             styleMask: [.borderless, .nonactivatingPanel],
@@ -612,23 +619,39 @@ private final class ThumbnailItem {
 
     func reloadThumbnail(from image: CGImage? = nil) {
         if let image {
-            view.show(ThumbnailDownsampler.downsample(image, maxPixelSize: Self.maxPixelSize(on: screen)))
+            let fullPixelSize = CGSize(width: image.width, height: image.height)
+            view.show(ThumbnailDownsampler.downsample(image, maxPixelSize: Self.maxPixelSize(on: screen)), fullPixelSize: fullPixelSize)
             return
         }
-        guard let thumbnail = Self.thumbnail(of: url, on: screen) else { return }
-        view.show(thumbnail)
+        guard let (thumbnail, fullPixelSize) = Self.thumbnail(of: url, on: screen) else { return }
+        view.show(thumbnail, fullPixelSize: fullPixelSize)
     }
 
     // A downsampled copy: the full capture can be tens of MB and thumbnails stay until dismissed.
     // Sized for the widest card the user can pick, so it stays sharp after resizing.
-    static func thumbnail(of url: URL, on screen: NSScreen) -> CGImage? {
+    static func thumbnail(of url: URL, on screen: NSScreen) -> (image: CGImage, fullPixelSize: CGSize)? {
+        guard let (source, fullPixelSize) = pixelSource(of: url) else { return nil }
+        let cardPixelWidth = maxPixelSize(on: screen)
+        let isTall = ThumbnailDownsampler.isTall(width: Int(fullPixelSize.width), height: Int(fullPixelSize.height))
+        let decodedLongestSide = isTall ? fullPixelSize.height * cardPixelWidth / fullPixelSize.width : cardPixelWidth
         let options = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize(on: screen),
+            kCGImageSourceThumbnailMaxPixelSize: decodedLongestSide,
         ] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options)
+        guard let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+        return (ThumbnailDownsampler.downsample(decoded, maxPixelSize: cardPixelWidth), fullPixelSize)
+    }
+
+    /// The size as displayed: EXIF orientations 5 to 8 turn the stored pixels a quarter turn.
+    static func pixelSource(of url: URL) -> (source: CGImageSource, fullPixelSize: CGSize)? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int
+        else { return nil }
+        let quarterTurned = (5...8).contains(properties[kCGImagePropertyOrientation] as? Int ?? 1)
+        return (source, quarterTurned ? CGSize(width: height, height: width) : CGSize(width: width, height: height))
     }
 
     static func maxPixelSize(on screen: NSScreen) -> CGFloat {
@@ -684,6 +707,8 @@ final class ThumbnailView: NSView, NSDraggingSource {
     private let uploadSpinner = NSProgressIndicator()
     private let actionLabel = NSTextField(labelWithString: "")
     private lazy var actionLabelCapsule = Glass.capsule(holding: actionLabel)
+    private let heightLabel = NSTextField(labelWithString: "")
+    private lazy var heightBadge = Glass.capsule(holding: heightLabel)
     private var actionLabelCenter: NSLayoutConstraint?
     private lazy var uploadIndicator = Glass.capsule(holding: uploadSpinner, tint: .controlAccentColor)
     private let compressionSpinner = NSProgressIndicator()
@@ -811,7 +836,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
         }
     }
 
-    init(url: URL, thumbnail: CGImage, isVideo: Bool) {
+    init(url: URL, thumbnail: CGImage, isVideo: Bool, fullPixelSize: CGSize?) {
         self.url = url
         self.isVideo = isVideo
         self.thumbnail = NSImage(cgImage: thumbnail, size: .zero)
@@ -825,8 +850,6 @@ final class ThumbnailView: NSView, NSDraggingSource {
         addSubview(frame)
 
         imageView.wantsLayer = true
-        imageView.layer?.contents = ThumbnailCentering.centered(thumbnail)
-        imageView.layer?.contentsGravity = .resizeAspect
         imageView.layer?.cornerRadius = Self.cornerRadius - Self.inset
         imageView.layer?.cornerCurve = .continuous
         imageView.layer?.masksToBounds = true
@@ -875,6 +898,12 @@ final class ThumbnailView: NSView, NSDraggingSource {
         actionLabelCapsule.isHidden = true
         actionLabelCapsule.translatesAutoresizingMaskIntoConstraints = false
         controls.addSubview(actionLabelCapsule)
+
+        heightLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        heightLabel.textColor = .labelColor
+        heightLabel.setAccessibilityIdentifier(AccessibilityID.cardHeightBadge)
+        heightBadge.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(heightBadge)
 
         badgeLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
         badgeLabel.textColor = .white
@@ -945,7 +974,13 @@ final class ThumbnailView: NSView, NSDraggingSource {
             compressionStatus.widthAnchor.constraint(equalTo: compressionContent.widthAnchor, constant: 16),
             compressionSpinner.widthAnchor.constraint(equalToConstant: 16),
             compressionSpinner.heightAnchor.constraint(equalToConstant: 16),
+            // Bottom left, under the hover controls: it fades out while the action bar is up.
+            heightBadge.bottomAnchor.constraint(equalTo: imageView.bottomAnchor, constant: -8),
+            heightBadge.leadingAnchor.constraint(equalTo: imageView.leadingAnchor, constant: 8),
+            heightBadge.heightAnchor.constraint(equalTo: badge.heightAnchor),
+            heightBadge.widthAnchor.constraint(equalTo: heightLabel.widthAnchor, constant: 16),
         ])
+        show(thumbnail, fullPixelSize: fullPixelSize)
 
         // .inVisibleRect follows resizes, so one area for the view's lifetime is enough.
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
@@ -954,9 +989,16 @@ final class ThumbnailView: NSView, NSDraggingSource {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func show(_ thumbnail: CGImage) {
+    /// A tall capture's thumbnail is already its top, cropped to the card: it fills the card and the badge gives the full height.
+    func show(_ thumbnail: CGImage, fullPixelSize: CGSize?) {
         self.thumbnail = NSImage(cgImage: thumbnail, size: .zero)
         imageView.layer?.contents = ThumbnailCentering.centered(thumbnail)
+        let tallHeight = fullPixelSize.flatMap { size in
+            ThumbnailDownsampler.isTall(width: Int(size.width), height: Int(size.height)) ? Int(size.height) : nil
+        }
+        imageView.layer?.contentsGravity = tallHeight == nil ? .resizeAspect : .resizeAspectFill
+        heightLabel.stringValue = tallHeight.map { "↕ \($0.formatted()) px" } ?? ""
+        heightBadge.isHidden = tallHeight == nil
     }
 
     /// Clicks anywhere but a button belong to the card (click, drag out, resize), not to the glass subviews.
@@ -975,6 +1017,7 @@ final class ThumbnailView: NSView, NSDraggingSource {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.15
             controls.animator().alphaValue = visible ? 1 : 0
+            heightBadge.animator().alphaValue = visible ? 0 : 1
         }
     }
 
@@ -1216,13 +1259,31 @@ enum ThumbnailCentering {
 
 enum ThumbnailDownsampler {
     static func downsample(_ image: CGImage, maxPixelSize: CGFloat) -> CGImage {
-        let width = CGFloat(image.width)
-        let height = CGFloat(image.height)
-        let longest = max(width, height)
+        if isTall(width: image.width, height: image.height) { return topCrop(image, maxPixelWidth: maxPixelSize) }
+        let longest = CGFloat(max(image.width, image.height))
         guard longest > maxPixelSize, maxPixelSize > 0 else { return image }
-        let scale = maxPixelSize / longest
-        let outWidth = max(Int((width * scale).rounded()), 1)
-        let outHeight = max(Int((height * scale).rounded()), 1)
+        return scaled(image, by: maxPixelSize / longest)
+    }
+
+    // iPhone screenshots run 2556/1179 ≈ 2.17 tall-to-wide and still read fine fit whole in the card; scrolling captures run well past 3.
+    static let tallHeightPerWidth = 3
+
+    static func isTall(width: Int, height: Int) -> Bool {
+        height > tallHeightPerWidth * width
+    }
+
+    /// Crops before scaling, so only the top of a 20,000 px capture is ever drawn.
+    static func topCrop(_ image: CGImage, maxPixelWidth: CGFloat) -> CGImage {
+        let width = CGFloat(image.width)
+        let cardHeight = min(ThumbnailPresenter.height(forWidth: width).rounded(), CGFloat(image.height))
+        guard let top = image.cropping(to: CGRect(x: 0, y: 0, width: width, height: cardHeight)) else { return image }
+        guard width > maxPixelWidth, maxPixelWidth > 0 else { return top }
+        return scaled(top, by: maxPixelWidth / width)
+    }
+
+    private static func scaled(_ image: CGImage, by scale: CGFloat) -> CGImage {
+        let outWidth = max(Int((CGFloat(image.width) * scale).rounded()), 1)
+        let outHeight = max(Int((CGFloat(image.height) * scale).rounded()), 1)
         let colorSpace = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
         guard let context = CGContext(
             data: nil,

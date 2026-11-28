@@ -18,6 +18,7 @@ enum AccessibilityID {
     static let discardRecording = "lunetta.discardRecording"
     static let startOverRecording = "lunetta.startOverRecording"
     static let cardActionLabel = "lunetta.cardActionLabel"
+    static let cardHeightBadge = "lunetta.cardHeightBadge"
     static let restoreDefaultShortcuts = "lunetta.restoreDefaultShortcuts"
     static let recordingStage = "lunetta.recordingStage"
     static let recordingStageSystemAudio = "lunetta.recordingStage.systemAudio"
