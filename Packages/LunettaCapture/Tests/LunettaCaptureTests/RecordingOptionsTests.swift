@@ -40,3 +40,10 @@ func theChosenFrameRateCapsTheStream(frameRate: RecordingFrameRate) {
     ScreenCapturer.apply(RecordingOptions(codec: .h264, frameRate: frameRate, systemAudio: false, microphone: false), to: configuration)
     #expect(configuration.minimumFrameInterval == CMTime(value: 1, timescale: CMTimeScale(frameRate.rawValue)))
 }
+
+@Test func aFirstFrameWithoutAValidTimeHasNoHostTime() {
+    #expect(ScreenRecording.hostTime(of: CMTime(seconds: 12.5, preferredTimescale: 600)) == 12.5)
+    #expect(ScreenRecording.hostTime(of: .invalid) == nil)
+    #expect(ScreenRecording.hostTime(of: .indefinite) == nil)
+    #expect(ScreenRecording.hostTime(of: .positiveInfinity) == nil)
+}

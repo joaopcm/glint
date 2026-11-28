@@ -68,6 +68,12 @@ public actor ScreenRecording {
         return events.firstFrameHostTime
     }
 
+    /// An invalid stamp reads as NaN, which JSONEncoder can't write into the project, so the part counts as frameless.
+    static func hostTime(of presentationTime: CMTime) -> Double? {
+        let seconds = presentationTime.seconds
+        return seconds.isFinite ? seconds : nil
+    }
+
     /// Returns once the file is finalized; throws when it is missing or only partly recorded.
     public func finished() async throws {
         switch await events.outcome() {
@@ -189,7 +195,7 @@ private final class RecordingEvents: NSObject, SCRecordingOutputDelegate, SCStre
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard !hasSeenFirstFrame.load(ordering: .relaxed), Self.isCompleteFrame(sampleBuffer) else { return }
-        let hostTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+        let hostTime = ScreenRecording.hostTime(of: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
         let (becameReady, waiters) = state.withLock { state -> (Bool, [CheckedContinuation<Void, Never>]) in
             guard !state.hasFirstFrame else { return (false, []) }
             state.hasFirstFrame = true
